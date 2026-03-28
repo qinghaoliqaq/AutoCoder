@@ -36,9 +36,13 @@ describe('MODES', () => {
     expect(plan?.requiresBoth).toBe(true);
   });
 
-  it('non-plan modes do not requireBoth', () => {
-    for (const m of MODES.filter(m => m.id !== 'plan')) {
-      expect(m.requiresBoth, `${m.id} should not requiresBoth`).toBe(false);
+  it('only collaborative modes requireBoth', () => {
+    const collaborativeModes = new Set(['plan', 'code']);
+    for (const m of MODES) {
+      expect(
+        m.requiresBoth,
+        `${m.id} requiresBoth should match collaborative mode expectations`,
+      ).toBe(collaborativeModes.has(m.id));
     }
   });
 });

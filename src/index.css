@@ -106,25 +106,25 @@
 
   /* Chat Bubbles - Floating & Elegant */
   .chat-bubble {
-    @apply w-fit max-w-[90%] sm:max-w-[85%] rounded-2xl px-5 py-3 sm:px-6 sm:py-4 text-[15px] sm:text-[16px] leading-relaxed shadow-sm transition-all;
+    @apply w-fit max-w-[90%] sm:max-w-[85%] rounded-2xl px-5 py-3 sm:px-6 sm:py-4 text-[15px] sm:text-[16px] leading-relaxed shadow-[0_4px_16px_rgba(0,0,0,0.03)] dark:shadow-[0_4px_16px_rgba(0,0,0,0.2)] transition-all backdrop-blur-xl;
     animation: fade-up 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
   }
 
   /* Role Colors */
   .chat-bubble.claude {
-    @apply bg-orange-50/80 border border-orange-200/50 text-zinc-900 dark:bg-orange-500/10 dark:border-orange-500/20 dark:text-zinc-100;
+    @apply bg-orange-50/70 border border-orange-200/50 text-zinc-900 dark:bg-orange-500/10 dark:border-orange-500/20 dark:text-zinc-100;
   }
 
   .chat-bubble.codex {
-    @apply bg-emerald-50/80 border border-emerald-200/50 text-zinc-900 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-zinc-100;
+    @apply bg-emerald-50/70 border border-emerald-200/50 text-zinc-900 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-zinc-100;
   }
 
   .chat-bubble.director {
-    @apply bg-violet-50/80 border border-violet-200/50 text-zinc-900 dark:bg-violet-500/10 dark:border-violet-500/20 dark:text-zinc-100;
+    @apply bg-violet-50/70 border border-violet-200/50 text-zinc-900 dark:bg-violet-500/10 dark:border-violet-500/20 dark:text-zinc-100;
   }
 
   .chat-bubble.user {
-    @apply bg-white border border-zinc-200 text-zinc-900 dark:bg-zinc-800/80 dark:border-zinc-700/50 dark:text-zinc-100 shadow-sm;
+    @apply bg-white/70 border border-zinc-200/50 text-zinc-900 dark:bg-zinc-800/60 dark:border-zinc-700/50 dark:text-zinc-100 shadow-sm;
   }
 
   /* Micro Animations */

@@ -13,6 +13,7 @@
 
 use super::{SkillChunk, ToolLog};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::{Emitter, EventTarget};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -52,6 +53,134 @@ fn record_change(tool: &str, raw_json: &str, cwd: &PathBuf) {
     let _ = std::fs::OpenOptions::new()
         .create(true).append(true).open(&log_path)
         .and_then(|mut f| f.write_all(entry.as_bytes()));
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WorkspaceChangeKind {
+    Create,
+    Modify,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FileFingerprint {
+    len: u64,
+    modified_unix_nanos: u128,
+}
+
+fn append_change_entry(kind: WorkspaceChangeKind, path: &std::path::Path, cwd: &PathBuf) {
+    let label = match kind {
+        WorkspaceChangeKind::Create => "CREATE",
+        WorkspaceChangeKind::Modify => "MODIFY",
+    };
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    };
+    let entry = format!("{label}: {}\n", abs.to_string_lossy());
+    let log_path = cwd.join("change.log");
+    use std::io::Write as _;
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .and_then(|mut f| f.write_all(entry.as_bytes()));
+}
+
+fn snapshot_workspace(root: &std::path::Path) -> HashMap<PathBuf, FileFingerprint> {
+    let mut files = HashMap::new();
+    collect_workspace_files(root, root, &mut files);
+    files
+}
+
+fn collect_workspace_files(
+    root: &std::path::Path,
+    dir: &std::path::Path,
+    files: &mut HashMap<PathBuf, FileFingerprint>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+
+        if path.is_dir() {
+            if should_skip_workspace_dir(&name) {
+                continue;
+            }
+            collect_workspace_files(root, &path, files);
+            continue;
+        }
+
+        if !path.is_file() || should_skip_workspace_file(&name) {
+            continue;
+        }
+
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let modified_unix_nanos = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+
+        let Ok(relative) = path.strip_prefix(root) else {
+            continue;
+        };
+        files.insert(
+            relative.to_path_buf(),
+            FileFingerprint {
+                len: metadata.len(),
+                modified_unix_nanos,
+            },
+        );
+    }
+}
+
+fn should_skip_workspace_dir(name: &str) -> bool {
+    name.starts_with('.')
+        || matches!(
+            name,
+            "node_modules" | "__pycache__" | "target" | "dist" | ".next"
+        )
+}
+
+fn should_skip_workspace_file(name: &str) -> bool {
+    name == "change.log"
+}
+
+fn workspace_change_entries(
+    before: &HashMap<PathBuf, FileFingerprint>,
+    after: &HashMap<PathBuf, FileFingerprint>,
+) -> Vec<(WorkspaceChangeKind, PathBuf)> {
+    let mut entries = Vec::new();
+
+    for (path, fingerprint) in after {
+        match before.get(path) {
+            None => entries.push((WorkspaceChangeKind::Create, path.clone())),
+            Some(previous) if previous != fingerprint => {
+                entries.push((WorkspaceChangeKind::Modify, path.clone()))
+            }
+            Some(_) => {}
+        }
+    }
+
+    entries.sort_by(|a, b| a.1.cmp(&b.1));
+    entries
+}
+
+fn record_workspace_snapshot_diff(
+    cwd: &PathBuf,
+    before: &HashMap<PathBuf, FileFingerprint>,
+    after: &HashMap<PathBuf, FileFingerprint>,
+) {
+    for (kind, path) in workspace_change_entries(before, after) {
+        append_change_entry(kind, &path, cwd);
+    }
 }
 
 /// Resolve the working directory for a CLI runner.
@@ -286,7 +415,13 @@ async fn run_codex(
     cmd.args(build_codex_args(prompt, mode))
        .stdout(std::process::Stdio::piped())
        .stderr(std::process::Stdio::piped());
-    cmd.current_dir(resolve_cwd(cwd));
+    let resolved_cwd = resolve_cwd(cwd);
+    let workspace_before = if matches!(mode, CodexExecutionMode::WorkspaceWrite) && cwd.is_some() {
+        Some(snapshot_workspace(&resolved_cwd))
+    } else {
+        None
+    };
+    cmd.current_dir(&resolved_cwd);
 
     let mut child = cmd.spawn()
         .map_err(|e| format!("Failed to start `codex`: {e}"))?;
@@ -375,6 +510,10 @@ async fn run_codex(
     }
 
     let status = child.wait().await.map_err(|e| format!("Wait error for `codex`: {e}"))?;
+    if let Some(before) = workspace_before {
+        let after = snapshot_workspace(&resolved_cwd);
+        record_workspace_snapshot_diff(&resolved_cwd, &before, &after);
+    }
     if !status.success() && output.is_empty() {
         return Err(format!("Codex exited with non-zero status: {status}"));
     }
@@ -569,6 +708,54 @@ mod tests {
     fn summarize_grep_picks_pattern() {
         let json = r#"{"pattern":"fn main"}"#;
         assert_eq!(summarize_tool_input("Grep", json), "fn main");
+    }
+
+    #[test]
+    fn workspace_change_entries_detect_create_and_modify() {
+        let mut before = HashMap::new();
+        before.insert(
+            PathBuf::from("src/lib.rs"),
+            FileFingerprint {
+                len: 10,
+                modified_unix_nanos: 1,
+            },
+        );
+
+        let mut after = HashMap::new();
+        after.insert(
+            PathBuf::from("src/lib.rs"),
+            FileFingerprint {
+                len: 12,
+                modified_unix_nanos: 2,
+            },
+        );
+        after.insert(
+            PathBuf::from("src/new.rs"),
+            FileFingerprint {
+                len: 5,
+                modified_unix_nanos: 2,
+            },
+        );
+
+        assert_eq!(
+            workspace_change_entries(&before, &after),
+            vec![
+                (WorkspaceChangeKind::Modify, PathBuf::from("src/lib.rs")),
+                (WorkspaceChangeKind::Create, PathBuf::from("src/new.rs")),
+            ]
+        );
+    }
+
+    #[test]
+    fn snapshot_workspace_skips_change_log() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/lib.rs"), "fn demo() {}").unwrap();
+        std::fs::write(dir.path().join("change.log"), "noise").unwrap();
+
+        let snapshot = snapshot_workspace(dir.path());
+        assert!(snapshot.contains_key(&PathBuf::from("src/lib.rs")));
+        assert!(!snapshot.contains_key(&PathBuf::from("change.log")));
     }
 
     #[test]

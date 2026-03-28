@@ -31,6 +31,10 @@ pub struct SessionJson {
     pub tool_logs:        Vec<Value>,
     #[serde(default)]
     pub blackboard_events: Vec<BlackboardEvent>,
+    #[serde(default)]
+    pub project_context: Option<String>,
+    #[serde(default)]
+    pub project_context_source: Option<String>,
     /// Director's conversation history (OpenAI message format) — restored on load
     /// so the AI has full context of the previous conversation.
     #[serde(default)]

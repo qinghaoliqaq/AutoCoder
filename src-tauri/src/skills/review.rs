@@ -80,7 +80,7 @@ pub(super) async fn run_phase(
             // Run both agents in parallel
             let (claude_result, codex_result) = tokio::join!(
                 runners::claude(&claude_prompt, workspace, window_label, app_handle, token.clone()),
-                runners::codex(&codex_prompt,  workspace, window_label, app_handle, token.clone()),
+                runners::codex_read_only(&codex_prompt,  workspace, window_label, app_handle, token.clone()),
             );
             let claude_out = claude_result?;
             let codex_out  = codex_result?;

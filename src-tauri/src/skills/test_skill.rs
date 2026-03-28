@@ -77,7 +77,7 @@ pub(super) async fn run_phase(
             // Run both in parallel
             let (claude_res, codex_res) = tokio::join!(
                 runners::claude(&claude_prompt, workspace, window_label, app_handle, token.clone()),
-                runners::codex(&codex_prompt,  workspace, window_label, app_handle, token.clone()),
+                runners::codex_read_only(&codex_prompt,  workspace, window_label, app_handle, token.clone()),
             );
             let claude_out = claude_res?;
             let codex_out  = codex_res?;

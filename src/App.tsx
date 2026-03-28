@@ -43,7 +43,7 @@ import { makeId, makeSessionId } from './utils';
 export default function App() {
   const [currentMode, setCurrentMode] = useState<AppMode | null>(null);
   const [status, setStatus] = useState<SystemStatus | null>(null);
-  const [, setConfigStatus] = useState<ConfigStatus | null>(null);
+  const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null);
   const [checking, setChecking] = useState(true);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -94,6 +94,7 @@ export default function App() {
     }
     if (meta.workspace && meta.workspace !== workspace) {
       projectContextMetaRef.current = { source: null, workspace: null };
+      projectContextRef.current = null;
       setProjectContext(null);
     }
   }, [workspace]);
@@ -108,6 +109,7 @@ export default function App() {
       .then(docs => {
         if (docs.filenames.length > 0) {
           projectContextMetaRef.current = { source: 'auto', workspace };
+          projectContextRef.current = docs.content;
           setProjectContext(docs.content);
         }
       })
@@ -149,6 +151,8 @@ export default function App() {
             messages,
             tool_logs: toolLogs,
             blackboard_events: blackboardEvents,
+            project_context: projectContextRef.current,
+            project_context_source: projectContextMetaRef.current.source,
             director_history: directorHistory,
           },
         });
@@ -169,8 +173,18 @@ export default function App() {
       setToolLogs(s.tool_logs as ToolLog[]);
       setBlackboardEvents(s.blackboard_events || []);
       setCurrentSessionId(s.id);
+      projectContextRef.current = s.project_context ?? null;
+      setProjectContext(s.project_context ?? null);
+      projectContextMetaRef.current = s.project_context
+        ? {
+          source: s.project_context_source === 'auto' || s.project_context_source === 'manual'
+            ? s.project_context_source
+            : 'manual',
+          workspace: restoredWorkspace,
+        }
+        : { source: null, workspace: null };
+      setWorkspace(restoredWorkspace);
       if (restoredWorkspace) {
-        setWorkspace(restoredWorkspace);
         try {
           planReportRef.current = await invoke<string>('read_workspace_file', {
             path: restoredWorkspace,
@@ -255,7 +269,7 @@ export default function App() {
     setIsRunning(true);
     addMessage('user', text);
 
-    let nextInput = projectContext
+    let nextInput = projectContextRef.current
       ? `用户已提供项目文档，plan 技能将以文档审阅模式运行（Claude 和 Codex 审阅文档并改写）。\n\n【任务】${text}`
       : text;
 
@@ -400,7 +414,7 @@ export default function App() {
     try {
       await invoke('run_skill', {
         mode, task, workspace: wsPath, phase,
-        context: contextOverride !== undefined ? contextOverride : projectContext,
+        context: contextOverride !== undefined ? contextOverride : projectContextRef.current,
         issue: issue ?? null,
       });
     } finally {
@@ -451,8 +465,8 @@ export default function App() {
     // Combine plan architecture report + project docs so Claude knows
     // exactly what was planned and what should be tested.
     const testContext = planReportRef.current
-      ? `## 技术方案 / 计划功能（请以此为测试 checklist 基准）\n\n${planReportRef.current}\n\n---\n\n${projectContext ?? ''}`.trimEnd()
-      : projectContext;
+      ? `## 技术方案 / 计划功能（请以此为测试 checklist 基准）\n\n${planReportRef.current}\n\n---\n\n${projectContextRef.current ?? ''}`.trimEnd()
+      : projectContextRef.current;
 
     const phase = (p: string, issue?: string) =>
       runPhase('test', p, task, wsPath, issue, testContext);
@@ -566,8 +580,8 @@ export default function App() {
     // For code/debug/test: prepend the plan report (if any) so Claude has the
     // full architectural spec from the planning discussion.
     const effectiveContext = mode !== 'plan' && planReportRef.current
-      ? `## 技术方案（来自 Plan 阶段，请严格遵照实施）\n\n${planReportRef.current}\n\n---\n\n${projectContext ?? ''}`.trimEnd()
-      : projectContext;
+      ? `## 技术方案（来自 Plan 阶段，请严格遵照实施）\n\n${planReportRef.current}\n\n---\n\n${projectContextRef.current ?? ''}`.trimEnd()
+      : projectContextRef.current;
 
     try {
       // plan always creates its own subdirectory — never inherit a pre-existing workspace path
@@ -609,6 +623,7 @@ export default function App() {
       const meta = projectContextMetaRef.current;
       if (meta.workspace && meta.workspace !== validated) {
         projectContextMetaRef.current = { source: null, workspace: null };
+        projectContextRef.current = null;
         setProjectContext(null);
       }
       setWorkspace(validated);
@@ -815,6 +830,7 @@ export default function App() {
                 <InputBar
                   mode={currentMode ?? 'chat'}
                   status={status}
+                  configStatus={configStatus}
                   isRunning={isRunning}
                   onSubmit={handleSubmit}
                   onStop={handleStop}
@@ -857,6 +873,7 @@ export default function App() {
               <button
                 onClick={() => {
                   projectContextMetaRef.current = { source: null, workspace: null };
+                  projectContextRef.current = null;
                   setProjectContext(null);
                   setContextDraft('');
                   setShowContextEditor(false);
@@ -878,6 +895,7 @@ export default function App() {
                     projectContextMetaRef.current = next
                       ? { source: 'manual', workspace: workspaceRef.current }
                       : { source: null, workspace: null };
+                    projectContextRef.current = next;
                     setProjectContext(next);
                     setShowContextEditor(false);
                   }}

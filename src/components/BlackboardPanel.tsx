@@ -124,9 +124,9 @@ export default function BlackboardPanel({ workspacePath, events, onClose }: Blac
   };
   
   return (
-    <div className="flex flex-col h-full bg-zinc-50 dark:bg-zinc-900/40 font-sans">
+    <div className="flex flex-col h-full bg-transparent font-sans">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-800/80 shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200/50 dark:border-zinc-800/50 glass-header shrink-0">
         <div>
           <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-2">
             <span className="text-violet-500">📋</span> BLACKBOARD
@@ -155,7 +155,7 @@ export default function BlackboardPanel({ workspacePath, events, onClose }: Blac
       
       {/* Active subtask / Status Summary */}
       {workspacePath && (
-        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800/80 bg-white/50 dark:bg-zinc-900/50 shrink-0">
+        <div className="px-4 py-3 border-b border-zinc-200/50 dark:border-zinc-800/50 bg-white/40 dark:bg-zinc-900/30 backdrop-blur-md shrink-0">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Mission Status</span>
             {execJson?.state && (
@@ -189,13 +189,13 @@ export default function BlackboardPanel({ workspacePath, events, onClose }: Blac
       
       {/* Board Switcher */}
       {workspacePath && (
-        <div className="flex p-2 gap-1 bg-zinc-100 dark:bg-zinc-900/80 shrink-0 border-b border-zinc-200 dark:border-zinc-800/80">
+        <div className="flex p-2 gap-1 bg-white/20 dark:bg-zinc-900/40 backdrop-blur-sm shrink-0 border-b border-zinc-200/50 dark:border-zinc-800/50">
           <button
             onClick={() => setActiveBoard('plan')}
             className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-md transition-all ${
               activeBoard === 'plan' 
-                ? 'bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 shadow-sm border border-zinc-200 dark:border-zinc-700' 
-                : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 border border-transparent'
+                ? 'bg-white/80 dark:bg-zinc-800/80 text-zinc-800 dark:text-zinc-200 shadow-sm border border-white/60 dark:border-zinc-700/50 backdrop-blur-md' 
+                : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-white/40 dark:hover:bg-zinc-800/40 border border-transparent'
             }`}
           >
             Plan Board
@@ -205,8 +205,8 @@ export default function BlackboardPanel({ workspacePath, events, onClose }: Blac
             onClick={() => setActiveBoard('exec')}
             className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-md transition-all ${
               activeBoard === 'exec' 
-                ? 'bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 shadow-sm border border-zinc-200 dark:border-zinc-700' 
-                : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 border border-transparent'
+                ? 'bg-white/80 dark:bg-zinc-800/80 text-zinc-800 dark:text-zinc-200 shadow-sm border border-white/60 dark:border-zinc-700/50 backdrop-blur-md' 
+                : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-white/40 dark:hover:bg-zinc-800/40 border border-transparent'
             }`}
           >
             Exec Board
@@ -229,7 +229,7 @@ export default function BlackboardPanel({ workspacePath, events, onClose }: Blac
           </div>
         ) : activeBoard === 'plan' ? (
           planMd ? (
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800/80 rounded-lg p-4 shadow-sm">
+            <div className="glass-panel p-4 overflow-hidden">
               {renderMarkdown(planMd)}
             </div>
           ) : (
@@ -239,7 +239,7 @@ export default function BlackboardPanel({ workspacePath, events, onClose }: Blac
           )
         ) : (
           execMd ? (
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800/80 rounded-lg p-4 shadow-sm">
+            <div className="glass-panel p-4 overflow-hidden">
               {renderMarkdown(execMd)}
             </div>
           ) : (
@@ -253,8 +253,8 @@ export default function BlackboardPanel({ workspacePath, events, onClose }: Blac
       
       {/* Recent Events Timeline */}
       {events.length > 0 && (
-        <div className="h-48 border-t border-zinc-200 dark:border-zinc-800/80 bg-zinc-50 dark:bg-zinc-950 flex flex-col shrink-0">
-          <div className="px-3 py-2 border-b border-zinc-200 dark:border-zinc-800/80 bg-zinc-100/50 dark:bg-zinc-900/50 text-xs font-semibold text-zinc-600 dark:text-zinc-400 flex items-center gap-2 shrink-0">
+        <div className="h-48 border-t border-zinc-200/50 dark:border-zinc-800/50 bg-white/30 dark:bg-zinc-950/30 backdrop-blur-md flex flex-col shrink-0">
+          <div className="px-3 py-2 border-b border-zinc-200/50 dark:border-zinc-800/50 bg-zinc-100/30 dark:bg-zinc-900/30 text-xs font-semibold text-zinc-600 dark:text-zinc-400 flex items-center gap-2 shrink-0 backdrop-blur-sm">
             <VscChevronRight className="w-3.5 h-3.5" />
             Recent Activity
           </div>

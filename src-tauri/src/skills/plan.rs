@@ -85,7 +85,7 @@ async fn run_scratch_mode(
     )?;
 
     let r2 = Prompts::render(&prompts.plan_codex, &[("task", task), ("plan_board_path", PLAN_BOARD_MD)]);
-    let evaluation = runners::codex(&r2, Some(ws_dir), window_label, app_handle, token.clone()).await?;
+    let evaluation = runners::codex_read_only(&r2, Some(ws_dir), window_label, app_handle, token.clone()).await?;
     board.set_round_2(evaluation);
     board.persist(ws_dir)?;
     emit_plan_event(
@@ -107,7 +107,7 @@ async fn run_scratch_mode(
     )?;
 
     let r4 = Prompts::render(&prompts.plan_codex_final, &[("task", task), ("plan_board_path", PLAN_BOARD_MD)]);
-    let verdict = runners::codex(&r4, Some(ws_dir), window_label, app_handle, token.clone()).await?;
+    let verdict = runners::codex_read_only(&r4, Some(ws_dir), window_label, app_handle, token.clone()).await?;
     board.set_round_4(verdict);
     board.persist(ws_dir)?;
     emit_plan_event(
@@ -161,7 +161,7 @@ async fn run_review_mode(
         &prompts.plan_review_codex,
         &[("task", task), ("document", document), ("plan_board_path", PLAN_BOARD_MD)],
     );
-    let codex_analysis = runners::codex(&r2, Some(ws_dir), window_label, app_handle, token.clone()).await?;
+    let codex_analysis = runners::codex_read_only(&r2, Some(ws_dir), window_label, app_handle, token.clone()).await?;
     board.set_round_2(codex_analysis);
     board.persist(ws_dir)?;
     emit_plan_event(
@@ -189,7 +189,7 @@ async fn run_review_mode(
         &prompts.plan_review_codex_final,
         &[("task", task), ("document", document), ("plan_board_path", PLAN_BOARD_MD)],
     );
-    let final_changes = runners::codex(&r4, Some(ws_dir), window_label, app_handle, token.clone()).await?;
+    let final_changes = runners::codex_read_only(&r4, Some(ws_dir), window_label, app_handle, token.clone()).await?;
     board.set_round_4(final_changes);
     board.persist(ws_dir)?;
     emit_plan_event(

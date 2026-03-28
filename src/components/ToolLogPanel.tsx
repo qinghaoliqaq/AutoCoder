@@ -63,7 +63,7 @@ export default function ToolLogPanel({ logs, onClose }: Props) {
           >
             <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
               <span className="text-xs">{TOOL_ICON[log.tool] ?? '🛠'}</span>
-              <span className={`text - [10px] font - semibold ${AGENT_COLOR[log.agent] ?? 'text-zinc-500'} `}>
+              <span className={`text-[10px] font-semibold ${AGENT_COLOR[log.agent] ?? 'text-zinc-500'}`}>
                 {log.agent}
               </span>
               <span className="text-[11px] font-mono font-bold text-zinc-700 dark:text-zinc-300">

@@ -81,6 +81,8 @@ export interface Session extends SessionMeta {
   messages: ChatMessage[];
   tool_logs: ToolLog[];
   blackboard_events?: BlackboardEvent[];
+  project_context?: string | null;
+  project_context_source?: 'auto' | 'manual' | null;
   director_history: unknown[];
 }
 
