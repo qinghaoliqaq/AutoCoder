@@ -78,6 +78,27 @@ The Rust backend shells out to local CLIs for execution:
 
 These runners stream tokens back into the UI, record tool activity, and support cancellation.
 
+## Architecture
+
+AutoCoder is split into three layers:
+
+- `Desktop shell`: Tauri windowing, native capabilities, and app lifecycle
+- `Frontend UI`: chat, history, tool logs, blackboard views, file explorer, and status panels
+- `Rust orchestrator`: Director routing, workspace access, session persistence, prompt loading, skill execution, and CLI runners
+
+High-level flow:
+
+```text
+User
+  -> Director
+  -> plan / code / debug / review / test
+  -> Claude / Codex runners
+  -> blackboard files + session history + tool logs
+  -> desktop UI
+```
+
+The important design choice is that the workflow state is externalized into files and history, rather than hidden inside one long agent conversation.
+
 ## Tech Stack
 
 - Desktop shell: Tauri 2
@@ -183,6 +204,19 @@ cd src-tauri
 cargo test
 ```
 
+## Recommended First Run
+
+After configuration, a typical local flow is:
+
+1. Launch the desktop app with `npm run tauri dev`
+2. Open or create a workspace
+3. Ask Director for a new feature or project
+4. Let `plan` generate `PLAN.md`
+5. Let `code` execute subtasks through the blackboard loop
+6. Run `review` and `test` to verify the result
+
+If the local `claude` or `codex` CLIs are missing, the app will detect that and show the missing-tool state in the UI.
+
 ## Current Status
 
 AutoCoder is usable as a serious prototype, but it is still in active development.
@@ -195,6 +229,24 @@ Current characteristics:
 - the repository is not yet fully polished for broad public consumption
 
 If you are evaluating this project, treat it as an open-source alpha rather than a finished product.
+
+## Known Limitations
+
+- some UI and code paths still use the older internal name `AI Dev Hub`
+- repository polish is ahead of the original template, but not yet fully production-grade
+- local CLI availability is required for the main workflow
+- the app depends on external LLM endpoints for the Director layer
+- some frontend and workflow edges are still being stabilized
+
+## Roadmap
+
+- improve README and public-facing project positioning
+- stabilize the frontend build and test pipeline
+- make blackboard state easier to inspect in the UI
+- improve recovery after interrupted skill runs
+- add stronger project templates and better onboarding
+- make vendored skill selection more transparent and debuggable
+- tighten integration testing and artifact reporting
 
 ## Design Principles
 
