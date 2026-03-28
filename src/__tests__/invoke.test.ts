@@ -30,12 +30,12 @@ describe('parseAttr', () => {
 describe('parseInvoke', () => {
   it('parses a minimal valid invoke tag', () => {
     const result = parseInvoke('<invoke skill="plan" task="Design the DB schema" />');
-    expect(result).toEqual({ skill: 'plan', task: 'Design the DB schema', dir: undefined });
+    expect(result).toEqual({ skill: 'plan', task: 'Design the DB schema' });
   });
 
-  it('parses all three attributes', () => {
+  it('ignores unknown extra attributes', () => {
     const result = parseInvoke('<invoke skill="code" task="Add auth" dir="/workspace/app" />');
-    expect(result).toEqual({ skill: 'code', task: 'Add auth', dir: '/workspace/app' });
+    expect(result).toEqual({ skill: 'code', task: 'Add auth' });
   });
 
   it('returns null when skill is unknown', () => {

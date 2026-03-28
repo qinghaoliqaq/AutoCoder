@@ -62,13 +62,17 @@ export default function App() {
   const planReportRef = useRef<string>('');
   // Tracks the currently-executing invocation so the catch block can inject
   // precise retry context into Director's history when a skill fails.
-  const lastInvocationRef = useRef<{ skill: AppMode; task: string; dir?: string; wsPath: string | null } | null>(null);
+  const lastInvocationRef = useRef<{ skill: AppMode; task: string; wsPath: string | null } | null>(null);
   const projectContextRef = useRef<string | null>(projectContext);
   projectContextRef.current = projectContext;
   const projectContextMetaRef = useRef<{ source: 'auto' | 'manual' | null; workspace: string | null }>({
     source: null,
     workspace: null,
   });
+  const sessionIdRef = useRef(currentSessionId);
+  sessionIdRef.current = currentSessionId;
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
 
   // Auto-show tool logs when new logs arrive
   useEffect(() => {
@@ -117,18 +121,42 @@ export default function App() {
       .catch(() => {});
   }, [workspace, projectContext]);
 
+  // Keep the cached PLAN.md aligned with the active workspace so switching
+  // projects never leaks an old plan into a new code / review / test run.
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!workspace) {
+      planReportRef.current = '';
+      return;
+    }
+
+    invoke<string>('read_workspace_file', {
+      path: workspace,
+      relativePath: 'PLAN.md',
+    })
+      .then(plan => {
+        if (!cancelled) {
+          planReportRef.current = plan;
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          planReportRef.current = '';
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace]);
+
   // ── Session history ────────────────────────────────────────────────────────
 
   // Reload session list whenever workspace changes
   useEffect(() => {
     invoke<SessionMeta[]>('list_sessions', { workspace }).then(setSessions).catch(() => {});
   }, [workspace]);
-
-  // Refs so auto-save closure always sees latest values without needing them as deps
-  const sessionIdRef = useRef(currentSessionId);
-  sessionIdRef.current = currentSessionId;
-  const workspaceRef = useRef(workspace);
-  workspaceRef.current = workspace;
 
   // Auto-save: debounced, fires 1.5s after any messages/toolLogs/blackboard changes.
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -164,7 +192,7 @@ export default function App() {
       }
     }, 1500);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [messages, toolLogs, blackboardEvents]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages, toolLogs, blackboardEvents, workspace, projectContext, currentSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLoadSession = useCallback(async (sessionId: string) => {
     try {
@@ -185,18 +213,6 @@ export default function App() {
         }
         : { source: null, workspace: null };
       setWorkspace(restoredWorkspace);
-      if (restoredWorkspace) {
-        try {
-          planReportRef.current = await invoke<string>('read_workspace_file', {
-            path: restoredWorkspace,
-            relativePath: 'PLAN.md',
-          });
-        } catch {
-          planReportRef.current = '';
-        }
-      } else {
-        planReportRef.current = '';
-      }
       // Restore the Director's conversation history so it has full context
       // of the previous session — same behaviour as Cursor resuming a conversation.
       await invoke('restore_director_history', { history: s.director_history ?? [] });
@@ -302,7 +318,7 @@ export default function App() {
         if (!invocation) break;
 
         setCurrentMode(invocation.skill);
-        lastInvocationRef.current = { skill: invocation.skill, task: invocation.task, dir: invocation.dir, wsPath: currentWsPath };
+        lastInvocationRef.current = { skill: invocation.skill, task: invocation.task, wsPath: currentWsPath };
 
         if (invocation.skill === 'review') {
           const reviewResult = await runReview(invocation.task, currentWsPath);
@@ -316,7 +332,7 @@ export default function App() {
           await runTest(invocation.task, currentWsPath);
           nextInput = `test 集成测试及项目报告已完成。请用一句话总结结果并结束任务。`;
         } else {
-          const result = await runSkill(invocation.skill, invocation.task, invocation.dir);
+          const result = await runSkill(invocation.skill, invocation.task);
           if (result === null) {
             // runSkill already showed an error message — stop the loop
             break;
@@ -525,7 +541,7 @@ export default function App() {
 
   // Returns the workspace path used/created during the skill run so the Director
   // loop can pass it to subsequent skills (e.g. review).
-  const runSkill = async (mode: AppMode, task: string, _dir?: string): Promise<string | null> => {
+  const runSkill = async (mode: AppMode, task: string): Promise<string | null> => {
     // plan: Rust creates the workspace at skill start and broadcasts "plan-workspace".
     // code/debug/review/test: MUST reuse the workspace established by plan.
     //   Never create a new directory — that would scatter files across different folders.

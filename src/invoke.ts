@@ -10,15 +10,14 @@ export function parseAttr(attrs: string, name: string): string | undefined {
   return m[1].replace(/\\(.)/g, '$1');
 }
 
-export function parseInvoke(text: string): { skill: AppMode; task: string; dir?: string } | null {
+export function parseInvoke(text: string): { skill: AppMode; task: string } | null {
   const match = text.match(TRAILING_INVOKE_RE);
   if (!match) return null;
   const attrs = match[1];
   const skill = parseAttr(attrs, 'skill') as AppMode | undefined;
   if (!skill || !['plan', 'code', 'debug', 'test', 'review'].includes(skill)) return null;
   const task = parseAttr(attrs, 'task') ?? '';
-  const dir  = parseAttr(attrs, 'dir');
-  return { skill, task, dir };
+  return { skill, task };
 }
 
 export function stripInvoke(text: string): string {

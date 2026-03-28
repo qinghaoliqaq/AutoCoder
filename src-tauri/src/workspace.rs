@@ -25,9 +25,9 @@ pub struct FileNode {
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 /// Create `~/Desktop/<dir>/` and return its absolute path.
-/// `dir_name` (from the Director's `dir` attribute) is preferred over deriving
-/// a name from the task description, because task strings often contain
-/// tech-stack words (e.g. "SQLite") that make poor directory names.
+/// `dir_name` is an optional caller-supplied directory hint kept for
+/// compatibility with legacy/manual flows; otherwise the name is derived from
+/// the task description.
 #[tauri::command]
 pub fn create_workspace(task: String, dir_name: Option<String>) -> Result<String, String> {
     let desktop = dirs::desktop_dir()
