@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { VscRefresh, VscChevronRight, VscLayoutSidebarRightOff } from 'react-icons/vsc';
 import { BlackboardEvent } from '../types';
@@ -17,6 +17,12 @@ export default function BlackboardPanel({ workspacePath, events, onClose }: Blac
   const [execMd, setExecMd] = useState<string | null>(null);
   const [execJson, setExecJson] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
+  const autoSwitchedExecRef = useRef(false);
+
+  useEffect(() => {
+    autoSwitchedExecRef.current = false;
+    setActiveBoard('plan');
+  }, [workspacePath]);
   
   const loadBoards = useCallback(async () => {
     if (!workspacePath) {
@@ -67,9 +73,10 @@ export default function BlackboardPanel({ workspacePath, events, onClose }: Blac
           relativePath: 'BLACKBOARD.json' 
         });
         setExecJson(JSON.parse(eJsonStr));
-        // If exec board exists, switch to it as it's the active one
-        if (activeBoard === 'plan') {
+        // Auto-switch only once when exec board first appears for this workspace.
+        if (!autoSwitchedExecRef.current) {
           setActiveBoard('exec');
+          autoSwitchedExecRef.current = true;
         }
       } catch (e) {
         setExecJson(null);
@@ -79,7 +86,7 @@ export default function BlackboardPanel({ workspacePath, events, onClose }: Blac
     } finally {
       setLoading(false);
     }
-  }, [workspacePath]); // activeBoard intentionally omitted to not re-trigger on tab switch
+  }, [workspacePath]);
   
   // Refresh when workspace changes or new events arrive
   useEffect(() => {

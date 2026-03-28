@@ -42,8 +42,16 @@ pub struct DirectorConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeaturesConfig {
+    #[serde(default = "default_true")]
+    pub vendored_skills: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub director: DirectorConfig,
+    #[serde(default)]
+    pub features: FeaturesConfig,
 }
 
 /// Returned to the frontend — API key is masked for security.
@@ -54,6 +62,7 @@ pub struct ConfigStatus {
     pub model:        String,
     pub api_format:   String,
     pub api_key_hint: String,
+    pub vendored_skills: bool,
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -71,7 +80,18 @@ impl Default for DirectorConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        Self { director: DirectorConfig::default() }
+        Self {
+            director: DirectorConfig::default(),
+            features: FeaturesConfig::default(),
+        }
+    }
+}
+
+impl Default for FeaturesConfig {
+    fn default() -> Self {
+        Self {
+            vendored_skills: default_true(),
+        }
     }
 }
 
@@ -137,6 +157,10 @@ impl AppConfig {
                 _           => ApiFormat::OpenAI,
             };
         }
+
+        if let Ok(v) = std::env::var("AI_DEV_HUB_VENDORED_SKILLS") {
+            cfg.features.vendored_skills = parse_bool(&v).unwrap_or(cfg.features.vendored_skills);
+        }
     }
 
     pub fn is_configured(&self) -> bool {
@@ -159,6 +183,7 @@ impl AppConfig {
             model:        self.director.model.clone(),
             api_format:   self.director.api_format.as_str().to_string(),
             api_key_hint: hint,
+            vendored_skills: self.features.vendored_skills,
         }
     }
 }
@@ -177,4 +202,16 @@ fn walk_up_for_config(start: &std::path::Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn parse_bool(value: &str) -> Option<bool> {
+    match value.trim().to_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
 }

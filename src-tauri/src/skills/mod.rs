@@ -6,8 +6,8 @@
 ///   3. Add a match arm in `execute()`
 ///   4. Optionally add a new prompt file in src-tauri/prompts/
 
-use crate::prompts::Prompts;
-use serde::Serialize;
+use crate::{config::AppConfig, prompts::Prompts};
+use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 mod runners;
@@ -49,7 +49,7 @@ pub struct ToolLog {
 }
 
 /// Shared-blackboard update emitted by code mode when a subtask advances.
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct BlackboardEvent {
     pub subtask_id: Option<String>,
     pub status: String,
@@ -78,6 +78,7 @@ pub async fn execute(
     phase:        Option<&str>,
     context:      Option<&str>,
     issue:        Option<&str>,
+    config:       &AppConfig,
     prompts:      &Prompts,
     window_label: &str,
     app_handle:   &tauri::AppHandle,
@@ -85,7 +86,7 @@ pub async fn execute(
 ) -> Result<(), String> {
     match mode {
         "plan"   => plan::run(task, workspace, context, prompts, window_label, app_handle, token).await,
-        "code"   => code::run(task, workspace, context, prompts, window_label, app_handle, token).await,
+        "code"   => code::run(task, workspace, context, config, prompts, window_label, app_handle, token).await,
         "debug"  => debug::run(task, workspace, context, prompts, window_label, app_handle, token).await,
         "test"   => test_skill::run_phase(
             phase.unwrap_or("integration_test"), task, issue, workspace, context, window_label, app_handle, token,

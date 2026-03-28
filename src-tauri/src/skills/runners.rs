@@ -65,6 +65,33 @@ fn resolve_cwd(cwd: Option<&str>) -> PathBuf {
     PathBuf::from("/tmp")
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CodexExecutionMode {
+    WorkspaceWrite,
+    ReadOnlyReview,
+}
+
+fn build_codex_args(prompt: &str, mode: CodexExecutionMode) -> Vec<String> {
+    let mut args = vec![
+        "exec".to_string(),
+        "--skip-git-repo-check".to_string(),
+    ];
+
+    match mode {
+        CodexExecutionMode::WorkspaceWrite => {
+            args.push("--full-auto".to_string());
+        }
+        CodexExecutionMode::ReadOnlyReview => {
+            args.push("--sandbox".to_string());
+            args.push("read-only".to_string());
+        }
+    }
+
+    args.push("--json".to_string());
+    args.push(prompt.to_string());
+    args
+}
+
 // ── Claude ────────────────────────────────────────────────────────────────────
 
 /// Run `claude -p` in stream-json mode, emitting "skill-chunk" events as tokens arrive.
@@ -233,8 +260,30 @@ pub(crate) async fn codex(
     app_handle:   &tauri::AppHandle,
     token:        CancellationToken,
 ) -> Result<String, String> {
+    run_codex(prompt, cwd, window_label, app_handle, token, CodexExecutionMode::WorkspaceWrite).await
+}
+
+pub(crate) async fn codex_read_only(
+    prompt:       &str,
+    cwd:          Option<&str>,
+    window_label: &str,
+    app_handle:   &tauri::AppHandle,
+    token:        CancellationToken,
+) -> Result<String, String> {
+    run_codex(prompt, cwd, window_label, app_handle, token, CodexExecutionMode::ReadOnlyReview)
+        .await
+}
+
+async fn run_codex(
+    prompt:       &str,
+    cwd:          Option<&str>,
+    window_label: &str,
+    app_handle:   &tauri::AppHandle,
+    token:        CancellationToken,
+    mode:         CodexExecutionMode,
+) -> Result<String, String> {
     let mut cmd = Command::new("codex");
-    cmd.args(["exec", "--skip-git-repo-check", "--full-auto", "--json", prompt])
+    cmd.args(build_codex_args(prompt, mode))
        .stdout(std::process::Stdio::piped())
        .stderr(std::process::Stdio::piped());
     cmd.current_dir(resolve_cwd(cwd));
@@ -520,6 +569,37 @@ mod tests {
     fn summarize_grep_picks_pattern() {
         let json = r#"{"pattern":"fn main"}"#;
         assert_eq!(summarize_tool_input("Grep", json), "fn main");
+    }
+
+    #[test]
+    fn build_codex_args_uses_full_auto_for_write_mode() {
+        let args = build_codex_args("review code", CodexExecutionMode::WorkspaceWrite);
+        assert_eq!(
+            args,
+            vec![
+                "exec",
+                "--skip-git-repo-check",
+                "--full-auto",
+                "--json",
+                "review code",
+            ]
+        );
+    }
+
+    #[test]
+    fn build_codex_args_uses_read_only_sandbox_for_review_mode() {
+        let args = build_codex_args("review code", CodexExecutionMode::ReadOnlyReview);
+        assert_eq!(
+            args,
+            vec![
+                "exec",
+                "--skip-git-repo-check",
+                "--sandbox",
+                "read-only",
+                "--json",
+                "review code",
+            ]
+        );
     }
 
     // ── record_change ─────────────────────────────────────────────────────────

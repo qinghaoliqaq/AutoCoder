@@ -1,6 +1,6 @@
 /// Code skill - per-subtask implementation loop driven by a shared blackboard.
 
-use crate::prompts::Prompts;
+use crate::{config::AppConfig, prompts::Prompts};
 use super::{
     blackboard::{
         change_log_entries, extract_paths, relative_paths, tick_plan_checkbox, Blackboard,
@@ -19,6 +19,7 @@ pub(super) async fn run(
     task:         &str,
     workspace:    Option<&str>,
     context:      Option<&str>,
+    config:       &AppConfig,
     prompts:      &Prompts,
     window_label: &str,
     app_handle:   &tauri::AppHandle,
@@ -51,6 +52,7 @@ pub(super) async fn run(
             task,
             workspace,
             context,
+            config,
             &base_prompt,
             &mut board,
             window_label,
@@ -80,6 +82,7 @@ async fn run_subtask(
     task:         &str,
     workspace:    &str,
     context:      Option<&str>,
+    config:       &AppConfig,
     base_prompt:  &str,
     board:        &mut Blackboard,
     window_label: &str,
@@ -113,23 +116,52 @@ async fn run_subtask(
         )?;
 
         let before_changes = change_log_entries(workspace);
-        let vendored_skill = select_for_subtask(&card)
-            .map(|skill_id| load_vendored_skill(skill_id, app_handle))
-            .transpose()?;
-        if let Some(skill) = &vendored_skill {
-            emit_vendored_skill_log(app_handle, window_label, "claude", skill, &card)?;
-            emit_blackboard(
-                app_handle,
-                window_label,
-                Some(card.id.clone()),
-                "vendored_skill_selected",
-                format!(
-                    "Subtask {} is using packaged helper skill {}.",
-                    card.id,
-                    skill.id.label()
-                ),
-            )?;
-        }
+        let vendored_skill = match (config.features.vendored_skills, select_for_subtask(&card)) {
+            (true, Some(skill_id)) => match load_vendored_skill(skill_id, app_handle) {
+                Ok(skill) => {
+                    emit_vendored_skill_log(app_handle, window_label, "claude", &skill, &card)?;
+                    emit_blackboard(
+                        app_handle,
+                        window_label,
+                        Some(card.id.clone()),
+                        "vendored_skill_selected",
+                        format!(
+                            "Subtask {} is using packaged helper skill {}.",
+                            card.id,
+                            skill.id.label()
+                        ),
+                    )?;
+                    Some(skill)
+                }
+                Err(err) => {
+                    emit_blackboard(
+                        app_handle,
+                        window_label,
+                        Some(card.id.clone()),
+                        "vendored_skill_unavailable",
+                        format!(
+                            "Packaged helper skill for {} is unavailable, continuing without it: {}",
+                            card.id, err
+                        ),
+                    )?;
+                    None
+                }
+            },
+            (false, Some(_)) => {
+                emit_blackboard(
+                    app_handle,
+                    window_label,
+                    Some(card.id.clone()),
+                    "vendored_skill_disabled",
+                    format!(
+                        "Packaged helper skills are disabled in config. Subtask {} is continuing without them.",
+                        card.id
+                    ),
+                )?;
+                None
+            }
+            (_, None) => None,
+        };
         let claude_prompt = if card.review_findings.is_empty() {
             build_implement_prompt(base_prompt, task, &card, vendored_skill.as_ref())
         } else {
@@ -165,7 +197,7 @@ async fn run_subtask(
 
         let review_card = board.subtask(&card.id)?.clone();
         let review_prompt = super::inject_context(context, build_review_prompt(task, &review_card));
-        let review_output = runners::codex(
+        let review_output = runners::codex_read_only(
             &review_prompt,
             Some(workspace),
             window_label,

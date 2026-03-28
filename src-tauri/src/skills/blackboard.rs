@@ -302,6 +302,10 @@ fn parse_checklist_line(line: &str) -> Option<SubtaskCard> {
     if !trimmed.starts_with("- [") || !trimmed.contains("**") {
         return None;
     }
+    let is_checked = trimmed
+        .get(3..4)
+        .map(|value| value.eq_ignore_ascii_case("x"))
+        .unwrap_or(false);
 
     let (_, after_open) = trimmed.split_once("**")?;
     let (header, after_close) = after_open.split_once("**")?;
@@ -333,10 +337,18 @@ fn parse_checklist_line(line: &str) -> Option<SubtaskCard> {
         title,
         description,
         kind,
-        status: SubtaskState::Pending,
+        status: if is_checked {
+            SubtaskState::Done
+        } else {
+            SubtaskState::Pending
+        },
         attempts: 0,
         latest_implementation: None,
-        latest_review: None,
+        latest_review: if is_checked {
+            Some("Recovered from checked PLAN.md entry.".to_string())
+        } else {
+            None
+        },
         review_findings: Vec::new(),
         files_touched: Vec::new(),
     })
@@ -388,6 +400,18 @@ mod tests {
         assert_eq!(cards[0].kind, SubtaskKind::Feature);
         assert_eq!(cards[1].id, "P1");
         assert_eq!(cards[1].kind, SubtaskKind::Screen);
+    }
+
+    #[test]
+    fn parse_checked_items_as_done() {
+        let plan = "- [x] **F1. User login** - already shipped\n";
+        let cards = parse_plan_subtasks(plan);
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].status, SubtaskState::Done);
+        assert_eq!(
+            cards[0].latest_review.as_deref(),
+            Some("Recovered from checked PLAN.md entry.")
+        );
     }
 
     #[test]

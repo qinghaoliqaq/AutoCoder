@@ -52,21 +52,19 @@ export default function InputBar({ mode, status, isRunning, onSubmit, onStop }: 
 
   return (
     <div className="flex flex-col gap-2">
-      <div className={`relative flex flex-col p-2 sm:p-2.5 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border 
-                      rounded-2xl shadow-lg transition-all gap-1 
-                      ${canRun ? 'border-zinc-200/50 dark:border-zinc-700/50 shadow-black/5 dark:shadow-black/20 focus-within:border-violet-400/50 focus-within:ring-4 focus-within:ring-violet-500/10 dark:focus-within:border-violet-500/50 dark:focus-within:ring-violet-500/10'
-          : 'border-red-200/50 dark:border-red-900/50'}`}>
+      <div className={`relative flex flex-col p-2 sm:p-2.5 glass-panel transition-all gap-1 
+                      ${canRun ? 'focus-within:border-violet-400/50 focus-within:ring-4 focus-within:ring-violet-500/10 dark:focus-within:border-violet-500/50 dark:focus-within:ring-violet-500/10'
+          : 'border-rose-300/50 dark:border-rose-900/50 bg-rose-50/40 dark:bg-rose-900/10'}`}>
 
         {/* Read-only mode indicator — set by Director only */}
         {mode !== 'chat' && (
-          <div className="self-start flex items-center gap-1.5 px-2.5 py-1
-                          bg-zinc-100/60 dark:bg-zinc-800/40 rounded-lg
-                          border border-zinc-200/50 dark:border-zinc-700/50">
-            <span className="text-[10px] text-zinc-400 dark:text-zinc-500">skill</span>
-            <span className="text-xs font-semibold text-violet-600 dark:text-violet-400">
+          <div className="self-start flex items-center gap-1.5 px-3 py-1.5
+                          glass-button rounded-lg">
+            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider font-semibold">skill</span>
+            <span className="text-xs font-bold text-violet-600 dark:text-violet-400 flex items-center gap-1.5">
               {MODES.find(m => m.id === mode)?.icon} {mode.toUpperCase()}
             </span>
-            <span className="text-[10px] text-zinc-400 dark:text-zinc-500 italic">by Director</span>
+            <span className="text-[10px] text-zinc-400 dark:text-zinc-500 italic ml-1">by Director</span>
           </div>
         )}
 

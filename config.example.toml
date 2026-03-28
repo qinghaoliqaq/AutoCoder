@@ -8,6 +8,7 @@
 #   DIRECTOR_BASE_URL     or  AGENT_MINIMAX_BASE_URL
 #   DIRECTOR_MODEL        or  AGENT_MINIMAX_MODEL
 #   DIRECTOR_API_FORMAT                               ("openai" | "anthropic")
+#   AI_DEV_HUB_VENDORED_SKILLS                       ("true" | "false")
 #
 # ── api_format options ────────────────────────────────────────────────────────
 #
@@ -53,3 +54,8 @@ api_key    = "your-api-key-here"
 base_url   = "https://api.openai.com/v1"
 model      = "gpt-4o"
 api_format = "openai"
+
+[features]
+# Enable packaged vendored helper skills such as MiniMax frontend-dev/fullstack-dev.
+# These are injected by the app orchestrator and never written to user-global skill dirs.
+vendored_skills = true

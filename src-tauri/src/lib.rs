@@ -96,7 +96,7 @@ async fn run_skill(
     }
     let result = skills::execute(
         &mode, &task, workspace.as_deref(), phase.as_deref(),
-        context.as_deref(), issue.as_deref(), &state.prompts, &window_label, &app_handle,
+        context.as_deref(), issue.as_deref(), &state.config, &state.prompts, &window_label, &app_handle,
         token,
     ).await;
     // Remove token after run completes (cancelled or finished normally).

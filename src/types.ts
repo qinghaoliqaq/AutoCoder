@@ -20,6 +20,7 @@ export interface ConfigStatus {
   model: string;
   api_format: 'openai' | 'anthropic';
   api_key_hint: string;
+  vendored_skills: boolean;
 }
 
 export interface ChatMessage {

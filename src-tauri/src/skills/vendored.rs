@@ -41,8 +41,8 @@ pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> 
     }
 
     let text = format!("{} {}", card.title, card.description).to_lowercase();
+    let tokens = tokenize(&text);
     let ui_keywords = [
-        "ui",
         "screen",
         "page",
         "view",
@@ -65,9 +65,18 @@ pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> 
         "crud",
         "integration",
     ];
+    let ui_phrases = [
+        "user interface",
+        "front end",
+        "front-end",
+        "ui layer",
+    ];
 
-    let has_ui = ui_keywords.iter().any(|kw| text.contains(kw));
-    let has_backend = backend_keywords.iter().any(|kw| text.contains(kw));
+    let has_ui = ui_keywords.iter().any(|kw| tokens.iter().any(|token| token == kw))
+        || ui_phrases.iter().any(|phrase| text.contains(phrase));
+    let has_backend = backend_keywords
+        .iter()
+        .any(|kw| tokens.iter().any(|token| token == kw));
 
     if has_ui && has_backend {
         Some(VendoredSkillId::FullstackDev)
@@ -134,6 +143,13 @@ fn truncate(text: &str, max_chars: usize) -> String {
     }
 }
 
+fn tokenize(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .map(|token| token.to_lowercase())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,5 +186,22 @@ mod tests {
             files_touched: Vec::new(),
         };
         assert_eq!(select_for_subtask(&card), Some(VendoredSkillId::FullstackDev));
+    }
+
+    #[test]
+    fn does_not_treat_build_as_ui_keyword() {
+        let card = SubtaskCard {
+            id: "F2".to_string(),
+            title: "Build auth API endpoint".to_string(),
+            description: "Create backend endpoint for login".to_string(),
+            kind: SubtaskKind::Feature,
+            status: super::super::blackboard::SubtaskState::Pending,
+            attempts: 0,
+            latest_implementation: None,
+            latest_review: None,
+            review_findings: Vec::new(),
+            files_touched: Vec::new(),
+        };
+        assert_eq!(select_for_subtask(&card), None);
     }
 }

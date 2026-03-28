@@ -23,11 +23,11 @@ function ThemeToggle() {
   return (
     <button
       onClick={() => setTheme(theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark')}
-      className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors flex items-center gap-1.5 px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800/50"
+      className="text-xs text-zinc-600 hover:text-zinc-800 dark:text-zinc-300 dark:hover:text-zinc-100 transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg w-full h-full"
       title={`Current theme: ${theme}`}
     >
       {theme === 'dark' ? '☾' : theme === 'light' ? '☀' : <VscColorMode className="w-3.5 h-3.5 animate-[spin_4s_linear_infinite]" />}
-      <span className="hidden sm:inline capitalize">{theme}</span>
+      <span className="hidden sm:inline font-medium capitalize">{theme}</span>
     </button>
   );
 }
@@ -62,18 +62,39 @@ export default function App() {
   // Tracks the currently-executing invocation so the catch block can inject
   // precise retry context into Director's history when a skill fails.
   const lastInvocationRef = useRef<{ skill: AppMode; task: string; dir?: string; wsPath: string | null } | null>(null);
+  const projectContextRef = useRef<string | null>(projectContext);
+  projectContextRef.current = projectContext;
+  const projectContextMetaRef = useRef<{ source: 'auto' | 'manual' | null; workspace: string | null }>({
+    source: null,
+    workspace: null,
+  });
 
   // Auto-show tool logs when new logs arrive
   useEffect(() => {
-    if (toolLogs.length > 0) {
+    if (toolLogs.length > 0 && activeSidebarTab === null) {
       setActiveSidebarTab('logs');
     }
-  }, [toolLogs.length]);
+  }, [toolLogs.length, activeSidebarTab]);
 
   // Auto-show explorer when workspace opens
   useEffect(() => {
     if (workspace && activeSidebarTab === null) {
       setActiveSidebarTab('explorer');
+    }
+  }, [workspace, activeSidebarTab]);
+
+  // Keep project context bound to the workspace it came from so switching
+  // projects does not silently reuse stale documentation.
+  useEffect(() => {
+    if (!workspace || projectContextRef.current === null) return;
+    const meta = projectContextMetaRef.current;
+    if (meta.source === 'manual' && meta.workspace === null) {
+      projectContextMetaRef.current = { ...meta, workspace };
+      return;
+    }
+    if (meta.workspace && meta.workspace !== workspace) {
+      projectContextMetaRef.current = { source: null, workspace: null };
+      setProjectContext(null);
     }
   }, [workspace]);
 
@@ -85,10 +106,13 @@ export default function App() {
     if (!workspace || projectContext !== null) return;
     invoke<{ content: string; filenames: string[] }>('read_project_docs', { path: workspace })
       .then(docs => {
-        if (docs.filenames.length > 0) setProjectContext(docs.content);
+        if (docs.filenames.length > 0) {
+          projectContextMetaRef.current = { source: 'auto', workspace };
+          setProjectContext(docs.content);
+        }
       })
       .catch(() => {});
-  }, [workspace]);
+  }, [workspace, projectContext]);
 
   // ── Session history ────────────────────────────────────────────────────────
 
@@ -103,7 +127,7 @@ export default function App() {
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
 
-  // Auto-save: debounced, fires 1.5s after any messages/toolLogs change (Cursor-style)
+  // Auto-save: debounced, fires 1.5s after any messages/toolLogs/blackboard changes.
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (messages.length === 0) return;
@@ -135,16 +159,29 @@ export default function App() {
       }
     }, 1500);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [messages, toolLogs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages, toolLogs, blackboardEvents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLoadSession = useCallback(async (sessionId: string) => {
     try {
       const s = await invoke<Session>('load_session', { workspace, sessionId });
+      const restoredWorkspace = s.workspace_path ?? workspace;
       setMessages(s.messages);
       setToolLogs(s.tool_logs as ToolLog[]);
       setBlackboardEvents(s.blackboard_events || []);
       setCurrentSessionId(s.id);
-      planReportRef.current = '';
+      if (restoredWorkspace) {
+        setWorkspace(restoredWorkspace);
+        try {
+          planReportRef.current = await invoke<string>('read_workspace_file', {
+            path: restoredWorkspace,
+            relativePath: 'PLAN.md',
+          });
+        } catch {
+          planReportRef.current = '';
+        }
+      } else {
+        planReportRef.current = '';
+      }
       // Restore the Director's conversation history so it has full context
       // of the previous session — same behaviour as Cursor resuming a conversation.
       await invoke('restore_director_history', { history: s.director_history ?? [] });
@@ -187,7 +224,7 @@ export default function App() {
         claude: { installed: false, version: null, path: null },
         codex: { installed: false, version: null, path: null }
       });
-      setConfigStatus({ configured: false, base_url: '', model: '', api_format: 'openai', api_key_hint: '' });
+      setConfigStatus({ configured: false, base_url: '', model: '', api_format: 'openai', api_key_hint: '', vendored_skills: true });
     } finally {
       setChecking(false);
     }
@@ -507,6 +544,10 @@ export default function App() {
     // plan.rs emits the workspace it created (or confirmed) after synthesis
     const unlistenPlanWs = await appWindow.listen<string>('plan-workspace', (event) => {
       wsPath = event.payload;
+      const meta = projectContextMetaRef.current;
+      if (meta.source === 'manual' && meta.workspace === null && projectContextRef.current !== null) {
+        projectContextMetaRef.current = { ...meta, workspace: event.payload };
+      }
       setWorkspace(event.payload);
     });
     const unlistenToolLog = await appWindow.listen<ToolLog>('tool-log', (event) => {
@@ -565,6 +606,11 @@ export default function App() {
     if (!selected) return;
     try {
       const validated = await invoke<string>('open_project', { path: selected as string });
+      const meta = projectContextMetaRef.current;
+      if (meta.workspace && meta.workspace !== validated) {
+        projectContextMetaRef.current = { source: null, workspace: null };
+        setProjectContext(null);
+      }
       setWorkspace(validated);
     } catch (err) {
       console.error('open_project error:', err);
@@ -595,16 +641,23 @@ export default function App() {
   return (
     <ThemeProvider>
       <ModeActivated mode={currentMode} />
-      <div className="flex flex-col h-screen w-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950 font-sans animate-app-entrance">
+      {/* Global Background Layer with glowing orbs for Glassmorphism effect */}
+      <div className="fixed inset-0 z-0 bg-background-light dark:bg-background-dark pointer-events-none overflow-hidden">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-violet-400/20 dark:bg-violet-600/20 blur-[100px] animate-blob" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-blue-400/20 dark:bg-blue-600/20 blur-[100px] animate-blob animation-delay-2000" />
+        <div className="absolute top-[20%] right-[20%] w-[30%] h-[30%] rounded-full bg-rose-400/20 dark:bg-rose-600/20 blur-[100px] animate-blob animation-delay-4000" />
+      </div>
+
+      <div className="flex flex-col h-screen w-screen overflow-hidden bg-transparent font-sans animate-app-entrance relative z-10 text-zinc-800 dark:text-zinc-100">
 
         {/* Top bar / Custom Window Titlebar */}
         <header
           className="flex items-center justify-between pr-5 pl-24 py-4 flex-shrink-0
-                     bg-transparent relative z-50 select-none"
+                     glass-header relative z-50 select-none"
         >
           <div className="flex items-center gap-2 relative z-50 pointer-events-auto shrink-0">
             {modeLabel && (
-              <div className="flex items-center gap-1.5 bg-zinc-100/50 dark:bg-zinc-800/50 px-2 py-1 rounded">
+              <div className="flex items-center gap-1.5 glass-button px-2 py-1 rounded-lg">
                 <span className="text-xs text-zinc-500">skill:</span>
                 <span className="text-xs font-medium text-violet-600 dark:text-violet-400">{modeLabel}</span>
               </div>
@@ -618,41 +671,43 @@ export default function App() {
             <StatusPanel status={status} checking={checking} onRecheck={runDetection} />
             <button
               onClick={() => { setContextDraft(projectContext ?? ''); setShowContextEditor(true); }}
-              className={`text-xs transition-colors flex items-center gap-1.5 px-2 py-1 rounded
+              className={`text-xs transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg glass-button
                           ${projectContext
-                  ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400'
-                  : 'bg-zinc-100 dark:bg-zinc-800/50 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+                  ? 'text-rose-600 dark:text-rose-400'
+                  : 'text-zinc-600 dark:text-zinc-300'}`}
               title="项目文档"
             >
               📄
               {projectContext && (
-                <span className="hidden sm:inline">
+                <span className="hidden sm:inline font-medium">
                   {(projectContext.length / 1024).toFixed(1)}KB
                 </span>
               )}
             </button>
             <button
               onClick={handleNewWindow}
-              className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors flex items-center gap-1.5 px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800/50"
+              className="text-xs text-zinc-600 dark:text-zinc-300 transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg glass-button"
               title="新建窗口"
             >
               <VscMultipleWindows className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">新窗口</span>
+              <span className="hidden sm:inline font-medium">新窗口</span>
             </button>
-            <ThemeToggle />
+            <div className="glass-button rounded-lg">
+              <ThemeToggle />
+            </div>
           </div>
         </header>
 
         {/* Main area: Integrated Activity Bar + Sidebar + Chat */}
-        <div className="flex-1 flex min-h-0 bg-white dark:bg-zinc-950 overflow-hidden relative">
+        <div className="flex-1 flex min-h-0 bg-transparent overflow-hidden relative">
 
           {/* Activity Bar (Integrated Minimalist style) */}
-          <div className="w-14 h-full flex flex-col items-center py-4 bg-zinc-50 border-r border-zinc-200 dark:bg-zinc-950/80 dark:border-zinc-800/50 z-30 flex-shrink-0">
+          <div className="w-14 h-full flex flex-col items-center py-4 glass-container border-r border-zinc-200/50 dark:border-zinc-800/50 z-30 flex-shrink-0">
             <button
               onClick={() => setActiveSidebarTab(prev => prev === 'explorer' ? null : 'explorer')}
-              className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-200 cursor-pointer mb-2 ${activeSidebarTab === 'explorer'
-                  ? 'text-zinc-800 bg-white shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:ring-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-800/50'
+              className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-300 cursor-pointer mb-2 ${activeSidebarTab === 'explorer'
+                  ? 'text-violet-600 bg-white shadow-sm ring-1 ring-zinc-200/50 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50 shadow-[0_4px_12px_rgba(0,0,0,0.05)]'
+                  : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/50'
                 }`}
               title="文件浏览器 (Explorer)"
             >
@@ -661,48 +716,48 @@ export default function App() {
 
             <button
               onClick={() => setActiveSidebarTab(prev => prev === 'logs' ? null : 'logs')}
-              className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-200 cursor-pointer mb-2 ${activeSidebarTab === 'logs'
-                  ? 'text-zinc-800 bg-white shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:ring-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-800/50'
+              className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-300 cursor-pointer mb-2 ${activeSidebarTab === 'logs'
+                  ? 'text-violet-600 bg-white shadow-sm ring-1 ring-zinc-200/50 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50 shadow-[0_4px_12px_rgba(0,0,0,0.05)]'
+                  : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/50'
                 }`}
               title="工具日志 (Tool Logs)"
             >
               <div className="relative">
                 <VscTerminal className="w-5 h-5 stroke-[0.2]" />
                 {toolLogs.length > 0 && activeSidebarTab !== 'logs' && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-zinc-50 dark:ring-zinc-950 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" />
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-zinc-50/50 dark:ring-zinc-950/50 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" />
                 )}
               </div>
             </button>
 
             <button
               onClick={() => setActiveSidebarTab(prev => prev === 'history' ? null : 'history')}
-              className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-200 cursor-pointer mb-2 ${activeSidebarTab === 'history'
-                  ? 'text-zinc-800 bg-white shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:ring-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-800/50'
+              className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-300 cursor-pointer mb-2 ${activeSidebarTab === 'history'
+                  ? 'text-violet-600 bg-white shadow-sm ring-1 ring-zinc-200/50 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50 shadow-[0_4px_12px_rgba(0,0,0,0.05)]'
+                  : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/50'
                 }`}
               title="历史对话 (History)"
             >
               <div className="relative">
                 <VscHistory className="w-5 h-5 stroke-[0.2]" />
                 {sessions.length > 0 && activeSidebarTab !== 'history' && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-violet-500 ring-2 ring-zinc-50 dark:ring-zinc-950" />
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-violet-500 ring-2 ring-zinc-50/50 dark:ring-zinc-950/50" />
                 )}
               </div>
             </button>
 
             <button
               onClick={() => setActiveSidebarTab(prev => prev === 'blackboard' ? null : 'blackboard')}
-              className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-200 cursor-pointer ${activeSidebarTab === 'blackboard'
-                  ? 'text-zinc-800 bg-white shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:ring-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200/50 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-800/50'
+              className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-300 cursor-pointer ${activeSidebarTab === 'blackboard'
+                  ? 'text-violet-600 bg-white shadow-sm ring-1 ring-zinc-200/50 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50 shadow-[0_4px_12px_rgba(0,0,0,0.05)]'
+                  : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/50'
                 }`}
               title="黑板 / Blackboard"
             >
               <div className="relative">
                 <VscChecklist className="w-5 h-5 stroke-[0.2]" />
                 {blackboardEvents.length > 0 && activeSidebarTab !== 'blackboard' && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-zinc-50 dark:ring-zinc-950 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" />
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-zinc-50/50 dark:ring-zinc-950/50 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" />
                 )}
               </div>
             </button>
@@ -710,7 +765,7 @@ export default function App() {
 
           {/* Docked Sidebar Container */}
           <div
-            className={`h-full border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/50 dark:bg-zinc-900/40 backdrop-blur-md flex-shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] z-20 ${activeSidebarTab !== null
+            className={`h-full border-r border-zinc-200/50 dark:border-zinc-800/50 glass-container flex-shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] z-20 ${activeSidebarTab !== null
                 ? 'w-[280px] opacity-100'
                 : 'w-0 opacity-0 border-none'
               }`}
@@ -750,11 +805,11 @@ export default function App() {
           </div>
 
           {/* Main Chat Area */}
-          <div className="flex-1 flex flex-col relative min-w-0 z-10 basis-0 bg-white dark:bg-zinc-950 shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.05)] dark:shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.4)]">
+          <div className="flex-1 flex flex-col relative min-w-0 z-10 basis-0 bg-transparent shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.05)] dark:shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.4)]">
             <ChatPanel messages={messages} onOpenProject={handleOpenProject} workspace={workspace} />
             <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6
-                            bg-gradient-to-t from-white via-white/80 to-transparent
-                            dark:from-zinc-950 dark:via-zinc-950/80
+                            bg-gradient-to-t from-background-light via-background-light/80 to-transparent
+                            dark:from-background-dark dark:via-background-dark/80
                             pointer-events-none z-10 flex flex-col justify-end">
               <div className="pointer-events-auto max-w-4xl w-full mx-auto">
                 <InputBar
@@ -773,15 +828,14 @@ export default function App() {
       {/* Project Context Editor Modal */}
       {showContextEditor && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 backdrop-blur-md"
           onClick={() => setShowContextEditor(false)}
         >
           <div
-            className="w-full max-w-2xl mx-4 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl
-                        border border-zinc-200 dark:border-zinc-700 flex flex-col max-h-[80vh]"
+            className="w-full max-w-2xl mx-4 glass-panel border border-white/40 dark:border-zinc-700/50 flex flex-col max-h-[80vh] shadow-[0_16px_40px_rgba(0,0,0,0.1)] dark:shadow-[0_16px_40px_rgba(0,0,0,0.4)] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200 dark:border-zinc-800">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200/50 dark:border-zinc-800/50 bg-white/40 dark:bg-zinc-900/30">
               <div>
                 <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">项目文档 / Project Context</h2>
                 <p className="text-xs text-zinc-500 mt-0.5">粘贴开发文档，Claude & Codex 编码时将以此为依据</p>
@@ -799,26 +853,37 @@ export default function App() {
                          border-none resize-none focus:outline-none min-h-[300px]
                          placeholder-zinc-400 dark:placeholder-zinc-600"
             />
-            <div className="flex items-center justify-between px-5 py-3 border-t border-zinc-200 dark:border-zinc-800">
+            <div className="flex items-center justify-between px-5 py-3 border-t border-zinc-200/50 dark:border-zinc-800/50 bg-white/40 dark:bg-zinc-900/30">
               <button
-                onClick={() => { setProjectContext(null); setContextDraft(''); setShowContextEditor(false); }}
-                className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                onClick={() => {
+                  projectContextMetaRef.current = { source: null, workspace: null };
+                  setProjectContext(null);
+                  setContextDraft('');
+                  setShowContextEditor(false);
+                }}
+                className="text-xs text-rose-500 hover:text-rose-600 transition-colors"
               >
                 清除文档
               </button>
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowContextEditor(false)}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800
-                             text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                  className="text-xs px-4 py-1.5 rounded-lg glass-button text-zinc-600 dark:text-zinc-300 font-medium"
                 >
                   取消
                 </button>
                 <button
-                  onClick={() => { setProjectContext(contextDraft.trim() || null); setShowContextEditor(false); }}
+                  onClick={() => {
+                    const next = contextDraft.trim() || null;
+                    projectContextMetaRef.current = next
+                      ? { source: 'manual', workspace: workspaceRef.current }
+                      : { source: null, workspace: null };
+                    setProjectContext(next);
+                    setShowContextEditor(false);
+                  }}
                   disabled={!contextDraft.trim()}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-violet-600 text-white
-                             hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="text-xs px-4 py-1.5 rounded-lg bg-violet-600/90 text-white shadow-md shadow-violet-500/20 backdrop-blur-sm
+                             hover:bg-violet-600 hover:shadow-lg hover:shadow-violet-500/30 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
                   应用文档
                 </button>
