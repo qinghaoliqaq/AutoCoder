@@ -1,0 +1,266 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  @keyframes appEntrance {
+    0% {
+      opacity: 0;
+      transform: scale(0.98) translateY(10px);
+      filter: blur(4px);
+    }
+
+    100% {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+      filter: blur(0);
+    }
+  }
+
+  .animate-app-entrance {
+    animation: appEntrance 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  }
+}
+
+@layer base {
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    @apply bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@layer components {
+
+  /* Scrollbar - Minimal & Dynamic */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-zinc-300 dark:bg-zinc-700 rounded-full;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-zinc-400 dark:bg-zinc-600;
+  }
+
+  /* Core Layout Components */
+  .glass-panel {
+    @apply bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800/80 rounded-xl shadow-sm;
+  }
+
+  /* Status Badges */
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
+  }
+
+  .status-badge.installed {
+    @apply bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/30;
+  }
+
+  .status-badge.missing {
+    @apply bg-red-100 text-red-700 border border-red-200 dark:bg-red-500/15 dark:text-red-400 dark:border-red-500/30;
+  }
+
+  .status-badge.checking {
+    @apply bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-500/15 dark:text-amber-400 dark:border-amber-500/30;
+  }
+
+  /* Chat Bubbles - Floating & Elegant */
+  .chat-bubble {
+    @apply w-fit max-w-[90%] sm:max-w-[85%] rounded-2xl px-5 py-3 sm:px-6 sm:py-4 text-[15px] sm:text-[16px] leading-relaxed shadow-sm transition-all;
+    animation: fade-up 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  }
+
+  /* Role Colors */
+  .chat-bubble.claude {
+    @apply bg-orange-50/80 border border-orange-200/50 text-zinc-900 dark:bg-orange-500/10 dark:border-orange-500/20 dark:text-zinc-100;
+  }
+
+  .chat-bubble.codex {
+    @apply bg-emerald-50/80 border border-emerald-200/50 text-zinc-900 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-zinc-100;
+  }
+
+  .chat-bubble.director {
+    @apply bg-violet-50/80 border border-violet-200/50 text-zinc-900 dark:bg-violet-500/10 dark:border-violet-500/20 dark:text-zinc-100;
+  }
+
+  .chat-bubble.user {
+    @apply bg-white border border-zinc-200 text-zinc-900 dark:bg-zinc-800/80 dark:border-zinc-700/50 dark:text-zinc-100 shadow-sm;
+  }
+
+  /* Micro Animations */
+  .pulse-dot {
+    @apply w-2 h-2 rounded-full;
+    animation: pulse-glow 1.5s ease-in-out infinite;
+  }
+
+  /* Glassmorphism background utilities */
+  .animation-delay-2000 {
+    animation-delay: 2s;
+  }
+
+  .animation-delay-4000 {
+    animation-delay: 4s;
+  }
+}
+
+@keyframes smoke {
+  0% {
+    transform: translate(0px, 0px) scale(1) rotate(0deg);
+  }
+
+  33% {
+    transform: translate(30px, -50px) scale(1.2) rotate(120deg);
+  }
+
+  66% {
+    transform: translate(-20px, 20px) scale(0.8) rotate(240deg);
+  }
+
+  100% {
+    transform: translate(0px, 0px) scale(1) rotate(360deg);
+  }
+}
+
+.animate-blob {
+  animation: smoke 12s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 3D Particle Animations */
+@keyframes particleFloat {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0;
+  }
+
+  20% {
+    opacity: 0.8;
+  }
+
+  80% {
+    opacity: 0.8;
+  }
+
+  100% {
+    transform: translate3d(var(--tx), var(--ty), var(--tz)) scale(var(--s));
+    opacity: 0;
+  }
+}
+
+.animate-particle {
+  animation: particleFloat var(--d) infinite ease-in-out;
+  animation-delay: var(--del);
+}
+
+/* Elegant Text Entrance Animation */
+@keyframes text-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.98);
+    filter: blur(10px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+.animate-text-reveal {
+  animation: text-reveal 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.2) forwards;
+  opacity: 0;
+}
+
+.delay-100 {
+  animation-delay: 100ms;
+}
+
+.delay-200 {
+  animation-delay: 200ms;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(15px) scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(100px) scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}

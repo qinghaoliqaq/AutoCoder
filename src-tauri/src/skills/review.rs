@@ -1,0 +1,282 @@
+/// Review skill — static analysis pipeline.
+///
+/// Phases (run sequentially by the frontend):
+///   plan_check — Claude reads PLAN.md and verifies all features are implemented
+///   security   — Claude audits for secrets, injections, auth issues
+///   cleanup    — Claude removes dead code and unused imports
+///
+/// Dynamic integration testing (env setup, server start, curl suite, fixes, document)
+/// has been moved to the test skill (test_skill.rs / run_phase).
+///
+/// Each phase emits "review-phase-result" when it finishes.
+
+use super::{ReviewPhaseResult, runners};
+use tauri::{Emitter, EventTarget};
+use tokio_util::sync::CancellationToken;
+
+pub(super) async fn run_phase(
+    phase:        &str,
+    task:         &str,
+    issue:        Option<&str>,
+    workspace:    Option<&str>,
+    context:      Option<&str>,
+    window_label: &str,
+    app_handle:   &tauri::AppHandle,
+    token:        CancellationToken,
+) -> Result<(), String> {
+    let _ = issue; // unused in static phases
+
+    let (passed, found_issue) = match phase {
+
+        // ── Plan completion check ─────────────────────────────────────────────
+        // Claude and Codex check in parallel; missing lists are unioned.
+        // Claude then ticks completed items in PLAN.md.
+        "plan_check" => {
+            let claude_prompt = format!(
+                "Verify that every item in the project plan has been implemented.\n\
+                 Task context: {task}\n\n\
+                 Steps:\n\
+                 1. Check if PLAN.md exists in the current directory.\n\
+                    If it does NOT exist: print 'No PLAN.md — skipping.' and output MISSING:[]\n\n\
+                 2. Read PLAN.md. Extract every checklist item — lines that match:\n\
+                    - `- [ ] **F<n>. ...`  (backend feature)\n\
+                    - `- [ ] **P<n>. ...`  (UI screen / view)\n\
+                    Fall back to any numbered list or bullet item if none found.\n\n\
+                 3. For each item, search the source code to confirm it is implemented.\n\
+                    Mark each as ✅ DONE or ❌ MISSING.\n\n\
+                 4. Print a concise table:\n\
+                    | ID | Name | Status |\n\
+                    |----|------|--------|\n\
+                    | F1 | User Registration | ✅ DONE |\n\
+                    | P2 | Dashboard screen  | ❌ MISSING |\n\n\
+                 5. For every item marked ✅ DONE: edit PLAN.md and change `- [ ]` to `- [x]`\n\
+                    on that specific line only. Do NOT modify any other content.\n\n\
+                 At the very end output exactly one line:\n\
+                 MISSING:[F2 User Login, P3 Dashboard]   — comma-separated IDs+names of MISSING items\n\
+                 MISSING:[]                               — if everything is implemented"
+            );
+            let codex_prompt = format!(
+                "Verify that every item in the project plan has been implemented.\n\
+                 Task context: {task}\n\n\
+                 Steps:\n\
+                 1. Check if PLAN.md exists. If not: output MISSING:[] and stop.\n\n\
+                 2. Read PLAN.md. Extract every checklist item:\n\
+                    - `- [ ] **F<n>. ...` or `- [ ] **P<n>. ...`\n\
+                    Fall back to any numbered/bullet items if none found.\n\n\
+                 3. For each item, search the source code to verify it is implemented.\n\
+                    Mark each as ✅ DONE or ❌ MISSING.\n\n\
+                 4. Print a concise table:\n\
+                    | ID | Name | Status |\n\
+                    |----|------|--------|\n\n\
+                 At the very end output exactly one line:\n\
+                 MISSING:[F2 User Login, P3 Dashboard]   — comma-separated IDs+names of MISSING items\n\
+                 MISSING:[]                               — if everything is implemented"
+            );
+
+            // Inject plan context into both prompts
+            let claude_prompt = super::inject_context(context, claude_prompt);
+            let codex_prompt  = super::inject_context(context, codex_prompt);
+
+            // Run both agents in parallel
+            let (claude_result, codex_result) = tokio::join!(
+                runners::claude(&claude_prompt, workspace, window_label, app_handle, token.clone()),
+                runners::codex(&codex_prompt,  workspace, window_label, app_handle, token.clone()),
+            );
+            let claude_out = claude_result?;
+            let codex_out  = codex_result?;
+
+            // Union the missing lists from both agents
+            let missing = union_missing(&claude_out, &codex_out);
+            if missing.is_empty() {
+                (true, String::new())
+            } else {
+                (false, missing.join(", "))
+            }
+        }
+
+        // ── Security audit ────────────────────────────────────────────────────
+        "security" => {
+            let prompt = format!(
+                "You are performing a security audit of this codebase.\n\
+                 Task context: {task}\n\n\
+                 Review the files in the current directory for security issues including:\n\
+                 - Hardcoded secrets or API keys\n\
+                 - XSS, injection, or CSRF vulnerabilities\n\
+                 - Insecure authentication or authorization\n\
+                 - Sensitive data exposed in logs\n\n\
+                 List any issues found with severity (CRITICAL / HIGH / MEDIUM / LOW).\n\n\
+                 If any CRITICAL or HIGH issues exist, also write a file called `security.md` in the\n\
+                 current directory. The file must use this format:\n\n\
+                 # Security Audit Report\n\n\
+                 ## CRITICAL\n\
+                 - [ ] Issue description (file:line)\n\n\
+                 ## HIGH\n\
+                 - [ ] Issue description (file:line)\n\n\
+                 ## MEDIUM\n\
+                 - [ ] Issue description (file:line)\n\n\
+                 ## LOW\n\
+                 - [ ] Issue description (file:line)\n\n\
+                 Use `- [ ]` for unresolved items and `- [x]` for resolved items.\n\n\
+                 At the very end of your response append exactly one of:\n\
+                 [RESULT:PASS] if no CRITICAL or HIGH issues were found\n\
+                 [RESULT:FAIL:brief description] if CRITICAL or HIGH issues need immediate action"
+            );
+            let prompt = super::inject_context(context, prompt);
+            parse_result(&runners::claude(&prompt, workspace, window_label, app_handle, token.clone()).await?)
+        }
+
+        // ── Code cleanup — only files recorded in change.log ─────────────────
+        "cleanup" => {
+            // Read change.log to get the exact files Claude created/modified.
+            // Deduplicate so each file is processed once.
+            let change_log_content = workspace
+                .map(|ws| std::fs::read_to_string(format!("{ws}/change.log")).unwrap_or_default())
+                .unwrap_or_default();
+
+            let file_list = build_cleanup_file_list(&change_log_content);
+
+            if file_list.is_empty() {
+                // No change.log or empty — emit PASS and return immediately
+                app_handle
+                    .emit_to(
+                        EventTarget::webview_window(window_label),
+                        "review-phase-result",
+                        ReviewPhaseResult {
+                            phase:  phase.to_string(),
+                            passed: true,
+                            issue:  String::new(),
+                        },
+                    )
+                    .map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+
+            let file_list_str = file_list.join("\n");
+            let prompt = format!(
+                "You are performing code cleanup on this codebase.\n\
+                 Task context: {task}\n\n\
+                 IMPORTANT: Only clean the files listed below — these are the files that were\n\
+                 created or modified by the AI during this session (recorded in change.log).\n\
+                 Do NOT touch any other file. User's pre-existing code must not be modified.\n\n\
+                 Files to clean:\n\
+                 {file_list_str}\n\n\
+                 For EACH file in the list above:\n\
+                 1. Read the file.\n\
+                 2. Remove unused imports / use statements / require calls.\n\
+                 3. Remove variables declared but never read.\n\
+                 4. Remove functions defined in this file that are never called anywhere.\n\
+                 5. Remove commented-out code blocks (not doc comments).\n\
+                 6. Remove redundant debug print statements left in by mistake.\n\
+                 7. Do NOT change any working logic or alter behaviour.\n\n\
+                 Print one line per file:\n\
+                 CLEANED <path> — <what was removed>\n\
+                 SKIPPED <path> — already clean\n\n\
+                 After all files, print a summary table:\n\
+                 | File | Changes |\n\
+                 |------|---------|\n\n\
+                 At the very end append: [RESULT:PASS]"
+            );
+            let prompt = super::inject_context(context, prompt);
+            parse_result(&runners::claude(&prompt, workspace, window_label, app_handle, token.clone()).await?)
+        }
+
+        unknown => return Err(format!("Unknown review phase: {unknown}")),
+    };
+
+    app_handle
+        .emit_to(
+            EventTarget::webview_window(window_label),
+            "review-phase-result",
+            ReviewPhaseResult {
+                phase:  phase.to_string(),
+                passed,
+                issue:  found_issue,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Extract the MISSING:[...] list from one agent's output.
+/// Returns a Vec of trimmed item strings, empty if nothing is missing.
+fn extract_missing(text: &str) -> Vec<String> {
+    // Find the last line starting with "MISSING:[" to avoid false positives
+    for line in text.lines().rev() {
+        let t = line.trim();
+        if let Some(inner) = t.strip_prefix("MISSING:[") {
+            let inner = inner.trim_end_matches(']').trim();
+            if inner.is_empty() {
+                return vec![];
+            }
+            return inner.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        }
+    }
+    vec![]
+}
+
+/// Union the MISSING lists from Claude and Codex, deduplicating by ID prefix (e.g. "F2", "P3").
+fn union_missing(claude_out: &str, codex_out: &str) -> Vec<String> {
+    let mut claude_list = extract_missing(claude_out);
+    let codex_list      = extract_missing(codex_out);
+
+    // Deduplicate: add codex items whose ID is not already present from Claude
+    for item in codex_list {
+        let id = item.split_whitespace().next().unwrap_or("").to_string();
+        let already = claude_list.iter().any(|existing| {
+            existing.split_whitespace().next().unwrap_or("") == id
+        });
+        if !already {
+            claude_list.push(item);
+        }
+    }
+    claude_list
+}
+
+/// Parse change.log content into a deduplicated list of absolute file paths.
+/// Each line is expected to be "CREATE: <path>" or "MODIFY: <path>".
+/// Non-existent paths are filtered out.
+fn build_cleanup_file_list(change_log: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut result = Vec::new();
+    for line in change_log.lines() {
+        let path = line
+            .strip_prefix("CREATE: ")
+            .or_else(|| line.strip_prefix("MODIFY: "))
+            .map(|s| s.trim().to_string());
+        if let Some(p) = path {
+            if !p.is_empty() && seen.insert(p.clone()) && std::path::Path::new(&p).exists() {
+                result.push(p);
+            }
+        }
+    }
+    result
+}
+
+/// Parse the `[RESULT:PASS]` / `[RESULT:FAIL:reason]` marker appended at the
+/// end of a Claude review output.
+/// Fail-closed: no explicit [RESULT:PASS] marker → treated as failure so that
+/// truncated output or missing markers never silently appear as success.
+fn parse_result(text: &str) -> (bool, String) {
+    if let Some(pos) = text.rfind("[RESULT:") {
+        let suffix = &text[pos..];
+        if suffix.starts_with("[RESULT:PASS]") {
+            return (true, String::new());
+        }
+        if suffix.starts_with("[RESULT:FAIL:") {
+            let issue = suffix
+                .trim_start_matches("[RESULT:FAIL:")
+                .splitn(2, ']')
+                .next()
+                .unwrap_or("unknown issue")
+                .to_string();
+            return (false, issue);
+        }
+        // [RESULT:...] found but neither PASS nor FAIL:reason — treat as failure
+        return (false, format!("malformed result marker: {}", &suffix[..suffix.len().min(40)]));
+    }
+    // No marker at all — output was likely truncated or agent skipped it
+    (false, "no [RESULT:*] marker found — output may be truncated".to_string())
+}

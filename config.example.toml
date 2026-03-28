@@ -1,0 +1,55 @@
+# AI Dev Hub — Director Configuration
+#
+# Copy this file to config.toml and fill in your values.
+# config.toml is git-ignored so your API key stays private.
+#
+# Environment variable overrides (highest priority):
+#   DIRECTOR_API_KEY      or  AGENT_MINIMAX_API_KEY
+#   DIRECTOR_BASE_URL     or  AGENT_MINIMAX_BASE_URL
+#   DIRECTOR_MODEL        or  AGENT_MINIMAX_MODEL
+#   DIRECTOR_API_FORMAT                               ("openai" | "anthropic")
+#
+# ── api_format options ────────────────────────────────────────────────────────
+#
+#   "openai"     OpenAI-compatible wire format
+#                  endpoint : {base_url}/chat/completions
+#                  auth     : Authorization: Bearer <api_key>
+#                  providers: OpenAI, Groq, Ollama, Azure OpenAI, etc.
+#
+#   "anthropic"  Anthropic-compatible wire format
+#                  endpoint : {base_url}/messages
+#                  auth     : x-api-key: <api_key>
+#                  providers: Anthropic Claude, MiniMax, and compatible proxies
+#
+# ── Provider examples ─────────────────────────────────────────────────────────
+#
+#   OpenAI
+#     base_url   = "https://api.openai.com/v1"
+#     model      = "gpt-4o"
+#     api_format = "openai"
+#
+#   Anthropic Claude
+#     base_url   = "https://api.anthropic.com/v1"
+#     model      = "claude-sonnet-4-6"
+#     api_format = "anthropic"
+#
+#   MiniMax (Anthropic-compatible proxy)
+#     base_url   = "http://<host>/api"
+#     model      = "MiniMax-M2.5"
+#     api_format = "anthropic"
+#
+#   Groq
+#     base_url   = "https://api.groq.com/openai/v1"
+#     model      = "llama-3.3-70b-versatile"
+#     api_format = "openai"
+#
+#   Ollama (local)
+#     base_url   = "http://localhost:11434/v1"
+#     model      = "llama3.2"
+#     api_format = "openai"
+
+[director]
+api_key    = "your-api-key-here"
+base_url   = "https://api.openai.com/v1"
+model      = "gpt-4o"
+api_format = "openai"

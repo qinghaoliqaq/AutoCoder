@@ -1,0 +1,38 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  darkMode: 'class',
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        accent: {
+          claude: '#cc785c',
+          codex: '#10a37f',
+          director: '#7c3aed',
+        }
+      },
+      fontFamily: {
+        mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace'],
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+      },
+      keyframes: {
+        smoke: {
+          '0%': { transform: 'translate(0px, 0px) scale(1) rotate(0deg)' },
+          '33%': { transform: 'translate(30px, -50px) scale(1.2) rotate(120deg)' },
+          '66%': { transform: 'translate(-20px, 20px) scale(0.8) rotate(240deg)' },
+          '100%': { transform: 'translate(0px, 0px) scale(1) rotate(360deg)' },
+        }
+      },
+      animation: {
+        smoke: 'smoke 12s infinite cubic-bezier(0.4, 0, 0.2, 1)',
+      }
+    },
+  },
+  plugins: [
+    require('@tailwindcss/typography'),
+  ],
+}
+
