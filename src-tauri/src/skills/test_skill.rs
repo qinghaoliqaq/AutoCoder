@@ -15,6 +15,12 @@ use super::{ReviewPhaseResult, runners};
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
 
+#[derive(Clone, Debug)]
+pub(crate) struct TestRuntimePaths {
+    pub pid_path: String,
+    pub log_path: String,
+}
+
 pub(super) async fn run_phase(
     phase:        &str,
     task:         &str,
@@ -25,6 +31,8 @@ pub(super) async fn run_phase(
     app_handle:   &tauri::AppHandle,
     token:        CancellationToken,
 ) -> Result<(), String> {
+    let runtime = prepare_runtime_paths(window_label, workspace)?;
+
     let (passed, found_issue) = match phase {
 
         // ── Phase 0: Generate test.md — Claude + Codex parallel ───────────────
@@ -169,6 +177,7 @@ pub(super) async fn run_phase(
 
         // ── Full integration test suite ───────────────────────────────────────
         "integration_test" => {
+            cleanup_runtime_process(&runtime);
             let prompt = format!(
                 "You are a senior QA engineer running comprehensive integration tests for: {task}\n\n\
                  ═══ PHASE A: UNDERSTAND, BUILD, AND START ═══\n\n\
@@ -212,9 +221,9 @@ pub(super) async fn run_phase(
                  A5. MAKE THE PROJECT ACCESSIBLE FOR VERIFICATION\n\
                      Based on A1, choose the appropriate exposure method:\n\
                      - Server-based project (web app, API, backend):\n\
-                       Start on FREE_PORT as a background process → /tmp/server.log + /tmp/server.pid\n\
+                       Start on FREE_PORT as a background process → {server_log_path} + {server_pid_path}\n\
                        Retry `curl -sf http://localhost:$FREE_PORT` every 2 s, up to 30 s.\n\
-                       If not ready: cat /tmp/server.log, diagnose, fix, restart (max 3 attempts).\n\
+                       If not ready: cat {server_log_path}, diagnose, fix, restart (max 3 attempts).\n\
                        Set ACCESS_ENTRY=\"http://localhost:$FREE_PORT\"\n\
                      - Project with a web export (browser-capable build in a static directory):\n\
                        Serve that directory on FREE_PORT: npx serve <dir> -p $FREE_PORT -s\n\
@@ -300,7 +309,9 @@ pub(super) async fn run_phase(
                  Mark test.md items: change `- [ ]` to `- [x]` for every passed TC-F-* or TC-CX-* item.\n\n\
                  At the very end append exactly one of:\n\
                  [RESULT:PASS] if server is running and all planned/critical features work correctly\n\
-                 [RESULT:FAIL:description] if server could not start, or any planned feature is broken or untested"
+                 [RESULT:FAIL:description] if server could not start, or any planned feature is broken or untested",
+                server_log_path = runtime.log_path,
+                server_pid_path = runtime.pid_path,
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(&runners::claude(&prompt, workspace, window_label, app_handle, token.clone()).await?)
@@ -318,7 +329,7 @@ pub(super) async fn run_phase(
                     If bugs.md does not exist, use the summary above as the issue description.\n\n\
                  2. For each unresolved item (`- [ ]`) in bugs.md:\n\
                     a. Locate the exact file and line causing the failure.\n\
-                    b. Check /tmp/server.log if the issue is a server startup failure.\n\
+                    b. Check {server_log_path} if the issue is a server startup failure.\n\
                     c. Fix the root cause in the source code.\n\
                     d. After fixing, change `- [ ]` to `- [x]` for that item in bugs.md.\n\n\
                  3. Do NOT suppress errors — fix the underlying problem.\n\
@@ -326,7 +337,8 @@ pub(super) async fn run_phase(
                  Print a summary of every bug and whether it was fixed.\n\
                  At the very end append exactly one of:\n\
                  [RESULT:PASS] if all bugs in bugs.md are now fixed\n\
-                 [RESULT:FAIL:remaining unfixed items] if any remain unresolved"
+                 [RESULT:FAIL:remaining unfixed items] if any remain unresolved",
+                server_log_path = runtime.log_path,
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(&runners::claude(&prompt, workspace, window_label, app_handle, token.clone()).await?)
@@ -448,6 +460,68 @@ pub(super) async fn run_phase(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+pub(crate) fn prepare_runtime_paths(
+    window_label: &str,
+    workspace: Option<&str>,
+) -> Result<TestRuntimePaths, String> {
+    let base_dir = match workspace.filter(|path| !path.trim().is_empty()) {
+        Some(ws) => std::path::PathBuf::from(ws).join(".ai-dev-hub").join("runtime"),
+        None => std::env::temp_dir().join("ai-dev-hub-runtime"),
+    };
+    std::fs::create_dir_all(&base_dir)
+        .map_err(|e| format!("Cannot create test runtime dir {}: {e}", base_dir.display()))?;
+
+    let label = sanitize_runtime_label(window_label);
+    Ok(TestRuntimePaths {
+        pid_path: base_dir.join(format!("{label}.server.pid")).to_string_lossy().into_owned(),
+        log_path: base_dir.join(format!("{label}.server.log")).to_string_lossy().into_owned(),
+    })
+}
+
+pub(crate) fn cleanup_runtime_for_window(window_label: &str, workspace: Option<&str>) -> Result<(), String> {
+    let runtime = prepare_runtime_paths(window_label, workspace)?;
+    cleanup_runtime_process(&runtime);
+    Ok(())
+}
+
+fn cleanup_runtime_process(runtime: &TestRuntimePaths) {
+    let pid_path = std::path::Path::new(&runtime.pid_path);
+    if let Ok(pid_text) = std::fs::read_to_string(pid_path) {
+        let pid = pid_text.trim();
+        if !pid.is_empty() {
+            if cfg!(windows) {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/PID", pid, "/T", "/F"])
+                    .status();
+            } else {
+                let _ = std::process::Command::new("kill")
+                    .args(["-TERM", pid])
+                    .status();
+            }
+        }
+    }
+
+    let _ = std::fs::remove_file(&runtime.pid_path);
+    let _ = std::fs::remove_file(&runtime.log_path);
+}
+
+fn sanitize_runtime_label(label: &str) -> String {
+    let cleaned: String = label
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .collect();
+    let collapsed = cleaned
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if collapsed.is_empty() {
+        "default-window".to_string()
+    } else {
+        collapsed
+    }
+}
+
 fn parse_result(text: &str) -> (bool, String) {
     if let Some(pos) = text.rfind("[RESULT:") {
         let suffix = &text[pos..];
@@ -468,4 +542,22 @@ fn parse_result(text: &str) -> (bool, String) {
     }
     // No marker at all — output was likely truncated or agent skipped it
     (false, "no [RESULT:*] marker found — output may be truncated".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prepare_runtime_paths_uses_hidden_workspace_runtime_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = prepare_runtime_paths("aidevchat-123", Some(dir.path().to_str().unwrap())).unwrap();
+        assert!(runtime.pid_path.contains(".ai-dev-hub/runtime"));
+        assert!(runtime.log_path.ends_with("aidevchat-123.server.log"));
+    }
+
+    #[test]
+    fn sanitize_runtime_label_replaces_special_chars() {
+        assert_eq!(sanitize_runtime_label("aidevchat:demo/1"), "aidevchat-demo-1");
+    }
 }

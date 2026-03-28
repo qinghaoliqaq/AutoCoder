@@ -47,6 +47,7 @@ export default function App() {
   const [checking, setChecking] = useState(true);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [projectContext, setProjectContext] = useState<string | null>(null);
   const [showContextEditor, setShowContextEditor] = useState(false);
@@ -359,6 +360,7 @@ export default function App() {
     } finally {
       setCurrentMode(null);
       setIsRunning(false);
+      setIsStopping(false);
     }
   };
 
@@ -611,8 +613,9 @@ export default function App() {
   };
 
   const handleStop = async () => {
+    if (!isRunning || isStopping) return;
+    setIsStopping(true);
     try { await invoke('cancel_skill'); } catch {}
-    setIsRunning(false);
   };
 
   const handleOpenProject = async () => {
@@ -832,6 +835,7 @@ export default function App() {
                   status={status}
                   configStatus={configStatus}
                   isRunning={isRunning}
+                  isStopping={isStopping}
                   onSubmit={handleSubmit}
                   onStop={handleStop}
                 />

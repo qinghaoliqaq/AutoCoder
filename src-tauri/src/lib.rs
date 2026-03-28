@@ -21,6 +21,7 @@ pub struct AppState {
     pub histories: Mutex<HashMap<String, Vec<Value>>>,
     /// Per-window cancellation tokens for skill runs.
     pub cancel_tokens: Mutex<HashMap<String, CancellationToken>>,
+    pub test_workspaces: Mutex<HashMap<String, String>>,
 }
 
 // ── Tauri commands ─────────────────────────────────────────────────────────────
@@ -94,6 +95,11 @@ async fn run_skill(
         let mut tokens = state.cancel_tokens.lock().unwrap();
         tokens.insert(window_label.clone(), token.clone());
     }
+    if mode == "test" {
+        if let Some(ws) = workspace.as_ref().filter(|path| !path.trim().is_empty()) {
+            state.test_workspaces.lock().unwrap().insert(window_label.clone(), ws.clone());
+        }
+    }
     let result = skills::execute(
         &mode, &task, workspace.as_deref(), phase.as_deref(),
         context.as_deref(), issue.as_deref(), &state.config, &state.prompts, &window_label, &app_handle,
@@ -101,6 +107,10 @@ async fn run_skill(
     ).await;
     // Remove token after run completes (cancelled or finished normally).
     state.cancel_tokens.lock().unwrap().remove(&window_label);
+    if mode == "test" && (result.is_err() || phase.as_deref() == Some("document")) {
+        let cleanup_workspace = state.test_workspaces.lock().unwrap().remove(&window_label);
+        let _ = skills::test_skill::cleanup_runtime_for_window(&window_label, cleanup_workspace.as_deref());
+    }
     result
 }
 
@@ -110,6 +120,8 @@ fn cancel_skill(window: tauri::WebviewWindow, state: tauri::State<'_, AppState>)
     if let Some(token) = state.cancel_tokens.lock().unwrap().get(window_label) {
         token.cancel();
     }
+    let cleanup_workspace = state.test_workspaces.lock().unwrap().remove(window_label);
+    let _ = skills::test_skill::cleanup_runtime_for_window(window_label, cleanup_workspace.as_deref());
 }
 
 #[tauri::command]
@@ -164,6 +176,7 @@ pub fn run() {
             prompts,
             histories:     Mutex::new(HashMap::new()),
             cancel_tokens: Mutex::new(HashMap::new()),
+            test_workspaces: Mutex::new(HashMap::new()),
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

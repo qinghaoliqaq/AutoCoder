@@ -6,11 +6,12 @@ interface InputBarProps {
   status: SystemStatus | null;
   configStatus: ConfigStatus | null;
   isRunning: boolean;
+  isStopping: boolean;
   onSubmit: (text: string) => void;
   onStop: () => void;
 }
 
-export default function InputBar({ mode, status, configStatus, isRunning, onSubmit, onStop }: InputBarProps) {
+export default function InputBar({ mode, status, configStatus, isRunning, isStopping, onSubmit, onStop }: InputBarProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -94,8 +95,9 @@ export default function InputBar({ mode, status, configStatus, isRunning, onSubm
             {isRunning ? (
               <button
                 onClick={onStop}
+                disabled={isStopping}
                 className="w-10 h-10 flex items-center justify-center bg-rose-50/80 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 border border-rose-200/50 dark:border-rose-500/30 rounded-xl text-rose-600 dark:text-rose-400 transition-all shadow-sm active:scale-95 backdrop-blur-sm"
-                title="Stop"
+                title={isStopping ? 'Stopping...' : 'Stop'}
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
                   <rect x="3" y="3" width="10" height="10" rx="1.5" />

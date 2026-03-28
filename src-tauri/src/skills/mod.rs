@@ -17,7 +17,7 @@ mod vendored;
 mod plan;
 mod code;
 mod debug;
-mod test_skill;
+pub(crate) mod test_skill;
 mod review;
 
 // ── Shared event payload types ─────────────────────────────────────────────────

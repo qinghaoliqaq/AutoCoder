@@ -1,5 +1,7 @@
 import type { AppMode } from './types';
 
+const TRAILING_INVOKE_RE = /(?:^|\n)<invoke\s+([\s\S]*?)\/>\s*$/;
+
 /** Parse an attribute string like `key="val"` supporting `\"` escapes. */
 export function parseAttr(attrs: string, name: string): string | undefined {
   const re = new RegExp(`${name}="((?:[^"\\\\]|\\\\.)*)"`);
@@ -9,7 +11,7 @@ export function parseAttr(attrs: string, name: string): string | undefined {
 }
 
 export function parseInvoke(text: string): { skill: AppMode; task: string; dir?: string } | null {
-  const match = text.match(/<invoke\s+([\s\S]*?)\/>/);
+  const match = text.match(TRAILING_INVOKE_RE);
   if (!match) return null;
   const attrs = match[1];
   const skill = parseAttr(attrs, 'skill') as AppMode | undefined;
@@ -20,5 +22,5 @@ export function parseInvoke(text: string): { skill: AppMode; task: string; dir?:
 }
 
 export function stripInvoke(text: string): string {
-  return text.replace(/<invoke\s+[\s\S]*?\/>\s*$/, '').trimEnd();
+  return text.replace(TRAILING_INVOKE_RE, '').trimEnd();
 }
