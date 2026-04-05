@@ -25,6 +25,7 @@ const DEFAULT_PLAN_REVIEW_CODEX_FINAL: &str = include_str!("../prompts/plan_revi
 const DEFAULT_PLAN_REVIEW_SYNTHESIS:       &str = include_str!("../prompts/plan_review_synthesis.md");
 const DEFAULT_PLAN_REVIEW_CODEX_PARALLEL:  &str = include_str!("../prompts/plan_review_codex_parallel.md");
 const DEFAULT_CODE_CLAUDE:             &str = include_str!("../prompts/code_claude.md");
+const DEFAULT_DEBUG_CLAUDE:            &str = include_str!("../prompts/debug_claude.md");
 const DEFAULT_DEBUG_CODEX:             &str = include_str!("../prompts/debug_codex.md");
 const DEFAULT_TEST_CLAUDE:             &str = include_str!("../prompts/test_claude.md");
 
@@ -47,6 +48,7 @@ pub struct Prompts {
     pub plan_review_synthesis:       String,
     pub plan_review_codex_parallel:  String,
     pub code_claude:                 String,
+    pub debug_claude:            String,
     pub debug_codex:             String,
     pub test_claude:             String,
 }
@@ -71,6 +73,7 @@ impl Prompts {
             plan_review_synthesis:      load("plan_review_synthesis.md",          &search_dirs, DEFAULT_PLAN_REVIEW_SYNTHESIS),
             plan_review_codex_parallel: load("plan_review_codex_parallel.md",     &search_dirs, DEFAULT_PLAN_REVIEW_CODEX_PARALLEL),
             code_claude:                load("code_claude.md",                    &search_dirs, DEFAULT_CODE_CLAUDE),
+            debug_claude:           load("debug_claude.md",            &search_dirs, DEFAULT_DEBUG_CLAUDE),
             debug_codex:            load("debug_codex.md",             &search_dirs, DEFAULT_DEBUG_CODEX),
             test_claude:            load("test_claude.md",             &search_dirs, DEFAULT_TEST_CLAUDE),
         }
