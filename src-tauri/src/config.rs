@@ -52,8 +52,9 @@ pub struct FeaturesConfig {
     pub vendored_skills: bool,
 }
 
-/// Agent-layer configuration — used by skills that run via the Agent SDK sidecar.
-/// If not configured, skills fall back to the legacy CLI runner mode.
+/// Agent-layer configuration — used by skills that run via the Anthropic API
+/// tool_use loop. If not configured, skills fall back to the legacy CLI runner
+/// mode, or use the [director] config if it has api_format = "anthropic".
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
     /// Anthropic API key (or cloud provider key).

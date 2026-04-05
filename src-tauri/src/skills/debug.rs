@@ -4,13 +4,14 @@
 ///   root cause and describe the minimal fix.
 /// Phase 2 (Fix): Claude applies the fix based on the diagnosis.
 ///
-/// When the Agent SDK sidecar is configured, both phases run through the SDK
-/// (one read-only query, one with write permissions). Otherwise falls back to
-/// the legacy CLI runner mode (claude + codex).
+/// When the Anthropic API is configured (via [agent] or [director] with
+/// api_format = "anthropic"), both phases run through the tool_use agent loop
+/// (direct API calls, no CLI needed). Otherwise falls back to the legacy CLI
+/// runner mode (claude + codex).
 
 use crate::config::AppConfig;
 use crate::prompts::Prompts;
-use crate::sidecar::{self, SidecarState};
+use crate::tool_runner;
 use super::{runners, BlackboardEvent};
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
@@ -21,27 +22,36 @@ pub(super) async fn run(
     context:      Option<&str>,
     config:       &AppConfig,
     prompts:      &Prompts,
-    sidecar:      &SidecarState,
     window_label: &str,
     app_handle:   &tauri::AppHandle,
     token:        CancellationToken,
 ) -> Result<(), String> {
-    if config.agent.is_configured() {
-        run_via_sidecar(task, workspace, context, config, prompts, sidecar, window_label, app_handle, token).await
+    if can_use_tool_runner(config) {
+        run_via_api(task, workspace, context, config, prompts, window_label, app_handle, token).await
     } else {
         run_via_cli(task, workspace, context, prompts, window_label, app_handle, token).await
     }
 }
 
-// ── Agent SDK path ───────────────────────────────────────────────────────────
+/// Check if we can use the direct API tool_use loop.
+fn can_use_tool_runner(config: &AppConfig) -> bool {
+    // Option 1: [agent] section configured
+    if config.agent.is_configured() {
+        return true;
+    }
+    // Option 2: [director] is configured with Anthropic format
+    config.is_configured()
+        && config.director.api_format == crate::config::ApiFormat::Anthropic
+}
 
-async fn run_via_sidecar(
+// ── API tool_use path (no CLI needed) ────────────────────────────────────────
+
+async fn run_via_api(
     task:         &str,
     workspace:    Option<&str>,
     context:      Option<&str>,
     config:       &AppConfig,
     prompts:      &Prompts,
-    sidecar:      &SidecarState,
     window_label: &str,
     app_handle:   &tauri::AppHandle,
     token:        CancellationToken,
@@ -55,11 +65,13 @@ async fn run_via_sidecar(
         Prompts::render(&prompts.debug_claude, &[("issue", task)]),
     );
 
-    let diagnosis = sidecar::run_agent_query(
-        sidecar, &config.agent,
-        &diagnose_prompt, workspace,
-        "plan",                                     // read-only mode
-        &["Read", "Grep", "Glob"],                  // no write tools
+    let diagnosis = tool_runner::run(
+        config,
+        "You are a senior developer performing root-cause analysis. \
+         Read the relevant source files, trace the code path, and identify the bug. \
+         Do NOT modify any files — this is a read-only diagnosis phase.",
+        &diagnose_prompt,
+        workspace,
         window_label, app_handle, token.clone(),
     ).await?;
 
@@ -80,11 +92,13 @@ async fn run_via_sidecar(
          you find a clear error in the analysis."
     );
 
-    sidecar::run_agent_query(
-        sidecar, &config.agent,
-        &full_prompt, workspace,
-        "acceptEdits",                              // write mode
-        &["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+    tool_runner::run(
+        config,
+        "You are a senior developer applying a precise bug fix. \
+         Use the editor and bash tools to make the minimal correct fix. \
+         Do not change unrelated code.",
+        &full_prompt,
+        workspace,
         window_label, app_handle, token,
     ).await?;
 

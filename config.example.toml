@@ -62,12 +62,12 @@ api_format = "openai"
 # Override with env var: DIRECTOR_CONTEXT_BUDGET
 # context_budget = 24000
 
-# ── Agent layer (skill execution via Claude Agent SDK) ────────────────────────
+# ── Agent layer (skill execution via Anthropic API tool_use) ──────────────────
 #
 # When configured, skills (plan, code, debug, test, review) run through
-# the Agent SDK sidecar instead of spawning claude/codex CLI processes.
-# This gives you the full Claude Code toolset (Read, Edit, Grep, Bash, etc.)
-# with a single API key — no CLI installation required.
+# direct Anthropic API calls with tool_use instead of spawning CLI processes.
+# Tools (Bash, TextEditor, Grep, Glob) are executed locally in Rust.
+# No CLI installation required — just an API key.
 #
 # Environment variable overrides:
 #   AGENT_API_KEY      Anthropic API key (or cloud provider key)

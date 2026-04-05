@@ -3,8 +3,8 @@ mod detect;
 mod director;
 mod history;
 mod prompts;
-pub(crate) mod sidecar;
 mod skills;
+pub(crate) mod tool_runner;
 mod workspace;
 
 use config::{AppConfig, ConfigStatus};
@@ -23,8 +23,6 @@ pub struct AppState {
     /// Per-window cancellation tokens for skill runs.
     pub cancel_tokens: Mutex<HashMap<String, CancellationToken>>,
     pub test_workspaces: Mutex<HashMap<String, String>>,
-    /// Agent SDK sidecar — lazily started on first use.
-    pub sidecar: sidecar::SidecarState,
 }
 
 // ── Tauri commands ─────────────────────────────────────────────────────────────
@@ -105,7 +103,7 @@ async fn run_skill(
     }
     let result = skills::execute(
         &mode, &task, workspace.as_deref(), phase.as_deref(),
-        context.as_deref(), issue.as_deref(), &state.config, &state.prompts, &state.sidecar,
+        context.as_deref(), issue.as_deref(), &state.config, &state.prompts,
         &window_label, &app_handle, token,
     ).await;
     // Remove token after run completes (cancelled or finished normally).
@@ -180,7 +178,6 @@ pub fn run() {
             histories:     Mutex::new(HashMap::new()),
             cancel_tokens: Mutex::new(HashMap::new()),
             test_workspaces: Mutex::new(HashMap::new()),
-            sidecar:       sidecar::SidecarState::new(),
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
