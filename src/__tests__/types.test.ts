@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { MODES, type AppMode } from '../types';
 
-const VALID_SKILLS: AppMode[] = ['plan', 'code', 'debug', 'test', 'review'];
+const VALID_SKILLS: AppMode[] = ['plan', 'code', 'debug', 'test', 'review', 'qa'];
 const VALID_LEADERS = ['claude', 'codex', 'director', 'user'];
 
 describe('MODES', () => {
-  it('contains exactly the 5 expected skill modes', () => {
+  it('contains exactly the expected skill modes', () => {
     const ids = MODES.map(m => m.id);
     expect(ids.sort()).toEqual([...VALID_SKILLS].sort());
   });

@@ -10,11 +10,12 @@
 /// Codex JSON protocol:
 ///   "item.started" + type "command_execution" → tool call starting.
 ///   "item.completed" + type "agent_message"   → text reply.
-
 use super::{SkillChunk, ToolLog};
+use crate::config::{AppConfig, ExecutionAccessMode};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use tauri::{Emitter, EventTarget};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -25,12 +26,108 @@ use tokio_util::sync::CancellationToken;
 /// 30 minutes is generous for any single skill invocation.
 const RUNNER_TIMEOUT_SECS: u64 = 1800;
 
+static RUNNER_PIDS: OnceLock<Mutex<HashMap<String, Vec<u32>>>> = OnceLock::new();
+
+fn runner_pid_registry() -> &'static Mutex<HashMap<String, Vec<u32>>> {
+    RUNNER_PIDS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn register_runner_pid(window_label: &str, pid: u32) {
+    let mut registry = runner_pid_registry().lock().unwrap();
+    let entry = registry.entry(window_label.to_string()).or_default();
+    if !entry.contains(&pid) {
+        entry.push(pid);
+    }
+}
+
+fn unregister_runner_pid(window_label: &str, pid: u32) {
+    let mut registry = runner_pid_registry().lock().unwrap();
+    if let Some(entry) = registry.get_mut(window_label) {
+        entry.retain(|registered| *registered != pid);
+        if entry.is_empty() {
+            registry.remove(window_label);
+        }
+    }
+}
+
+pub(crate) fn kill_registered_processes(window_label: &str) {
+    let pids = {
+        let registry = runner_pid_registry().lock().unwrap();
+        registry.get(window_label).cloned().unwrap_or_default()
+    };
+
+    for pid in pids {
+        terminate_process(pid);
+    }
+}
+
+fn terminate_process(pid: u32) {
+    #[cfg(unix)]
+    {
+        let pid_str = pid.to_string();
+        let process_group = format!("-{pid}");
+        let _ = std::process::Command::new("kill")
+            .args(["-TERM", &process_group])
+            .status();
+        let _ = std::process::Command::new("kill")
+            .args(["-TERM", &pid_str])
+            .status();
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", &process_group])
+            .status();
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", &pid_str])
+            .status();
+    }
+
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status();
+    }
+}
+
+fn isolate_child_process_group(cmd: &mut Command) {
+    #[cfg(unix)]
+    {
+        cmd.process_group(0);
+    }
+}
+
+struct ChildProcessGuard {
+    window_label: String,
+    pid: Option<u32>,
+}
+
+impl ChildProcessGuard {
+    fn new(window_label: &str, pid: Option<u32>) -> Self {
+        if let Some(pid) = pid {
+            register_runner_pid(window_label, pid);
+        }
+        Self {
+            window_label: window_label.to_string(),
+            pid,
+        }
+    }
+}
+
+impl Drop for ChildProcessGuard {
+    fn drop(&mut self) {
+        if let Some(pid) = self.pid {
+            unregister_runner_pid(&self.window_label, pid);
+        }
+    }
+}
+
 /// Append a CREATE or MODIFY entry to <workspace>/change.log.
 /// Called whenever Claude uses a file-writing tool (Write, Edit, Create, MultiEdit).
 /// Silently ignores errors — change.log is best-effort.
 fn record_change(tool: &str, raw_json: &str, cwd: &PathBuf) {
     let file_path = if let Ok(v) = serde_json::from_str::<Value>(raw_json) {
-        v["file_path"].as_str()
+        v["file_path"]
+            .as_str()
             .or_else(|| v["path"].as_str())
             .map(|s| s.to_string())
     } else {
@@ -51,7 +148,9 @@ fn record_change(tool: &str, raw_json: &str, cwd: &PathBuf) {
     let log_path = cwd.join("change.log");
     use std::io::Write as _;
     let _ = std::fs::OpenOptions::new()
-        .create(true).append(true).open(&log_path)
+        .create(true)
+        .append(true)
+        .open(&log_path)
         .and_then(|mut f| f.write_all(entry.as_bytes()));
 }
 
@@ -59,6 +158,7 @@ fn record_change(tool: &str, raw_json: &str, cwd: &PathBuf) {
 enum WorkspaceChangeKind {
     Create,
     Modify,
+    Delete,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,6 +171,7 @@ fn append_change_entry(kind: WorkspaceChangeKind, path: &std::path::Path, cwd: &
     let label = match kind {
         WorkspaceChangeKind::Create => "CREATE",
         WorkspaceChangeKind::Modify => "MODIFY",
+        WorkspaceChangeKind::Delete => "DELETE",
     };
     let abs = if path.is_absolute() {
         path.to_path_buf()
@@ -169,6 +270,12 @@ fn workspace_change_entries(
         }
     }
 
+    for path in before.keys() {
+        if !after.contains_key(path) {
+            entries.push((WorkspaceChangeKind::Delete, path.clone()));
+        }
+    }
+
     entries.sort_by(|a, b| a.1.cmp(&b.1));
     entries
 }
@@ -200,16 +307,30 @@ enum CodexExecutionMode {
     ReadOnlyReview,
 }
 
-fn build_codex_args(prompt: &str, mode: CodexExecutionMode) -> Vec<String> {
-    let mut args = vec![
-        "exec".to_string(),
-        "--skip-git-repo-check".to_string(),
-    ];
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClaudeExecutionMode {
+    WorkspaceWrite,
+    ReadOnlyReview,
+}
+
+fn configured_execution_access_mode() -> ExecutionAccessMode {
+    AppConfig::load().features.execution_access_mode
+}
+
+fn build_codex_args(
+    prompt: &str,
+    mode: CodexExecutionMode,
+    access_mode: ExecutionAccessMode,
+) -> Vec<String> {
+    let mut args = vec!["exec".to_string(), "--skip-git-repo-check".to_string()];
 
     match mode {
-        CodexExecutionMode::WorkspaceWrite => {
-            args.push("--full-auto".to_string());
-        }
+        CodexExecutionMode::WorkspaceWrite => match access_mode {
+            ExecutionAccessMode::Sandbox => args.push("--full-auto".to_string()),
+            ExecutionAccessMode::FullAccess => {
+                args.push("--dangerously-bypass-approvals-and-sandbox".to_string())
+            }
+        },
         CodexExecutionMode::ReadOnlyReview => {
             args.push("--sandbox".to_string());
             args.push("read-only".to_string());
@@ -221,33 +342,158 @@ fn build_codex_args(prompt: &str, mode: CodexExecutionMode) -> Vec<String> {
     args
 }
 
+fn build_claude_args(
+    prompt: &str,
+    mode: ClaudeExecutionMode,
+    access_mode: ExecutionAccessMode,
+) -> Vec<String> {
+    let mut args = vec![
+        "-p".to_string(),
+        prompt.to_string(),
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--include-partial-messages".to_string(),
+    ];
+
+    match mode {
+        ClaudeExecutionMode::WorkspaceWrite => match access_mode {
+            ExecutionAccessMode::Sandbox => {
+                args.push("--permission-mode".to_string());
+                args.push("acceptEdits".to_string());
+            }
+            ExecutionAccessMode::FullAccess => {
+                args.push("--permission-mode".to_string());
+                args.push("bypassPermissions".to_string());
+            }
+        },
+        ClaudeExecutionMode::ReadOnlyReview => {
+            args.push("--permission-mode".to_string());
+            args.push("plan".to_string());
+        }
+    }
+
+    args
+}
+
 // ── Claude ────────────────────────────────────────────────────────────────────
 
 /// Run `claude -p` in stream-json mode, emitting "skill-chunk" events as tokens arrive.
 /// Returns the full accumulated text when the process exits.
 /// Cancels and kills the child process if `token` is cancelled.
 pub(crate) async fn claude(
-    prompt:       &str,
-    cwd:          Option<&str>,
+    prompt: &str,
+    cwd: Option<&str>,
     window_label: &str,
-    app_handle:   &tauri::AppHandle,
-    token:        CancellationToken,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+) -> Result<String, String> {
+    claude_with_streaming(
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        ClaudeExecutionMode::WorkspaceWrite,
+        true,
+    )
+    .await
+}
+
+pub(crate) async fn claude_quiet(
+    prompt: &str,
+    cwd: Option<&str>,
+    window_label: &str,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+) -> Result<String, String> {
+    claude_with_streaming(
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        ClaudeExecutionMode::WorkspaceWrite,
+        false,
+    )
+    .await
+}
+
+pub(crate) async fn claude_read_only(
+    prompt: &str,
+    cwd: Option<&str>,
+    window_label: &str,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+) -> Result<String, String> {
+    claude_with_streaming(
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        ClaudeExecutionMode::ReadOnlyReview,
+        true,
+    )
+    .await
+}
+
+pub(crate) async fn claude_read_only_quiet(
+    prompt: &str,
+    cwd: Option<&str>,
+    window_label: &str,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+) -> Result<String, String> {
+    claude_with_streaming(
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        ClaudeExecutionMode::ReadOnlyReview,
+        false,
+    )
+    .await
+}
+
+async fn claude_with_streaming(
+    prompt: &str,
+    cwd: Option<&str>,
+    window_label: &str,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+    mode: ClaudeExecutionMode,
+    emit_chunks: bool,
 ) -> Result<String, String> {
     let mut cmd = Command::new("claude");
-    cmd.args(["-p", prompt, "--output-format", "stream-json", "--include-partial-messages"])
-       .env_remove("CLAUDECODE")
-       .env_remove("CLAUDE_CODE_SSE_PORT")
-       .env_remove("CLAUDE_CODE_ENTRYPOINT")
-       .env("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "100000")
-       .stdout(std::process::Stdio::piped())
-       .stderr(std::process::Stdio::piped());
-    cmd.current_dir(resolve_cwd(cwd));
+    let access_mode = configured_execution_access_mode();
+    cmd.args(build_claude_args(prompt, mode, access_mode))
+        .env_remove("CLAUDECODE")
+        .env_remove("CLAUDE_CODE_SSE_PORT")
+        .env_remove("CLAUDE_CODE_ENTRYPOINT")
+        .env("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "100000")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    isolate_child_process_group(&mut cmd);
+    let resolved_cwd = resolve_cwd(cwd);
+    let workspace_before = if matches!(mode, ClaudeExecutionMode::ReadOnlyReview) && cwd.is_some() {
+        Some(snapshot_workspace(&resolved_cwd))
+    } else {
+        None
+    };
+    cmd.current_dir(&resolved_cwd);
 
-    let mut child = cmd.spawn()
+    let mut child = cmd
+        .spawn()
         .map_err(|e| format!("Failed to start `claude`: {e}"))?;
-    let stdout = child.stdout.take()
+    let _child_guard = ChildProcessGuard::new(window_label, child.id());
+    let stdout = child
+        .stdout
+        .take()
         .ok_or_else(|| "No stdout from `claude`".to_string())?;
-    let stderr = child.stderr.take()
+    let stderr = child
+        .stderr
+        .take()
         .ok_or_else(|| "No stderr from `claude`".to_string())?;
 
     // Drain stderr in the background so the child never blocks on a full pipe buffer.
@@ -256,9 +502,9 @@ pub(crate) async fn claude(
         while let Ok(Some(_)) = lines.next_line().await {}
     });
 
-    let mut lines              = BufReader::new(stdout).lines();
-    let mut full_text          = String::new();
-    let mut is_first_chunk     = true;
+    let mut lines = BufReader::new(stdout).lines();
+    let mut full_text = String::new();
+    let mut is_first_chunk = true;
     let mut pending_tool_name: Option<String> = None;
     let mut pending_tool_input = String::new();
 
@@ -304,8 +550,18 @@ pub(crate) async fn claude(
                             }
                             Some("content_block_stop") => {
                                 if let Some(tool) = pending_tool_name.take() {
-                                    if matches!(tool.as_str(), "Write" | "Edit" | "Create" | "MultiEdit" | "write_file") {
-                                        record_change(&tool, &pending_tool_input, &resolve_cwd(cwd));
+                                    if matches!(mode, ClaudeExecutionMode::ReadOnlyReview)
+                                        && is_claude_forbidden_in_read_only(&tool)
+                                    {
+                                        let attempted_target =
+                                            summarize_tool_input(&tool, &pending_tool_input);
+                                        let _ = child.kill().await;
+                                        return Err(format!(
+                                            "Claude read-only run attempted forbidden tool `{tool}` on `{attempted_target}`"
+                                        ));
+                                    }
+                                    if is_claude_write_tool(&tool) {
+                                        record_change(&tool, &pending_tool_input, &resolved_cwd);
                                     }
                                     let input = summarize_tool_input(&tool, &pending_tool_input);
                                     let ts    = chrono::Utc::now().timestamp_millis() as u64;
@@ -329,15 +585,17 @@ pub(crate) async fn claude(
                                             full_text.push_str(text);
                                             let reset = is_first_chunk;
                                             is_first_chunk = false;
-                                            app_handle.emit_to(
-                                                EventTarget::webview_window(window_label),
-                                                "skill-chunk",
-                                                SkillChunk {
-                                                    agent: "claude".to_string(),
-                                                    text:  text.to_string(),
-                                                    reset,
-                                                },
-                                            ).map_err(|e| format!("Emit error: {e}"))?;
+                                            if emit_chunks {
+                                                app_handle.emit_to(
+                                                    EventTarget::webview_window(window_label),
+                                                    "skill-chunk",
+                                                    SkillChunk {
+                                                        agent: "claude".to_string(),
+                                                        text:  text.to_string(),
+                                                        reset,
+                                                    },
+                                                ).map_err(|e| format!("Emit error: {e}"))?;
+                                            }
                                         }
                                     }
                                 }
@@ -352,15 +610,17 @@ pub(crate) async fn claude(
                         if full_text.is_empty() {
                             if let Some(result) = v["result"].as_str() {
                                 full_text = result.to_string();
-                                app_handle.emit_to(
-                                    EventTarget::webview_window(window_label),
-                                    "skill-chunk",
-                                    SkillChunk {
-                                        agent: "claude".to_string(),
-                                        text:  full_text.clone(),
-                                        reset: true,
-                                    },
-                                ).map_err(|e| format!("Emit error: {e}"))?;
+                                if emit_chunks {
+                                    app_handle.emit_to(
+                                        EventTarget::webview_window(window_label),
+                                        "skill-chunk",
+                                        SkillChunk {
+                                            agent: "claude".to_string(),
+                                            text:  full_text.clone(),
+                                            reset: true,
+                                        },
+                                    ).map_err(|e| format!("Emit error: {e}"))?;
+                                }
                             }
                         }
                     }
@@ -370,7 +630,20 @@ pub(crate) async fn claude(
         }
     }
 
-    let status = child.wait().await.map_err(|e| format!("Wait error for `claude`: {e}"))?;
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| format!("Wait error for `claude`: {e}"))?;
+    if let Some(before) = workspace_before {
+        let after = snapshot_workspace(&resolved_cwd);
+        let changes = workspace_change_entries(&before, &after);
+        if !changes.is_empty() {
+            return Err(format!(
+                "Claude read-only run modified workspace files: {}",
+                format_workspace_change_list(&changes)
+            ));
+        }
+    }
     if !status.success() && full_text.is_empty() {
         return Err(format!("Claude exited with non-zero status: {status}"));
     }
@@ -383,38 +656,77 @@ pub(crate) async fn claude(
 /// Returns the full accumulated agent text when the process exits.
 /// Cancels and kills the child process if `token` is cancelled.
 pub(crate) async fn codex(
-    prompt:       &str,
-    cwd:          Option<&str>,
+    prompt: &str,
+    cwd: Option<&str>,
     window_label: &str,
-    app_handle:   &tauri::AppHandle,
-    token:        CancellationToken,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
 ) -> Result<String, String> {
-    run_codex(prompt, cwd, window_label, app_handle, token, CodexExecutionMode::WorkspaceWrite).await
+    run_codex(
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        CodexExecutionMode::WorkspaceWrite,
+        true,
+    )
+    .await
 }
 
 pub(crate) async fn codex_read_only(
-    prompt:       &str,
-    cwd:          Option<&str>,
+    prompt: &str,
+    cwd: Option<&str>,
     window_label: &str,
-    app_handle:   &tauri::AppHandle,
-    token:        CancellationToken,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
 ) -> Result<String, String> {
-    run_codex(prompt, cwd, window_label, app_handle, token, CodexExecutionMode::ReadOnlyReview)
-        .await
+    run_codex(
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        CodexExecutionMode::ReadOnlyReview,
+        true,
+    )
+    .await
+}
+
+pub(crate) async fn codex_read_only_quiet(
+    prompt: &str,
+    cwd: Option<&str>,
+    window_label: &str,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+) -> Result<String, String> {
+    run_codex(
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        CodexExecutionMode::ReadOnlyReview,
+        false,
+    )
+    .await
 }
 
 async fn run_codex(
-    prompt:       &str,
-    cwd:          Option<&str>,
+    prompt: &str,
+    cwd: Option<&str>,
     window_label: &str,
-    app_handle:   &tauri::AppHandle,
-    token:        CancellationToken,
-    mode:         CodexExecutionMode,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+    mode: CodexExecutionMode,
+    emit_chunks: bool,
 ) -> Result<String, String> {
     let mut cmd = Command::new("codex");
-    cmd.args(build_codex_args(prompt, mode))
-       .stdout(std::process::Stdio::piped())
-       .stderr(std::process::Stdio::piped());
+    let access_mode = configured_execution_access_mode();
+    cmd.args(build_codex_args(prompt, mode, access_mode))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    isolate_child_process_group(&mut cmd);
     let resolved_cwd = resolve_cwd(cwd);
     let workspace_before = if matches!(mode, CodexExecutionMode::WorkspaceWrite) && cwd.is_some() {
         Some(snapshot_workspace(&resolved_cwd))
@@ -423,11 +735,17 @@ async fn run_codex(
     };
     cmd.current_dir(&resolved_cwd);
 
-    let mut child = cmd.spawn()
+    let mut child = cmd
+        .spawn()
         .map_err(|e| format!("Failed to start `codex`: {e}"))?;
-    let stdout = child.stdout.take()
+    let _child_guard = ChildProcessGuard::new(window_label, child.id());
+    let stdout = child
+        .stdout
+        .take()
         .ok_or_else(|| "No stdout from `codex`".to_string())?;
-    let stderr = child.stderr.take()
+    let stderr = child
+        .stderr
+        .take()
         .ok_or_else(|| "No stderr from `codex`".to_string())?;
 
     // Drain stderr in the background so the child never blocks on a full pipe buffer.
@@ -436,7 +754,7 @@ async fn run_codex(
         while let Ok(Some(_)) = lines.next_line().await {}
     });
 
-    let mut lines  = BufReader::new(stdout).lines();
+    let mut lines = BufReader::new(stdout).lines();
     let mut output = String::new();
 
     let timeout = tokio::time::sleep(Duration::from_secs(RUNNER_TIMEOUT_SECS));
@@ -491,15 +809,17 @@ async fn run_codex(
                             if let Some(text) = item["text"].as_str() {
                                 let chunk = format!("{text}\n");
                                 output.push_str(&chunk);
-                                app_handle.emit_to(
-                                    EventTarget::webview_window(window_label),
-                                    "skill-chunk",
-                                    SkillChunk {
-                                        agent: "codex".to_string(),
-                                        text:  chunk,
-                                        reset: true,
-                                    },
-                                ).map_err(|e| format!("Emit error: {e}"))?;
+                                if emit_chunks {
+                                    app_handle.emit_to(
+                                        EventTarget::webview_window(window_label),
+                                        "skill-chunk",
+                                        SkillChunk {
+                                            agent: "codex".to_string(),
+                                            text:  chunk,
+                                            reset: true,
+                                        },
+                                    ).map_err(|e| format!("Emit error: {e}"))?;
+                                }
                             }
                         }
                         _ => {}
@@ -509,7 +829,10 @@ async fn run_codex(
         }
     }
 
-    let status = child.wait().await.map_err(|e| format!("Wait error for `codex`: {e}"))?;
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| format!("Wait error for `codex`: {e}"))?;
     if let Some(before) = workspace_before {
         let after = snapshot_workspace(&resolved_cwd);
         record_workspace_snapshot_diff(&resolved_cwd, &before, &after);
@@ -523,97 +846,17 @@ async fn run_codex(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Extract a short, human-readable summary from a tool's raw JSON arguments.
-/// Run `claude -p` silently — collects output but emits no skill-chunk events.
-/// Used for internal utility rounds (e.g. naming) that should not appear in chat.
-pub(crate) async fn claude_silent(
-    prompt: &str,
-    cwd:    Option<&str>,
-) -> Result<String, String> {
-    let mut cmd = Command::new("claude");
-    cmd.args(["-p", prompt, "--output-format", "stream-json", "--include-partial-messages"])
-       .env_remove("CLAUDECODE")
-       .env_remove("CLAUDE_CODE_SSE_PORT")
-       .env_remove("CLAUDE_CODE_ENTRYPOINT")
-       .env("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "100000")
-       .stdout(std::process::Stdio::piped())
-       .stderr(std::process::Stdio::piped());
-    cmd.current_dir(resolve_cwd(cwd));
-
-    let mut child = cmd.spawn()
-        .map_err(|e| format!("Failed to start `claude`: {e}"))?;
-    let stdout = child.stdout.take()
-        .ok_or_else(|| "No stdout from `claude`".to_string())?;
-    let stderr = child.stderr.take()
-        .ok_or_else(|| "No stderr from `claude`".to_string())?;
-
-    // Drain stderr so the child never blocks on a full pipe buffer.
-    tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(_)) = lines.next_line().await {}
-    });
-
-    let mut lines     = BufReader::new(stdout).lines();
-    let mut full_text = String::new();
-
-    // 30-minute hard timeout — silent calls can involve large codebases.
-    let deadline = tokio::time::sleep(Duration::from_secs(1800));
-    tokio::pin!(deadline);
-
-    loop {
-        tokio::select! {
-            _ = &mut deadline => {
-                let _ = child.kill().await;
-                return Err("claude_silent timed out after 1800 s".to_string());
-            }
-            result = lines.next_line() => {
-                let Some(line) = result.map_err(|e| format!("Read error from `claude`: {e}"))? else { break };
-                let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
-                match v["type"].as_str() {
-                    Some("assistant") => {
-                        if let Some(arr) = v["message"]["content"].as_array() {
-                            for item in arr {
-                                if item["type"] == "text" {
-                                    if let Some(text) = item["text"].as_str() {
-                                        full_text.push_str(text);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Some("result") => {
-                        if v["is_error"].as_bool() == Some(true) {
-                            let msg = v["result"].as_str().unwrap_or("unknown error").to_string();
-                            return Err(format!("Claude error: {msg}"));
-                        }
-                        if full_text.is_empty() {
-                            if let Some(r) = v["result"].as_str() {
-                                full_text = r.to_string();
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    let status = child.wait().await.map_err(|e| format!("Wait error for `claude`: {e}"))?;
-    if !status.success() && full_text.is_empty() {
-        return Err(format!("Claude exited with non-zero status: {status}"));
-    }
-    Ok(full_text)
-}
 
 pub(crate) fn summarize_tool_input(tool: &str, raw_json: &str) -> String {
     if let Ok(v) = serde_json::from_str::<Value>(raw_json) {
         // Tool-specific primary key (Claude capitalized names + Codex lowercase)
         let specific_key = match tool {
-            "Bash" | "bash" | "shell"       => Some("command"),
-            "Read" | "read_file"            => Some("file_path"),
+            "Bash" | "bash" | "shell" => Some("command"),
+            "Read" | "read_file" => Some("file_path"),
             "Write" | "Edit" | "write_file" => Some("file_path"),
-            "Glob" | "glob"                 => Some("pattern"),
-            "Grep" | "grep"                 => Some("pattern"),
-            _                               => None,
+            "Glob" | "glob" => Some("pattern"),
+            "Grep" | "grep" => Some("pattern"),
+            _ => None,
         };
         if let Some(key) = specific_key {
             if let Some(val) = v[key].as_str() {
@@ -621,7 +864,15 @@ pub(crate) fn summarize_tool_input(tool: &str, raw_json: &str) -> String {
             }
         }
         // Fallback: common argument keys in priority order
-        for key in &["command", "cmd", "file_path", "path", "pattern", "query", "input"] {
+        for key in &[
+            "command",
+            "cmd",
+            "file_path",
+            "path",
+            "pattern",
+            "query",
+            "input",
+        ] {
             if let Some(val) = v[key].as_str() {
                 return val.chars().take(150).collect();
             }
@@ -638,6 +889,36 @@ pub(crate) fn summarize_tool_input(tool: &str, raw_json: &str) -> String {
     raw_json.chars().take(150).collect()
 }
 
+fn is_claude_write_tool(tool: &str) -> bool {
+    matches!(
+        tool,
+        "Write" | "Edit" | "Create" | "MultiEdit" | "write_file"
+    )
+}
+
+fn is_claude_shell_tool(tool: &str) -> bool {
+    matches!(tool, "Bash" | "bash" | "shell")
+}
+
+fn is_claude_forbidden_in_read_only(tool: &str) -> bool {
+    is_claude_write_tool(tool) || is_claude_shell_tool(tool)
+}
+
+fn format_workspace_change_list(changes: &[(WorkspaceChangeKind, PathBuf)]) -> String {
+    changes
+        .iter()
+        .map(|(kind, path)| {
+            let label = match kind {
+                WorkspaceChangeKind::Create => "CREATE",
+                WorkspaceChangeKind::Modify => "MODIFY",
+                WorkspaceChangeKind::Delete => "DELETE",
+            };
+            format!("{label}: {}", path.display())
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -646,7 +927,10 @@ mod tests {
 
     #[test]
     fn resolve_cwd_explicit() {
-        assert_eq!(resolve_cwd(Some("/workspace/app")), PathBuf::from("/workspace/app"));
+        assert_eq!(
+            resolve_cwd(Some("/workspace/app")),
+            PathBuf::from("/workspace/app")
+        );
     }
 
     #[test]
@@ -747,6 +1031,25 @@ mod tests {
     }
 
     #[test]
+    fn workspace_change_entries_detect_delete() {
+        let mut before = HashMap::new();
+        before.insert(
+            PathBuf::from("src/old.rs"),
+            FileFingerprint {
+                len: 10,
+                modified_unix_nanos: 1,
+            },
+        );
+
+        let after = HashMap::new();
+
+        assert_eq!(
+            workspace_change_entries(&before, &after),
+            vec![(WorkspaceChangeKind::Delete, PathBuf::from("src/old.rs"))]
+        );
+    }
+
+    #[test]
     fn snapshot_workspace_skips_change_log() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
@@ -759,8 +1062,52 @@ mod tests {
     }
 
     #[test]
-    fn build_codex_args_uses_full_auto_for_write_mode() {
-        let args = build_codex_args("review code", CodexExecutionMode::WorkspaceWrite);
+    fn is_claude_write_tool_matches_all_mutating_tools() {
+        for tool in ["Write", "Edit", "Create", "MultiEdit", "write_file"] {
+            assert!(is_claude_write_tool(tool));
+        }
+        assert!(!is_claude_write_tool("Read"));
+    }
+
+    #[test]
+    fn is_claude_forbidden_in_read_only_blocks_write_and_shell_tools() {
+        for tool in [
+            "Write",
+            "Edit",
+            "Create",
+            "MultiEdit",
+            "write_file",
+            "Bash",
+            "bash",
+            "shell",
+        ] {
+            assert!(is_claude_forbidden_in_read_only(tool));
+        }
+        for tool in ["Read", "Glob", "Grep"] {
+            assert!(!is_claude_forbidden_in_read_only(tool));
+        }
+    }
+
+    #[test]
+    fn format_workspace_change_list_renders_kinds_and_paths() {
+        let rendered = format_workspace_change_list(&[
+            (WorkspaceChangeKind::Create, PathBuf::from("src/new.rs")),
+            (WorkspaceChangeKind::Modify, PathBuf::from("src/lib.rs")),
+            (WorkspaceChangeKind::Delete, PathBuf::from("src/old.rs")),
+        ]);
+        assert_eq!(
+            rendered,
+            "CREATE: src/new.rs, MODIFY: src/lib.rs, DELETE: src/old.rs"
+        );
+    }
+
+    #[test]
+    fn build_codex_args_uses_workspace_write_sandbox_for_write_mode() {
+        let args = build_codex_args(
+            "review code",
+            CodexExecutionMode::WorkspaceWrite,
+            ExecutionAccessMode::Sandbox,
+        );
         assert_eq!(
             args,
             vec![
@@ -774,8 +1121,31 @@ mod tests {
     }
 
     #[test]
+    fn build_codex_args_uses_full_access_for_write_mode_when_requested() {
+        let args = build_codex_args(
+            "review code",
+            CodexExecutionMode::WorkspaceWrite,
+            ExecutionAccessMode::FullAccess,
+        );
+        assert_eq!(
+            args,
+            vec![
+                "exec",
+                "--skip-git-repo-check",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--json",
+                "review code",
+            ]
+        );
+    }
+
+    #[test]
     fn build_codex_args_uses_read_only_sandbox_for_review_mode() {
-        let args = build_codex_args("review code", CodexExecutionMode::ReadOnlyReview);
+        let args = build_codex_args(
+            "review code",
+            CodexExecutionMode::ReadOnlyReview,
+            ExecutionAccessMode::FullAccess,
+        );
         assert_eq!(
             args,
             vec![
@@ -785,6 +1155,69 @@ mod tests {
                 "read-only",
                 "--json",
                 "review code",
+            ]
+        );
+    }
+
+    #[test]
+    fn build_claude_args_use_accept_edits_in_sandbox_write_mode() {
+        let args = build_claude_args(
+            "implement feature",
+            ClaudeExecutionMode::WorkspaceWrite,
+            ExecutionAccessMode::Sandbox,
+        );
+        assert_eq!(
+            args,
+            vec![
+                "-p",
+                "implement feature",
+                "--output-format",
+                "stream-json",
+                "--include-partial-messages",
+                "--permission-mode",
+                "acceptEdits",
+            ]
+        );
+    }
+
+    #[test]
+    fn build_claude_args_use_bypass_permissions_in_full_access_write_mode() {
+        let args = build_claude_args(
+            "implement feature",
+            ClaudeExecutionMode::WorkspaceWrite,
+            ExecutionAccessMode::FullAccess,
+        );
+        assert_eq!(
+            args,
+            vec![
+                "-p",
+                "implement feature",
+                "--output-format",
+                "stream-json",
+                "--include-partial-messages",
+                "--permission-mode",
+                "bypassPermissions",
+            ]
+        );
+    }
+
+    #[test]
+    fn build_claude_args_use_plan_mode_for_read_only_review() {
+        let args = build_claude_args(
+            "review feature",
+            ClaudeExecutionMode::ReadOnlyReview,
+            ExecutionAccessMode::FullAccess,
+        );
+        assert_eq!(
+            args,
+            vec![
+                "-p",
+                "review feature",
+                "--output-format",
+                "stream-json",
+                "--include-partial-messages",
+                "--permission-mode",
+                "plan",
             ]
         );
     }
@@ -825,8 +1258,8 @@ mod tests {
     fn record_change_appends_multiple_entries() {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().to_path_buf();
-        record_change("Write",  r#"{"file_path":"a.rs"}"#, &cwd);
-        record_change("Edit",   r#"{"file_path":"b.rs"}"#, &cwd);
+        record_change("Write", r#"{"file_path":"a.rs"}"#, &cwd);
+        record_change("Edit", r#"{"file_path":"b.rs"}"#, &cwd);
         let log = std::fs::read_to_string(cwd.join("change.log")).unwrap();
         assert!(log.contains("a.rs"));
         assert!(log.contains("b.rs"));

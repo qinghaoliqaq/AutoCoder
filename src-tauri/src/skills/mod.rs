@@ -5,20 +5,20 @@
 ///   2. Add `mod <name>;` below
 ///   3. Add a match arm in `execute()`
 ///   4. Optionally add a new prompt file in src-tauri/prompts/
-
 use crate::{config::AppConfig, prompts::Prompts};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-mod runners;
-mod blackboard;
-mod plan_board;
-mod vendored;
-mod plan;
+pub(crate) mod blackboard;
 mod code;
 mod debug;
-pub(crate) mod test_skill;
+mod plan;
+mod plan_board;
+mod qa;
 mod review;
+pub(crate) mod runners;
+pub(crate) mod test_skill;
+mod vendored;
 
 // ── Shared event payload types ─────────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ mod review;
 #[derive(Serialize, Clone)]
 pub struct SkillChunk {
     pub agent: String,
-    pub text:  String,
+    pub text: String,
     /// true = frontend should start a new message bubble for this agent
     pub reset: bool,
 }
@@ -34,17 +34,26 @@ pub struct SkillChunk {
 /// Outcome of a single review phase, emitted via "review-phase-result".
 #[derive(Serialize, Clone)]
 pub struct ReviewPhaseResult {
-    pub phase:  String,
+    pub phase: String,
     pub passed: bool,
-    pub issue:  String,
+    pub issue: String,
+}
+
+/// Outcome of a QA acceptance pass, emitted via "qa-result".
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QaResult {
+    pub verdict: String,
+    pub recommended_next_step: String,
+    pub summary: String,
+    pub issue: String,
 }
 
 /// Tool-call entry emitted via "tool-log" whenever Claude or Codex calls a tool.
 #[derive(Serialize, Clone)]
 pub struct ToolLog {
-    pub agent:     String,
-    pub tool:      String,
-    pub input:     String,
+    pub agent: String,
+    pub tool: String,
+    pub input: String,
     pub timestamp: u64,
 }
 
@@ -56,14 +65,35 @@ pub struct BlackboardEvent {
     pub summary: String,
 }
 
+pub(crate) fn sanitize_blackboard_state(workspace: &str) -> Result<(), String> {
+    blackboard::sanitize_persisted_state(workspace)
+}
+
 // ── Context injection helper (used by skill submodules) ───────────────────────
 
 /// Prepend the project context document to a prompt, if one was supplied.
 pub(super) fn inject_context(context: Option<&str>, prompt: String) -> String {
     match context {
-        Some(ctx) if !ctx.trim().is_empty() =>
-            format!("## Project Context\n\n{ctx}\n\n---\n\n{prompt}"),
+        Some(ctx) if !ctx.trim().is_empty() => {
+            format!("## Project Context\n\n{ctx}\n\n---\n\n{prompt}")
+        }
         _ => prompt,
+    }
+}
+
+pub(super) fn merge_context_sections(sections: &[Option<String>]) -> Option<String> {
+    let merged = sections
+        .iter()
+        .filter_map(|section| section.as_deref())
+        .map(str::trim)
+        .filter(|section| !section.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+
+    if merged.is_empty() {
+        None
+    } else {
+        Some(merged.join("\n\n---\n\n"))
     }
 }
 
@@ -72,28 +102,95 @@ pub(super) fn inject_context(context: Option<&str>, prompt: String) -> String {
 /// Execute the named skill for the given task.
 /// Streams output to the frontend via Tauri events scoped to the given window.
 pub async fn execute(
-    mode:         &str,
-    task:         &str,
-    workspace:    Option<&str>,
-    phase:        Option<&str>,
-    context:      Option<&str>,
-    issue:        Option<&str>,
-    config:       &AppConfig,
-    prompts:      &Prompts,
+    mode: &str,
+    task: &str,
+    workspace: Option<&str>,
+    phase: Option<&str>,
+    context: Option<&str>,
+    issue: Option<&str>,
+    config: &AppConfig,
+    prompts: &Prompts,
     window_label: &str,
-    app_handle:   &tauri::AppHandle,
-    token:        CancellationToken,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
 ) -> Result<(), String> {
     match mode {
-        "plan"   => plan::run(task, workspace, context, prompts, window_label, app_handle, token).await,
-        "code"   => code::run(task, workspace, context, config, prompts, window_label, app_handle, token).await,
-        "debug"  => debug::run(task, workspace, context, prompts, window_label, app_handle, token).await,
-        "test"   => test_skill::run_phase(
-            phase.unwrap_or("integration_test"), task, issue, workspace, context, window_label, app_handle, token,
-        ).await,
-        "review" => review::run_phase(
-            phase.unwrap_or("plan_check"), task, issue, workspace, context, window_label, app_handle, token,
-        ).await,
+        "plan" => {
+            plan::run(
+                task,
+                workspace,
+                context,
+                prompts,
+                window_label,
+                app_handle,
+                token,
+            )
+            .await
+        }
+        "code" => {
+            code::run(
+                task,
+                workspace,
+                context,
+                config,
+                prompts,
+                window_label,
+                app_handle,
+                token,
+            )
+            .await
+        }
+        "debug" => {
+            debug::run(
+                task,
+                workspace,
+                context,
+                prompts,
+                window_label,
+                app_handle,
+                token,
+            )
+            .await
+        }
+        "test" => {
+            test_skill::run_phase(
+                phase.unwrap_or("integration_test"),
+                task,
+                issue,
+                workspace,
+                context,
+                window_label,
+                app_handle,
+                token,
+            )
+            .await
+        }
+        "review" => {
+            review::run_phase(
+                phase.unwrap_or("plan_check"),
+                task,
+                issue,
+                workspace,
+                context,
+                window_label,
+                app_handle,
+                token,
+            )
+            .await
+        }
+        "qa" => {
+            qa::run(
+                task,
+                issue,
+                workspace,
+                context,
+                prompts,
+                window_label,
+                app_handle,
+                token,
+            )
+            .await
+        }
         other => Err(format!("Unknown skill: {other}")),
     }
 }
@@ -127,6 +224,24 @@ mod tests {
     fn inject_context_empty_string_noop() {
         let result = inject_context(Some(""), "base".to_string());
         assert_eq!(result, "base");
+    }
+
+    #[test]
+    fn merge_context_sections_skips_empty_entries() {
+        let merged = merge_context_sections(&[
+            Some("alpha".to_string()),
+            None,
+            Some(" \n ".to_string()),
+            Some("beta".to_string()),
+        ])
+        .unwrap();
+        assert_eq!(merged, "alpha\n\n---\n\nbeta");
+    }
+
+    #[test]
+    fn merge_context_sections_returns_none_when_empty() {
+        let merged = merge_context_sections(&[None, Some("   ".to_string())]);
+        assert!(merged.is_none());
     }
 
     // ── execute dispatch ──────────────────────────────────────────────────────

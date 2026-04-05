@@ -1,17 +1,16 @@
-/// Debug skill — Codex investigates and fixes the reported issue.
-
-use crate::prompts::Prompts;
 use super::runners;
+/// Debug skill — Codex investigates and fixes the reported issue.
+use crate::prompts::Prompts;
 use tokio_util::sync::CancellationToken;
 
 pub(super) async fn run(
-    task:         &str,
-    workspace:    Option<&str>,
-    context:      Option<&str>,
-    prompts:      &Prompts,
+    task: &str,
+    workspace: Option<&str>,
+    context: Option<&str>,
+    prompts: &Prompts,
     window_label: &str,
-    app_handle:   &tauri::AppHandle,
-    token:        CancellationToken,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
 ) -> Result<(), String> {
     let prompt = super::inject_context(
         context,

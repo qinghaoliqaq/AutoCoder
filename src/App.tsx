@@ -6,17 +6,17 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 // Scope all event listeners to the current window so multiple windows
 // don't receive each other's skill-chunk / tool-log / director events.
 const appWindow = getCurrentWebviewWindow();
-import { AppMode, ChatMessage, ReviewPhaseResult, ToolLog, SystemStatus, ConfigStatus, MODES, SessionMeta, Session, BlackboardEvent } from './types';
+import { AppMode, ChatMessage, ReviewPhaseResult, QaResult, ToolLog, SystemStatus, ConfigStatus, ConfigDraft, MODES, SessionMeta, Session, BlackboardEvent } from './types';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import ModeActivated from './components/ModeActivated';
-import StatusPanel from './components/StatusPanel';
 import ChatPanel from './components/ChatPanel';
 import InputBar from './components/InputBar';
 import FileTreePanel from './components/FileTreePanel';
 import ToolLogPanel from './components/ToolLogPanel';
 import HistoryPanel from './components/HistoryPanel';
 import BlackboardPanel from './components/BlackboardPanel';
-import { VscColorMode, VscFiles, VscHistory, VscMultipleWindows, VscTerminal, VscChecklist } from 'react-icons/vsc';
+import ConfigEditorModal from './components/ConfigEditorModal';
+import { VscColorMode, VscFiles, VscHistory, VscMultipleWindows, VscTerminal, VscChecklist, VscSettingsGear } from 'react-icons/vsc';
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -36,11 +36,13 @@ function ThemeToggle() {
 
 
 import { parseInvoke, stripInvoke } from './invoke';
-import { makeId, makeSessionId } from './utils';
+import { buildNextInputAfterQa, buildNextInputAfterReview, buildNextInputAfterTest } from './directorFlow';
+import { makeId, makeSessionId, syncSessionIdentity } from './utils';
 
 // ── App ────────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  type SidebarTab = 'explorer' | 'logs' | 'history' | 'blackboard';
   const [currentMode, setCurrentMode] = useState<AppMode | null>(null);
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null);
@@ -52,7 +54,15 @@ export default function App() {
   const [projectContext, setProjectContext] = useState<string | null>(null);
   const [showContextEditor, setShowContextEditor] = useState(false);
   const [contextDraft, setContextDraft] = useState('');
-  const [activeSidebarTab, setActiveSidebarTab] = useState<'explorer' | 'logs' | 'history' | 'blackboard' | null>(null);
+  const [showConfigEditor, setShowConfigEditor] = useState(false);
+  const [configDraft, setConfigDraft] = useState<ConfigDraft | null>(null);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [configUpdating, setConfigUpdating] = useState(false);
+  const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab | null>(null);
+  const [blackboardFullscreen, setBlackboardFullscreen] = useState(false);
+  const [previousSidebarTab, setPreviousSidebarTab] = useState<Exclude<SidebarTab, 'blackboard'> | null>(null);
+  const [blackboardSeenMessageAt, setBlackboardSeenMessageAt] = useState(0);
   const [toolLogs, setToolLogs] = useState<ToolLog[]>([]);
   const [blackboardEvents, setBlackboardEvents] = useState<BlackboardEvent[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>(makeSessionId);
@@ -71,8 +81,15 @@ export default function App() {
   });
   const sessionIdRef = useRef(currentSessionId);
   sessionIdRef.current = currentSessionId;
+  const stopRequestedRef = useRef(false);
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const toolLogsRef = useRef(toolLogs);
+  toolLogsRef.current = toolLogs;
+  const blackboardEventsRef = useRef(blackboardEvents);
+  blackboardEventsRef.current = blackboardEvents;
 
   // Auto-show tool logs when new logs arrive
   useEffect(() => {
@@ -160,48 +177,76 @@ export default function App() {
 
   // Auto-save: debounced, fires 1.5s after any messages/toolLogs/blackboard changes.
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistSessionNow = useCallback(async () => {
+    if (messagesRef.current.length === 0) return;
+
+    const title = messagesRef.current.find(m => m.role === 'user')?.content.slice(0, 60) ?? '新对话';
+    const ws = workspaceRef.current;
+    const existingMeta = sessions.find(session => session.id === sessionIdRef.current);
+    const latestMessageAt = messagesRef.current.reduce((latest, message) => Math.max(latest, message.timestamp), 0);
+    const latestToolLogAt = toolLogsRef.current.reduce((latest, log) => Math.max(latest, log.timestamp), 0);
+    const updatedAt = Math.max(existingMeta?.updated_at ?? 0, latestMessageAt, latestToolLogAt);
+    const directorHistory = await invoke<unknown[]>('get_director_history');
+
+    await invoke('save_session', {
+      workspace: ws,
+      session: {
+        id: sessionIdRef.current,
+        title,
+        workspace_path: ws,
+        created_at: messagesRef.current[0].timestamp,
+        updated_at: updatedAt,
+        message_count: messagesRef.current.length,
+        messages: messagesRef.current,
+        tool_logs: toolLogsRef.current,
+        blackboard_events: blackboardEventsRef.current,
+        project_context: projectContextRef.current,
+        project_context_source: projectContextMetaRef.current.source,
+        director_history: directorHistory,
+      },
+    });
+
+    const list = await invoke<SessionMeta[]>('list_sessions', { workspace: ws });
+    setSessions(list);
+  }, [sessions]);
+
+  const flushPendingSessionSave = useCallback(async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    try {
+      await persistSessionNow();
+    } catch (err) {
+      console.error('auto-save error:', err);
+    }
+  }, [persistSessionNow]);
+
   useEffect(() => {
     if (messages.length === 0) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      const title = messages.find(m => m.role === 'user')?.content.slice(0, 60) ?? '新对话';
-      const ws = workspaceRef.current;
       try {
-        const directorHistory = await invoke<unknown[]>('get_director_history');
-        await invoke('save_session', {
-          workspace: ws,
-          session: {
-            id: sessionIdRef.current,
-            title,
-            workspace_path: ws,
-            created_at: messages[0].timestamp,
-            updated_at: Date.now(),
-            message_count: messages.length,
-            messages,
-            tool_logs: toolLogs,
-            blackboard_events: blackboardEvents,
-            project_context: projectContextRef.current,
-            project_context_source: projectContextMetaRef.current.source,
-            director_history: directorHistory,
-          },
-        });
-        const list = await invoke<SessionMeta[]>('list_sessions', { workspace: ws });
-        setSessions(list);
+        await persistSessionNow();
       } catch (err) {
         console.error('auto-save error:', err);
       }
     }, 1500);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [messages, toolLogs, blackboardEvents, workspace, projectContext, currentSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages, toolLogs, blackboardEvents, workspace, projectContext, currentSessionId, persistSessionNow]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLoadSession = useCallback(async (sessionId: string) => {
     try {
+      if (sessionId !== currentSessionId) {
+        await flushPendingSessionSave();
+      }
       const s = await invoke<Session>('load_session', { workspace, sessionId });
       const restoredWorkspace = s.workspace_path ?? workspace;
       setMessages(s.messages);
       setToolLogs(s.tool_logs as ToolLog[]);
       setBlackboardEvents(s.blackboard_events || []);
-      setCurrentSessionId(s.id);
+      syncSessionIdentity(s.id, sessionIdRef, setCurrentSessionId);
       projectContextRef.current = s.project_context ?? null;
       setProjectContext(s.project_context ?? null);
       projectContextMetaRef.current = s.project_context
@@ -219,7 +264,7 @@ export default function App() {
     } catch (err) {
       console.error('load_session error:', err);
     }
-  }, [workspace]);
+  }, [workspace, currentSessionId, flushPendingSessionSave]);
 
   const handleDeleteSession = useCallback(async (sessionId: string) => {
     try {
@@ -230,7 +275,7 @@ export default function App() {
         setToolLogs([]);
         setBlackboardEvents([]);
         planReportRef.current = '';
-        setCurrentSessionId(makeSessionId());
+        syncSessionIdentity(makeSessionId(), sessionIdRef, setCurrentSessionId);
         await invoke('clear_history');
       }
     } catch (err) {
@@ -255,7 +300,16 @@ export default function App() {
         claude: { installed: false, version: null, path: null },
         codex: { installed: false, version: null, path: null }
       });
-      setConfigStatus({ configured: false, base_url: '', model: '', api_format: 'openai', api_key_hint: '', vendored_skills: true });
+      setConfigStatus({
+        configured: false,
+        base_url: '',
+        model: '',
+        api_format: 'openai',
+        api_key_hint: '',
+        vendored_skills: true,
+        max_parallel_subtasks: 5,
+        execution_access_mode: 'sandbox',
+      });
     } finally {
       setChecking(false);
     }
@@ -275,6 +329,37 @@ export default function App() {
     setMessages((prev) => prev.map((m) => m.id === id ? { ...m, content, thinking } : m));
   };
 
+  const pauseDirectorLoop = async (reason: string) => {
+    const last = lastInvocationRef.current;
+    const retryInstruction = last
+      ? `请重新调用 ${last.skill} 技能（任务："${last.task}"${last.wsPath ? `，工作目录：${last.wsPath}` : ''}）从头执行。`
+      : '请重新调用刚才失败的技能。';
+
+    try {
+      const currentHistory = await invoke<unknown[]>('get_director_history');
+      await invoke('restore_director_history', {
+        history: [
+          ...currentHistory,
+          {
+            role: 'user',
+            content: `[系统通知] 技能执行中断，错误：${reason}。任务已暂停，等待用户指令。用户告知恢复后，${retryInstruction}`,
+          },
+          {
+            role: 'assistant',
+            content: `了解。${last ? `${last.skill} 技能` : '上一个技能'}执行失败或超出轮数预算，任务暂停。等待用户确认后我会重新调用。`,
+          },
+        ],
+      });
+    } catch {
+      // History injection failed — UI message is still shown
+    }
+
+    addMessage(
+      'director',
+      `⏸ 任务已暂停\n\n**原因**：${reason}\n\n等你确认后，告诉我"已经恢复了"，我会重新执行 ${last ? `\`${last.skill}\`` : '上一个'} 技能。`
+    );
+  };
+
   // ── Submit handler (Director loop) ─────────────────────────────────────────
   //
   // Each iteration: Director speaks → maybe invokes a skill → skill runs →
@@ -283,6 +368,7 @@ export default function App() {
 
   const handleSubmit = async (text: string) => {
     if (isRunning) return;
+    stopRequestedRef.current = false;
     setIsRunning(true);
     addMessage('user', text);
 
@@ -293,7 +379,10 @@ export default function App() {
     let currentWsPath: string | null = workspaceRef.current;
 
     try {
-      const MAX_ROUNDS = 8;
+      // Allow one full remediation / re-validation loop after QA while still
+      // keeping runaway Director chains bounded.
+      const MAX_ROUNDS = 16;
+      let hitRoundBudget = true;
       for (let round = 0; round < MAX_ROUNDS; round++) {
         // ── Ask Director ────────────────────────────────────────────────────
         const replyId = addMessage('director', '', true);
@@ -315,26 +404,36 @@ export default function App() {
 
         // ── Check for skill invocation ──────────────────────────────────────
         const invocation = parseInvoke(accumulated);
-        if (!invocation) break;
+        if (!invocation) {
+          if (stopRequestedRef.current) {
+            stopRequestedRef.current = false;
+            await pauseDirectorLoop('用户手动停止了当前任务。');
+          }
+          hitRoundBudget = false;
+          break;
+        }
 
         setCurrentMode(invocation.skill);
         lastInvocationRef.current = { skill: invocation.skill, task: invocation.task, wsPath: currentWsPath };
 
         if (invocation.skill === 'review') {
           const reviewResult = await runReview(invocation.task, currentWsPath);
-          if (reviewResult.securityFailed) {
-            // Security audit found critical issues: write security.md, then re-enter code mode to fix
-            nextInput = `Review 安全审查发现严重安全问题，已生成 security.md 报告。\n\n安全问题摘要：${reviewResult.securityIssue}\n\n请立即调用 code 技能，按照 security.md 中记录的问题逐一修复，修复后在 security.md 中标记每项问题为已解决。`;
-          } else {
-            nextInput = `review 已完成：安全审查 ✓、代码清理 ✓。请立即调用 test 技能对项目进行完整集成测试（启动服务器 + curl 测试所有接口）。`;
-          }
+          nextInput = buildNextInputAfterReview(reviewResult);
         } else if (invocation.skill === 'test') {
-          await runTest(invocation.task, currentWsPath);
-          nextInput = `test 集成测试及项目报告已完成。请用一句话总结结果并结束任务。`;
+          const testPassed = await runTest(invocation.task, currentWsPath);
+          if (!testPassed) {
+            hitRoundBudget = false;
+            break;
+          }
+          nextInput = buildNextInputAfterTest();
+        } else if (invocation.skill === 'qa') {
+          const qaResult = await runQa(invocation.task, currentWsPath);
+          nextInput = buildNextInputAfterQa(qaResult);
         } else {
           const result = await runSkill(invocation.skill, invocation.task);
           if (result === null) {
             // runSkill already showed an error message — stop the loop
+            hitRoundBudget = false;
             break;
           }
           currentWsPath = result;
@@ -345,35 +444,18 @@ export default function App() {
           }
         }
       }
-    } catch (err) {
-      // Inject failure context into Director's conversation history so it knows
-      // exactly what to retry when the user says "已经恢复了".
-      const last = lastInvocationRef.current;
-      const retryInstruction = last
-        ? `请重新调用 ${last.skill} 技能（任务："${last.task}"${last.wsPath ? `，工作目录：${last.wsPath}` : ''}）从头执行。`
-        : '请重新调用刚才失败的技能。';
-      try {
-        const currentHistory = await invoke<unknown[]>('get_director_history');
-        await invoke('restore_director_history', {
-          history: [
-            ...currentHistory,
-            {
-              role: 'user',
-              content: `[系统通知] 技能执行中断，错误：${String(err)}。任务已暂停，等待用户指令。用户告知恢复后，${retryInstruction}`,
-            },
-            {
-              role: 'assistant',
-              content: `了解。${last ? `${last.skill} 技能` : '上一个技能'}执行失败，任务暂停。等待用户确认后我会重新调用。`,
-            },
-          ],
-        });
-      } catch {
-        // History injection failed — UI message is still shown
+
+      if (hitRoundBudget) {
+        await pauseDirectorLoop(`Director exceeded the round budget (${MAX_ROUNDS}) before the task reached a stable stop condition.`);
       }
-      addMessage('director',
-        `⏸ 任务已暂停\n\n**原因**：${String(err)}\n\n等 CLI 恢复后，告诉我"已经恢复了"，我会重新执行 ${last ? `\`${last.skill}\`` : '上一个'} 技能。`
-      );
+    } catch (err) {
+      const reason = stopRequestedRef.current && String(err) === 'cancelled'
+        ? '用户手动停止了当前任务。'
+        : String(err);
+      stopRequestedRef.current = false;
+      await pauseDirectorLoop(reason);
     } finally {
+      stopRequestedRef.current = false;
       setCurrentMode(null);
       setIsRunning(false);
       setIsStopping(false);
@@ -477,14 +559,20 @@ export default function App() {
 
   // ── Test: full integration test (env setup + curl suite + fix + document) ──
 
-  const runTest = async (task: string, wsPath: string | null) => {
+  const runTest = async (task: string, wsPath: string | null): Promise<boolean> => {
     setCurrentMode('test');
 
     // Combine plan architecture report + project docs so Claude knows
     // exactly what was planned and what should be tested.
-    const testContext = planReportRef.current
-      ? `## 技术方案 / 计划功能（请以此为测试 checklist 基准）\n\n${planReportRef.current}\n\n---\n\n${projectContextRef.current ?? ''}`.trimEnd()
-      : projectContextRef.current;
+    const contextSections = [
+      planReportRef.current
+        ? `## 技术方案 / 计划功能（请以此为测试 checklist 基准）\n\n${planReportRef.current}`
+        : null,
+      projectContextRef.current,
+    ].filter((section): section is string => Boolean(section && section.trim()));
+    const testContext = contextSections.length > 0
+      ? contextSections.join('\n\n---\n\n')
+      : null;
 
     const phase = (p: string, issue?: string) =>
       runPhase('test', p, task, wsPath, issue, testContext);
@@ -535,6 +623,69 @@ export default function App() {
     await phase('document');
 
     setCurrentMode('chat');
+    return testResult.passed;
+  };
+
+  const runQa = async (task: string, wsPath: string | null): Promise<QaResult> => {
+    if (!wsPath) {
+      throw new Error('没有工作目录。请先运行 plan 技能建立项目目录，再执行 qa。');
+    }
+    setCurrentMode('qa');
+    const qaSections = [
+      planReportRef.current
+        ? `## 技术方案（来自 Plan 阶段）\n\n${planReportRef.current}`
+        : null,
+      projectContextRef.current,
+    ].filter((section): section is string => Boolean(section && section.trim()));
+    const qaContext = qaSections.length > 0
+      ? qaSections.join('\n\n---\n\n')
+      : null;
+
+    const agentMsgIds = new Map<string, string>();
+    const agentContent = new Map<string, string>();
+
+    const unlistenChunks = await appWindow.listen<{ agent: string; text: string; reset: boolean }>('skill-chunk', (event) => {
+      const { agent, text, reset } = event.payload;
+      const role = agent as ChatMessage['role'];
+      if (reset || !agentMsgIds.has(agent)) {
+        agentMsgIds.set(agent, addMessage(role, ''));
+        agentContent.set(agent, '');
+      }
+      const id = agentMsgIds.get(agent)!;
+      const updated = agentContent.get(agent)! + text;
+      agentContent.set(agent, updated);
+      updateMessage(id, updated);
+    });
+
+    let result: QaResult = {
+      verdict: 'FAIL',
+      recommended_next_step: 'review',
+      summary: 'QA did not return a structured verdict.',
+      issue: 'missing qa-result event',
+    };
+    const unlistenQaResult = await appWindow.listen<QaResult>('qa-result', (event) => {
+      result = event.payload;
+    });
+    const unlistenToolLog = await appWindow.listen<ToolLog>('tool-log', (event) => {
+      setToolLogs(prev => [...prev, event.payload]);
+    });
+
+    try {
+      await invoke('run_skill', {
+        mode: 'qa',
+        task,
+        workspace: wsPath,
+        context: qaContext,
+        issue: null,
+      });
+    } finally {
+      unlistenChunks();
+      unlistenQaResult();
+      unlistenToolLog();
+      setCurrentMode('chat');
+    }
+
+    return result;
   };
 
   // ── Skills ─────────────────────────────────────────────────────────────────
@@ -630,47 +781,142 @@ export default function App() {
 
   const handleStop = async () => {
     if (!isRunning || isStopping) return;
+    stopRequestedRef.current = true;
     setIsStopping(true);
     try { await invoke('cancel_skill'); } catch {}
   };
 
-  const handleOpenProject = async () => {
+  const handleOpenProject = useCallback(async () => {
     const selected = await openDialog({ directory: true, multiple: false, title: '选择项目文件夹' });
     if (!selected) return;
     try {
       const validated = await invoke<string>('open_project', { path: selected as string });
+      const switchingWorkspace = workspaceRef.current !== validated;
+      if (switchingWorkspace) {
+        await flushPendingSessionSave();
+      }
       const meta = projectContextMetaRef.current;
       if (meta.workspace && meta.workspace !== validated) {
         projectContextMetaRef.current = { source: null, workspace: null };
         projectContextRef.current = null;
         setProjectContext(null);
       }
+      if (switchingWorkspace) {
+        setMessages([]);
+        setToolLogs([]);
+        setBlackboardEvents([]);
+        planReportRef.current = '';
+        syncSessionIdentity(makeSessionId(), sessionIdRef, setCurrentSessionId);
+        await invoke('clear_history');
+      }
       setWorkspace(validated);
     } catch (err) {
       console.error('open_project error:', err);
     }
-  };
+  }, [flushPendingSessionSave]);
 
   const handleNewChat = useCallback(async () => {
-    // Auto-save will have already persisted the current session via the debounced useEffect.
-    // Just start fresh with a new session ID.
+    await flushPendingSessionSave();
     setMessages([]);
     setToolLogs([]);
     setBlackboardEvents([]);
     planReportRef.current = '';
-    setCurrentSessionId(makeSessionId());
+    syncSessionIdentity(makeSessionId(), sessionIdRef, setCurrentSessionId);
     await invoke('clear_history');
-  }, []);
+  }, [flushPendingSessionSave]);
 
   const handleNewWindow = useCallback(() => {
     invoke('open_new_window').catch(console.error);
   }, []);
+
+  const handleOpenConfigEditor = useCallback(async () => {
+    setConfigError(null);
+    setConfigDraft(null);
+    setShowConfigEditor(true);
+    try {
+      const draft = await invoke<ConfigDraft>('get_config_form');
+      setConfigDraft(draft);
+    } catch (err) {
+      setConfigDraft(null);
+      setConfigError(String(err));
+    }
+  }, []);
+
+  const handleSaveConfig = useCallback(async () => {
+    if (!configDraft || configSaving) return;
+    setConfigSaving(true);
+    setConfigError(null);
+    try {
+      const status = await invoke<ConfigStatus>('save_config', { config: configDraft });
+      setConfigStatus(status);
+      setShowConfigEditor(false);
+    } catch (err) {
+      setConfigError(String(err));
+    } finally {
+      setConfigSaving(false);
+    }
+  }, [configDraft, configSaving]);
+
+  const handleToggleExecutionAccess = useCallback(async (mode: ConfigStatus['execution_access_mode']) => {
+    if (configUpdating) return;
+    setConfigUpdating(true);
+    setConfigError(null);
+    try {
+      const status = await invoke<ConfigStatus>('set_execution_access_mode', { mode });
+      setConfigStatus(status);
+      setConfigDraft(prev => (prev ? { ...prev, execution_access_mode: mode } : prev));
+    } catch (err) {
+      setConfigError(String(err));
+    } finally {
+      setConfigUpdating(false);
+    }
+  }, [configUpdating]);
+
+  const latestAgentMessageAt = messages.reduce((latest, message) => {
+    if (message.role === 'user') return latest;
+    return Math.max(latest, message.timestamp);
+  }, 0);
+
+  const unreadAgentMessages = blackboardFullscreen
+    ? messages.filter(message => message.role !== 'user' && message.timestamp > blackboardSeenMessageAt).length
+    : 0;
+
+  const closeBlackboardWorkspace = useCallback(() => {
+    setBlackboardSeenMessageAt(latestAgentMessageAt);
+    setBlackboardFullscreen(false);
+    setActiveSidebarTab(previousSidebarTab);
+  }, [latestAgentMessageAt, previousSidebarTab]);
+
+  const openBlackboardWorkspace = useCallback(() => {
+    setPreviousSidebarTab(activeSidebarTab && activeSidebarTab !== 'blackboard' ? activeSidebarTab : null);
+    setBlackboardSeenMessageAt(latestAgentMessageAt);
+    setBlackboardFullscreen(true);
+    setActiveSidebarTab('blackboard');
+  }, [activeSidebarTab, latestAgentMessageAt]);
+
+  const toggleSidebarTab = useCallback((tab: Exclude<SidebarTab, 'blackboard'>) => {
+    setBlackboardFullscreen(false);
+    setActiveSidebarTab(prev => prev === tab ? null : tab);
+  }, []);
+
+  const toggleBlackboardWorkspace = useCallback(() => {
+    if (blackboardFullscreen && activeSidebarTab === 'blackboard') {
+      closeBlackboardWorkspace();
+      return;
+    }
+    openBlackboardWorkspace();
+  }, [activeSidebarTab, blackboardFullscreen, closeBlackboardWorkspace, openBlackboardWorkspace]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const modeLabel = currentMode
     ? (MODES.find((m) => m.id === currentMode)?.label ?? currentMode)
     : null;
+  const sidebarWidth = activeSidebarTab === null || blackboardFullscreen
+    ? '0px'
+    : activeSidebarTab === 'blackboard'
+      ? 'min(62vw, 680px)'
+      : '280px';
 
   return (
     <ThemeProvider>
@@ -686,7 +932,7 @@ export default function App() {
 
         {/* Top bar / Custom Window Titlebar */}
         <header
-          className="flex items-center justify-between pr-5 pl-24 py-4 flex-shrink-0
+          className="flex items-center justify-between pr-5 pl-24 h-14 flex-shrink-0
                      glass-header relative z-50 select-none"
         >
           <div className="flex items-center gap-2 relative z-50 pointer-events-auto shrink-0">
@@ -702,7 +948,14 @@ export default function App() {
           <div data-tauri-drag-region className="flex-1 h-full self-stretch drag-region" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
 
           <div className="flex items-center gap-3 relative z-50 pointer-events-auto shrink-0">
-            <StatusPanel status={status} checking={checking} onRecheck={runDetection} />
+            <button
+              onClick={handleOpenConfigEditor}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-zinc-600 transition-colors glass-button dark:text-zinc-300"
+              title="设置"
+            >
+              <VscSettingsGear className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline font-medium">设置</span>
+            </button>
             <button
               onClick={() => { setContextDraft(projectContext ?? ''); setShowContextEditor(true); }}
               className={`text-xs transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg glass-button
@@ -738,7 +991,7 @@ export default function App() {
           {/* Activity Bar (Integrated Minimalist style) */}
           <div className="w-14 h-full flex flex-col items-center py-4 glass-container border-r border-zinc-200/50 dark:border-zinc-800/50 z-30 flex-shrink-0">
             <button
-              onClick={() => setActiveSidebarTab(prev => prev === 'explorer' ? null : 'explorer')}
+              onClick={() => toggleSidebarTab('explorer')}
               className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-300 cursor-pointer mb-2 ${activeSidebarTab === 'explorer'
                   ? 'text-violet-600 bg-white shadow-sm ring-1 ring-zinc-200/50 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50 shadow-[0_4px_12px_rgba(0,0,0,0.05)]'
                   : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/50'
@@ -749,7 +1002,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setActiveSidebarTab(prev => prev === 'logs' ? null : 'logs')}
+              onClick={() => toggleSidebarTab('logs')}
               className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-300 cursor-pointer mb-2 ${activeSidebarTab === 'logs'
                   ? 'text-violet-600 bg-white shadow-sm ring-1 ring-zinc-200/50 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50 shadow-[0_4px_12px_rgba(0,0,0,0.05)]'
                   : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/50'
@@ -765,7 +1018,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setActiveSidebarTab(prev => prev === 'history' ? null : 'history')}
+              onClick={() => toggleSidebarTab('history')}
               className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-300 cursor-pointer mb-2 ${activeSidebarTab === 'history'
                   ? 'text-violet-600 bg-white shadow-sm ring-1 ring-zinc-200/50 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50 shadow-[0_4px_12px_rgba(0,0,0,0.05)]'
                   : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/50'
@@ -781,7 +1034,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setActiveSidebarTab(prev => prev === 'blackboard' ? null : 'blackboard')}
+              onClick={toggleBlackboardWorkspace}
               className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-300 cursor-pointer ${activeSidebarTab === 'blackboard'
                   ? 'text-violet-600 bg-white shadow-sm ring-1 ring-zinc-200/50 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50 shadow-[0_4px_12px_rgba(0,0,0,0.05)]'
                   : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/50'
@@ -790,7 +1043,7 @@ export default function App() {
             >
               <div className="relative">
                 <VscChecklist className="w-5 h-5 stroke-[0.2]" />
-                {blackboardEvents.length > 0 && activeSidebarTab !== 'blackboard' && (
+                {(blackboardEvents.length > 0 || unreadAgentMessages > 0) && activeSidebarTab !== 'blackboard' && (
                   <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-zinc-50/50 dark:ring-zinc-950/50 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" />
                 )}
               </div>
@@ -799,12 +1052,13 @@ export default function App() {
 
           {/* Docked Sidebar Container */}
           <div
-            className={`h-full border-r border-zinc-200/50 dark:border-zinc-800/50 glass-container flex-shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] z-20 ${activeSidebarTab !== null
-                ? 'w-[280px] opacity-100'
-                : 'w-0 opacity-0 border-none'
+            className={`h-full border-r border-zinc-200/50 dark:border-zinc-800/50 glass-container flex-shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] z-20 ${activeSidebarTab !== null && !blackboardFullscreen
+                ? 'opacity-100'
+                : 'opacity-0 border-none'
               }`}
+            style={{ width: sidebarWidth }}
           >
-            <div className="w-[280px] h-full relative">
+            <div className="h-full relative" style={{ width: sidebarWidth }}>
               <div className={`absolute inset-0 transition-opacity duration-300 ${activeSidebarTab === 'explorer' ? 'opacity-100 z-10 pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'}`}>
                 <FileTreePanel
                   workspacePath={workspace}
@@ -828,7 +1082,7 @@ export default function App() {
                   onClose={() => setActiveSidebarTab(null)}
                 />
               </div>
-              <div className={`absolute inset-0 transition-opacity duration-300 ${activeSidebarTab === 'blackboard' ? 'opacity-100 z-10 pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'}`}>
+              <div className={`absolute inset-0 transition-opacity duration-300 ${activeSidebarTab === 'blackboard' && !blackboardFullscreen ? 'opacity-100 z-10 pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'}`}>
                 <BlackboardPanel
                   workspacePath={workspace}
                   events={blackboardEvents}
@@ -838,40 +1092,72 @@ export default function App() {
             </div>
           </div>
 
-          {/* Main Chat Area */}
-          <div className="flex-1 flex flex-col relative min-w-0 z-10 basis-0 bg-transparent shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.05)] dark:shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.4)]">
-            <ChatPanel messages={messages} onOpenProject={handleOpenProject} workspace={workspace} />
-            <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6
-                            bg-gradient-to-t from-background-light via-background-light/80 to-transparent
-                            dark:from-background-dark dark:via-background-dark/80
-                            pointer-events-none z-10 flex flex-col justify-end">
-              <div className="pointer-events-auto max-w-4xl w-full mx-auto">
-                <InputBar
-                  mode={currentMode ?? 'chat'}
-                  status={status}
+          {/* Main Content Area */}
+          {blackboardFullscreen ? (
+            <div className="flex-1 min-w-0 z-10 basis-0 bg-transparent shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.05)] dark:shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.4)]">
+              <BlackboardPanel
+                workspacePath={workspace}
+                events={blackboardEvents}
+                onClose={closeBlackboardWorkspace}
+                onBack={closeBlackboardWorkspace}
+                fullscreen
+                unreadAgentMessages={unreadAgentMessages}
+              />
+            </div>
+          ) : (
+            <div className="flex flex-1 min-h-0 min-w-0 basis-0 flex-col overflow-hidden relative z-10 bg-transparent shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.05)] dark:shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.4)]">
+              <ChatPanel messages={messages} onOpenProject={handleOpenProject} workspace={workspace} />
+              <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6
+                              bg-gradient-to-t from-background-light via-background-light/80 to-transparent
+                              dark:from-background-dark dark:via-background-dark/80
+                              pointer-events-none z-10 flex flex-col justify-end">
+                <div className="pointer-events-auto max-w-4xl w-full mx-auto">
+                  <InputBar
+                    mode={currentMode ?? 'chat'}
+                    status={status}
                   configStatus={configStatus}
                   isRunning={isRunning}
                   isStopping={isStopping}
+                  configUpdating={configUpdating}
                   onSubmit={handleSubmit}
                   onStop={handleStop}
+                  onToggleExecutionAccess={handleToggleExecutionAccess}
                 />
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
       </div>
+      {showConfigEditor && (
+        <ConfigEditorModal
+          draft={configDraft}
+          status={status}
+          checking={checking}
+          saving={configSaving}
+          error={configError}
+          onClose={() => {
+            if (configSaving) return;
+            setShowConfigEditor(false);
+            setConfigError(null);
+          }}
+          onChange={setConfigDraft}
+          onSave={handleSaveConfig}
+          onRecheckEnvironment={runDetection}
+        />
+      )}
       {/* Project Context Editor Modal */}
       {showContextEditor && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 backdrop-blur-md"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-white/20 backdrop-blur-xl dark:bg-zinc-950/60"
           onClick={() => setShowContextEditor(false)}
         >
           <div
-            className="w-full max-w-2xl mx-4 glass-panel border border-white/40 dark:border-zinc-700/50 flex flex-col max-h-[80vh] shadow-[0_16px_40px_rgba(0,0,0,0.1)] dark:shadow-[0_16px_40px_rgba(0,0,0,0.4)] overflow-hidden"
+            className="mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden glass-panel"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200/50 dark:border-zinc-800/50 bg-white/40 dark:bg-zinc-900/30">
+            <div className="flex items-center justify-between border-b border-zinc-200/40 bg-white/10 px-5 py-4 dark:border-zinc-800/50 dark:bg-zinc-900/25">
               <div>
                 <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">项目文档 / Project Context</h2>
                 <p className="text-xs text-zinc-500 mt-0.5">粘贴开发文档，Claude & Codex 编码时将以此为依据</p>
@@ -885,11 +1171,11 @@ export default function App() {
               value={contextDraft}
               onChange={(e) => setContextDraft(e.target.value)}
               placeholder="粘贴你的开发文档、需求说明、技术规范..."
-              className="flex-1 p-4 text-sm font-mono text-zinc-800 dark:text-zinc-200 bg-transparent
+              className="flex-1 bg-transparent p-4 text-sm font-mono text-zinc-800 dark:text-zinc-200
                          border-none resize-none focus:outline-none min-h-[300px]
                          placeholder-zinc-400 dark:placeholder-zinc-600"
             />
-            <div className="flex items-center justify-between px-5 py-3 border-t border-zinc-200/50 dark:border-zinc-800/50 bg-white/40 dark:bg-zinc-900/30">
+            <div className="flex items-center justify-between border-t border-zinc-200/40 bg-white/10 px-5 py-3 dark:border-zinc-800/50 dark:bg-zinc-900/25">
               <button
                 onClick={() => {
                   projectContextMetaRef.current = { source: null, workspace: null };

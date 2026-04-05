@@ -57,7 +57,7 @@ describe('parseInvoke', () => {
   });
 
   it('accepts all valid skill values', () => {
-    for (const skill of ['plan', 'code', 'debug', 'test', 'review'] as const) {
+    for (const skill of ['plan', 'code', 'debug', 'test', 'review', 'qa'] as const) {
       expect(parseInvoke(`<invoke skill="${skill}" task="x" />`)).not.toBeNull();
     }
   });
