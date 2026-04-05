@@ -7,10 +7,52 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AppMode, ChatMessage, ReviewPhaseResult, QaResult, ToolLog, BlackboardEvent } from '../types';
+import type { AppMode, ChatMessage, ReviewPhaseResult, QaResult, ToolLog, BlackboardEvent, SkillError } from '../types';
 import { makeId } from '../utils';
+import { toast } from 'sonner';
 
 const appWindow = getCurrentWebviewWindow();
+
+/** Parse a Tauri invoke error into a structured SkillError (best-effort). */
+function parseSkillError(err: unknown): SkillError {
+  // Tauri v2 serializes the error type directly when E: Serialize
+  if (err && typeof err === 'object' && 'kind' in err && 'message' in err) {
+    return err as SkillError;
+  }
+  // Fallback for plain string errors from other commands
+  const message = String(err);
+  if (message === 'cancelled') {
+    return { kind: 'cancelled', message, retryable: false };
+  }
+  return { kind: 'internal', message, retryable: false };
+}
+
+/** Show a toast notification for a skill error (skip cancellation). */
+function notifySkillError(error: SkillError, mode: string): void {
+  if (error.kind === 'cancelled') return;
+
+  const labels: Record<string, string> = {
+    timeout: '执行超时',
+    tool_missing: '工具未安装',
+    agent_error: 'Agent 错误',
+    permission: '权限不足',
+    config: '配置错误',
+    network: '网络错误',
+    api: 'API 错误',
+    invalid_mode: '无效模式',
+    internal: '内部错误',
+  };
+  const title = labels[error.kind] ?? '执行失败';
+  const description = error.message.length > 200
+    ? error.message.slice(0, 200) + '...'
+    : error.message;
+
+  if (error.retryable) {
+    toast.warning(`${title} (${mode})`, { description, duration: 8000 });
+  } else {
+    toast.error(`${title} (${mode})`, { description, duration: 8000 });
+  }
+}
 
 export interface SkillRunnerDeps {
   // Refs (stable across renders)
@@ -340,7 +382,11 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
         }]);
       }
     } catch (err) {
-      addMessage('director', `⛔ ${mode} 技能执行失败：${String(err)}`);
+      const skillErr = parseSkillError(err);
+      if (skillErr.kind !== 'cancelled') {
+        addMessage('director', `⛔ ${mode} 技能执行失败：${skillErr.message}`);
+        notifySkillError(skillErr, mode);
+      }
       throw err;
     } finally {
       unlistenChunks();

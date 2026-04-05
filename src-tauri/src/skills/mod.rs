@@ -202,7 +202,10 @@ pub async fn execute(
             )
             .await
         }
-        other => Err(format!("Unknown skill: {other}")),
+        other => {
+            tracing::error!(mode = other, "unknown skill requested");
+            Err(format!("Unknown skill: {other}"))
+        }
     }
 }
 

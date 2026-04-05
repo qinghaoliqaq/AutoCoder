@@ -4,6 +4,7 @@
 /// callers can match on the variant (e.g. retry on transient API failures,
 /// surface permanent errors to the user immediately).
 
+use serde::Serialize;
 use std::fmt;
 
 // ── Error kind ─────────────────────────────────────────────────────────────
@@ -121,6 +122,85 @@ impl From<AppError> for String {
     }
 }
 
+// ── Structured error for Tauri commands ───────────────────────────────────
+
+/// Serializable error returned to the frontend by Tauri commands.
+///
+/// Provides a machine-readable `kind` so the UI can differentiate between
+/// cancellation, timeouts, network errors, etc. without parsing strings.
+#[derive(Debug, Serialize, Clone)]
+pub struct SkillError {
+    /// Machine-readable error category.
+    pub kind: &'static str,
+    /// Human-readable error message.
+    pub message: String,
+    /// Whether the operation could succeed if retried.
+    pub retryable: bool,
+}
+
+impl SkillError {
+    /// Parse a raw error string (from legacy `Result<T, String>` paths) into
+    /// a structured SkillError by matching known prefixes.
+    pub fn from_raw(raw: &str) -> Self {
+        if raw == "cancelled" {
+            return Self { kind: "cancelled", message: raw.to_string(), retryable: false };
+        }
+        if raw.contains("timed out") {
+            return Self { kind: "timeout", message: raw.to_string(), retryable: true };
+        }
+        if raw.starts_with("Failed to start") {
+            return Self { kind: "tool_missing", message: raw.to_string(), retryable: false };
+        }
+        if raw.starts_with("Claude error:") || raw.starts_with("Codex error:") {
+            return Self { kind: "agent_error", message: raw.to_string(), retryable: false };
+        }
+        if raw.contains("read-only run") {
+            return Self { kind: "permission", message: raw.to_string(), retryable: false };
+        }
+        if raw.starts_with("config error:") {
+            return Self { kind: "config", message: raw.to_string(), retryable: false };
+        }
+        if raw.starts_with("network error:") || raw.starts_with("API overloaded") {
+            return Self { kind: "network", message: raw.to_string(), retryable: true };
+        }
+        if raw.starts_with("API error") {
+            return Self { kind: "api", message: raw.to_string(), retryable: false };
+        }
+        if raw.starts_with("Unknown skill:") {
+            return Self { kind: "invalid_mode", message: raw.to_string(), retryable: false };
+        }
+        Self { kind: "internal", message: raw.to_string(), retryable: false }
+    }
+
+    /// Convert from a typed `AppError`.
+    pub fn from_app_error(e: &AppError) -> Self {
+        let kind = match e {
+            AppError::Cancelled => "cancelled",
+            AppError::Config(_) => "config",
+            AppError::Network(_) => "network",
+            AppError::Api { .. } => "api",
+            AppError::ApiOverloaded { .. } => "network",
+            AppError::ApiParse(_) => "api_parse",
+            AppError::Tool { .. } => "tool",
+            AppError::Io(_) => "io",
+            AppError::Merge(_) => "merge",
+            AppError::Verification(_) => "verification",
+            AppError::Internal(_) => "internal",
+        };
+        Self {
+            kind,
+            message: e.to_string(),
+            retryable: e.is_retryable(),
+        }
+    }
+}
+
+impl fmt::Display for SkillError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
 // ── Retry helper ───────────────────────────────────────────────────────────
 
 /// Maximum number of retries for transient failures.
@@ -145,12 +225,12 @@ where
             Ok(val) => return Ok(val),
             Err(e) if e.is_retryable() && attempt < MAX_RETRIES => {
                 let delay = INITIAL_BACKOFF_MS * (1 << attempt);
-                eprintln!(
-                    "[retry] attempt {}/{} failed ({}), retrying in {}ms",
-                    attempt + 1,
-                    MAX_RETRIES + 1,
-                    &e,
-                    delay,
+                tracing::warn!(
+                    attempt = attempt + 1,
+                    max_attempts = MAX_RETRIES + 1,
+                    error = %e,
+                    delay_ms = delay,
+                    "retrying after transient failure",
                 );
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 last_err = e;
@@ -247,5 +327,59 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    // ── SkillError parsing ───────────────────────────────────────────────
+
+    #[test]
+    fn skill_error_cancelled() {
+        let e = SkillError::from_raw("cancelled");
+        assert_eq!(e.kind, "cancelled");
+        assert!(!e.retryable);
+    }
+
+    #[test]
+    fn skill_error_timeout_is_retryable() {
+        let e = SkillError::from_raw("codex timed out after 1800 s");
+        assert_eq!(e.kind, "timeout");
+        assert!(e.retryable);
+    }
+
+    #[test]
+    fn skill_error_tool_missing() {
+        let e = SkillError::from_raw("Failed to start `claude`: No such file or directory");
+        assert_eq!(e.kind, "tool_missing");
+        assert!(!e.retryable);
+    }
+
+    #[test]
+    fn skill_error_agent_error() {
+        let e = SkillError::from_raw("Claude error: rate limit exceeded");
+        assert_eq!(e.kind, "agent_error");
+    }
+
+    #[test]
+    fn skill_error_network_retryable() {
+        let e = SkillError::from_raw("network error: connection refused");
+        assert_eq!(e.kind, "network");
+        assert!(e.retryable);
+    }
+
+    #[test]
+    fn skill_error_unknown_fallback() {
+        let e = SkillError::from_raw("something unexpected happened");
+        assert_eq!(e.kind, "internal");
+        assert!(!e.retryable);
+    }
+
+    #[test]
+    fn skill_error_from_app_error() {
+        let e = SkillError::from_app_error(&AppError::Network("timeout".into()));
+        assert_eq!(e.kind, "network");
+        assert!(e.retryable);
+
+        let e = SkillError::from_app_error(&AppError::Cancelled);
+        assert_eq!(e.kind, "cancelled");
+        assert!(!e.retryable);
     }
 }

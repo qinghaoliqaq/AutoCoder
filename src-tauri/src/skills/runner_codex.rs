@@ -71,6 +71,7 @@ async fn run_codex(
     mode: CodexExecutionMode,
     emit_chunks: bool,
 ) -> Result<String, String> {
+    tracing::info!(mode = ?mode, cwd = ?cwd, "spawning codex");
     let mut cmd = Command::new("codex");
     let access_mode = configured_execution_access_mode();
     cmd.args(build_codex_args(prompt, mode, access_mode))
@@ -87,7 +88,10 @@ async fn run_codex(
 
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("Failed to start `codex`: {e}"))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to start codex");
+            format!("Failed to start `codex`: {e}")
+        })?;
     let _child_guard = ChildProcessGuard::new(window_label, child.id());
     let stdout = child
         .stdout

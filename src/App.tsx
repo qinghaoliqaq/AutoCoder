@@ -347,9 +347,12 @@ export default function App() {
         await pauseDirectorLoop(`Director exceeded the round budget (${MAX_ROUNDS}) before the task reached a stable stop condition.`);
       }
     } catch (err) {
-      const reason = stopRequestedRef.current && String(err) === 'cancelled'
+      const errStr = (err && typeof err === 'object' && 'message' in err) ? (err as { message: string }).message : String(err);
+      const isCancelled = stopRequestedRef.current || errStr === 'cancelled'
+        || (err && typeof err === 'object' && 'kind' in err && (err as { kind: string }).kind === 'cancelled');
+      const reason = isCancelled
         ? '用户手动停止了当前任务。'
-        : String(err);
+        : errStr;
       stopRequestedRef.current = false;
       await pauseDirectorLoop(reason);
     } finally {

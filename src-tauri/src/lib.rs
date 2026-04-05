@@ -15,11 +15,13 @@ mod workspace;
 use config::{AppConfig, ConfigDraft, ConfigStatus, ExecutionAccessMode};
 use detect::SystemStatus;
 use director::chat_with_director;
+use errors::SkillError;
 use prompts::Prompts;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
+use tracing::{info, warn};
 
 pub struct AppState {
     pub config: RwLock<AppConfig>,
@@ -89,6 +91,7 @@ async fn director_chat(
 ) -> Result<(), String> {
     let config = state.config.read().unwrap().clone();
     let window_label = window.label().to_string();
+    info!(window = %window_label, "director chat started");
     let token = CancellationToken::new();
     {
         let mut tokens = state.cancel_tokens.lock().unwrap();
@@ -105,6 +108,11 @@ async fn director_chat(
     )
     .await;
     state.cancel_tokens.lock().unwrap().remove(&window_label);
+    match &result {
+        Err(e) if e == "cancelled" => info!("director chat cancelled"),
+        Err(e) => warn!(error = %e, "director chat failed"),
+        Ok(()) => info!("director chat completed"),
+    }
     // Treat cancellation as a clean stop rather than an error surfaced to the UI.
     match result {
         Err(e) if e == "cancelled" => Ok(()),
@@ -148,9 +156,10 @@ async fn run_skill(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), SkillError> {
     let config = state.config.read().unwrap().clone();
     let window_label = window.label().to_string();
+    info!(mode = %mode, phase = ?phase, window = %window_label, "skill started");
     // Create a fresh cancellation token for this run, replacing any previous one.
     let token = CancellationToken::new();
     {
@@ -189,7 +198,12 @@ async fn run_skill(
             cleanup_workspace.as_deref(),
         );
     }
-    result
+    match &result {
+        Ok(()) => info!(mode = %mode, phase = ?phase, "skill completed"),
+        Err(e) if e == "cancelled" => info!(mode = %mode, "skill cancelled"),
+        Err(e) => warn!(mode = %mode, error = %e, "skill failed"),
+    }
+    result.map_err(|e| SkillError::from_raw(&e))
 }
 
 #[tauri::command]
@@ -296,6 +310,9 @@ fn evidence_subtask_context(workspace: String, subtask_id: String) -> Option<Str
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    init_tracing();
+    info!("FlowForge starting");
+
     let config = AppConfig::load();
     let prompts = Arc::new(Prompts::load());
 
@@ -343,4 +360,38 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Initialize structured logging with tracing.
+/// Logs go to both stderr (for development) and a rolling log file
+/// in the app's data directory (~/.local/share/ai-dev-hub/logs/).
+fn init_tracing() {
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("ai_dev_hub_lib=info,warn"));
+
+    let stderr_layer = fmt::layer()
+        .with_target(false)
+        .with_thread_ids(false)
+        .compact();
+
+    // Try to set up file logging; fall back silently if directory isn't available.
+    let file_layer = dirs::data_dir().and_then(|data_dir| {
+        let log_dir = data_dir.join("ai-dev-hub").join("logs");
+        std::fs::create_dir_all(&log_dir).ok()?;
+        let file_appender = tracing_appender::rolling::daily(&log_dir, "flowforge.log");
+        Some(
+            fmt::layer()
+                .with_writer(file_appender)
+                .with_ansi(false)
+                .with_target(true),
+        )
+    });
+
+    let _ = tracing_subscriber::registry()
+        .with(filter)
+        .with(stderr_layer)
+        .with(file_layer)
+        .try_init();
 }

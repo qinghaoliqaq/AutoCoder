@@ -87,6 +87,7 @@ async fn claude_with_streaming(
     mode: ClaudeExecutionMode,
     emit_chunks: bool,
 ) -> Result<String, String> {
+    tracing::info!(mode = ?mode, cwd = ?cwd, "spawning claude");
     let mut cmd = Command::new("claude");
     let access_mode = configured_execution_access_mode();
     cmd.args(build_claude_args(prompt, mode, access_mode))
@@ -107,7 +108,10 @@ async fn claude_with_streaming(
 
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("Failed to start `claude`: {e}"))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to start claude");
+            format!("Failed to start `claude`: {e}")
+        })?;
     let _child_guard = ChildProcessGuard::new(window_label, child.id());
     let stdout = child
         .stdout

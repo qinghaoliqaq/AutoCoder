@@ -93,6 +93,14 @@ export interface BlackboardEvent {
   summary: string;
 }
 
+/** Structured error returned by the `run_skill` Tauri command. */
+export interface SkillError {
+  kind: 'cancelled' | 'timeout' | 'tool_missing' | 'agent_error' | 'permission'
+    | 'config' | 'network' | 'api' | 'invalid_mode' | 'internal';
+  message: string;
+  retryable: boolean;
+}
+
 export interface FileNode {
   name:     string;
   path:     string;
