@@ -62,6 +62,25 @@ api_format = "openai"
 # Override with env var: DIRECTOR_CONTEXT_BUDGET
 # context_budget = 24000
 
+# ── Agent layer (skill execution via Claude Agent SDK) ────────────────────────
+#
+# When configured, skills (plan, code, debug, test, review) run through
+# the Agent SDK sidecar instead of spawning claude/codex CLI processes.
+# This gives you the full Claude Code toolset (Read, Edit, Grep, Bash, etc.)
+# with a single API key — no CLI installation required.
+#
+# Environment variable overrides:
+#   AGENT_API_KEY      Anthropic API key (or cloud provider key)
+#   AGENT_BASE_URL     Custom base URL (proxy / self-hosted)
+#   AGENT_MODEL        Model for skill execution
+#   AGENT_PROVIDER     "anthropic" | "bedrock" | "vertex" | "foundry"
+
+[agent]
+# api_key  = "sk-ant-..."
+# base_url = ""                  # leave empty for Anthropic default
+# model    = "claude-sonnet-4-6"
+# provider = "anthropic"         # anthropic | bedrock | vertex | foundry
+
 [features]
 # Enable packaged vendored helper skills such as MiniMax frontend-dev/fullstack-dev.
 # These are injected by the app orchestrator and never written to user-global skill dirs.

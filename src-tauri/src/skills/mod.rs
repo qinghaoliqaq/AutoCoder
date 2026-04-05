@@ -6,7 +6,7 @@
 ///   3. Add a match arm in `execute()`
 ///   4. Optionally add a new prompt file in src-tauri/prompts/
 
-use crate::{config::AppConfig, prompts::Prompts};
+use crate::{config::AppConfig, prompts::Prompts, sidecar::SidecarState};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
@@ -80,6 +80,7 @@ pub async fn execute(
     issue:        Option<&str>,
     config:       &AppConfig,
     prompts:      &Prompts,
+    sidecar:      &SidecarState,
     window_label: &str,
     app_handle:   &tauri::AppHandle,
     token:        CancellationToken,
@@ -87,7 +88,7 @@ pub async fn execute(
     match mode {
         "plan"   => plan::run(task, workspace, context, prompts, window_label, app_handle, token).await,
         "code"   => code::run(task, workspace, context, config, prompts, window_label, app_handle, token).await,
-        "debug"  => debug::run(task, workspace, context, prompts, window_label, app_handle, token).await,
+        "debug"  => debug::run(task, workspace, context, config, prompts, sidecar, window_label, app_handle, token).await,
         "test"   => test_skill::run_phase(
             phase.unwrap_or("integration_test"), task, issue, workspace, context, window_label, app_handle, token,
         ).await,

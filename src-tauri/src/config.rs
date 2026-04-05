@@ -52,11 +52,32 @@ pub struct FeaturesConfig {
     pub vendored_skills: bool,
 }
 
+/// Agent-layer configuration — used by skills that run via the Agent SDK sidecar.
+/// If not configured, skills fall back to the legacy CLI runner mode.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentConfig {
+    /// Anthropic API key (or cloud provider key).
+    #[serde(default)]
+    pub api_key:  String,
+    /// Custom base URL for API proxy / self-hosted endpoint.
+    /// Leave empty to use Anthropic's default endpoint.
+    #[serde(default)]
+    pub base_url: String,
+    /// Model to use for skill execution (e.g. "claude-sonnet-4-6").
+    #[serde(default = "default_agent_model")]
+    pub model:    String,
+    /// Provider: "anthropic" (default), "bedrock", "vertex", "foundry".
+    #[serde(default = "default_provider")]
+    pub provider: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub director: DirectorConfig,
     #[serde(default)]
     pub features: FeaturesConfig,
+    #[serde(default)]
+    pub agent: AgentConfig,
 }
 
 /// Returned to the frontend — API key is masked for security.
@@ -84,11 +105,30 @@ impl Default for DirectorConfig {
     }
 }
 
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            api_key:  String::new(),
+            base_url: String::new(),
+            model:    default_agent_model(),
+            provider: default_provider(),
+        }
+    }
+}
+
+impl AgentConfig {
+    /// Returns true if enough configuration is present to launch the Agent SDK sidecar.
+    pub fn is_configured(&self) -> bool {
+        !self.api_key.is_empty()
+    }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             director: DirectorConfig::default(),
             features: FeaturesConfig::default(),
+            agent:    AgentConfig::default(),
         }
     }
 }
@@ -171,6 +211,20 @@ impl AppConfig {
             }
         }
 
+        // Agent layer
+        if let Ok(v) = std::env::var("AGENT_API_KEY") {
+            cfg.agent.api_key = v;
+        }
+        if let Ok(v) = std::env::var("AGENT_BASE_URL") {
+            cfg.agent.base_url = v;
+        }
+        if let Ok(v) = std::env::var("AGENT_MODEL") {
+            cfg.agent.model = v;
+        }
+        if let Ok(v) = std::env::var("AGENT_PROVIDER") {
+            cfg.agent.provider = v;
+        }
+
         if let Ok(v) = std::env::var("AI_DEV_HUB_VENDORED_SKILLS") {
             cfg.features.vendored_skills = parse_bool(&v).unwrap_or(cfg.features.vendored_skills);
         }
@@ -223,6 +277,14 @@ fn default_true() -> bool {
 
 fn default_context_budget() -> usize {
     24_000
+}
+
+fn default_agent_model() -> String {
+    "claude-sonnet-4-6".to_string()
+}
+
+fn default_provider() -> String {
+    "anthropic".to_string()
 }
 
 fn parse_bool(value: &str) -> Option<bool> {
