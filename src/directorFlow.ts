@@ -23,11 +23,11 @@ export function buildNextInputAfterReview(result: {
   return 'review 已完成：安全审查 ✓、代码清理 ✓。请立即调用 test 技能对项目进行完整集成测试（启动服务器 + curl 测试所有接口）。';
 }
 
-export function buildNextInputAfterTest(): string {
+function buildNextInputAfterTest(): string {
   return 'test 集成测试及项目报告已完成。请立即调用 qa 技能，基于测试结果、黑板状态和项目产物做功能验收，并给出 PASS / PASS_WITH_CONCERNS / FAIL 结论。';
 }
 
-export function buildNextInputAfterQa(result: QaResult): string {
+function buildNextInputAfterQa(result: QaResult): string {
   const qaIssue = result.issue === 'none' ? '无' : result.issue;
 
   if (result.verdict === 'PASS') {

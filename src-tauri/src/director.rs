@@ -438,17 +438,12 @@ pub fn get_history(
 }
 
 /// Replace the conversation history for a specific window (used when restoring a saved session).
-/// Legacy trim — delegates to enforce_hard_ceiling.
-fn trim_history(history: &mut Vec<Value>) {
-    enforce_hard_ceiling(history);
-}
-
 pub fn set_history(
     histories: &Mutex<HashMap<String, Vec<Value>>>,
     window_label: &str,
     mut new_history: Vec<Value>,
 ) {
-    trim_history(&mut new_history);
+    enforce_hard_ceiling(&mut new_history);
     if let Ok(mut h) = histories.lock() {
         h.insert(window_label.to_string(), new_history);
     }
