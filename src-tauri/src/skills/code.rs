@@ -81,6 +81,7 @@ pub(super) async fn run(
 
     let base_prompt = Prompts::render(&prompts.code_claude, &[("task", task)]);
     let shared_board = std::sync::Arc::new(Mutex::new(board));
+    let merge_lock = std::sync::Arc::new(Mutex::new(()));
 
     if total == 0 {
         let mut board = shared_board.lock().await;
@@ -105,6 +106,7 @@ pub(super) async fn run(
             &base_prompt,
             &shared_board,
             &acceptance_by_subtask,
+            &merge_lock,
             window_label,
             app_handle,
             token.clone(),
@@ -195,6 +197,7 @@ async fn spawn_ready_subtasks(
     base_prompt: &str,
     board: &std::sync::Arc<Mutex<Blackboard>>,
     acceptance_by_subtask: &std::sync::Arc<HashMap<String, SubtaskAcceptance>>,
+    merge_lock: &std::sync::Arc<Mutex<()>>,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
@@ -241,6 +244,7 @@ async fn spawn_ready_subtasks(
             base_prompt.to_string(),
             board.clone(),
             acceptance_by_subtask.clone(),
+            merge_lock.clone(),
             window_label.to_string(),
             app_handle.clone(),
             token.clone(),
@@ -289,6 +293,7 @@ fn spawn_subtask_worker(
     base_prompt: String,
     board: std::sync::Arc<Mutex<Blackboard>>,
     acceptance_by_subtask: std::sync::Arc<HashMap<String, SubtaskAcceptance>>,
+    merge_lock: std::sync::Arc<Mutex<()>>,
     window_label: String,
     app_handle: tauri::AppHandle,
     token: CancellationToken,
@@ -307,6 +312,7 @@ fn spawn_subtask_worker(
             &base_prompt,
             board,
             acceptance_by_subtask,
+            merge_lock,
             &window_label,
             &app_handle,
             token,
@@ -328,6 +334,7 @@ async fn run_subtask(
     base_prompt: &str,
     board: std::sync::Arc<Mutex<Blackboard>>,
     acceptance_by_subtask: std::sync::Arc<HashMap<String, SubtaskAcceptance>>,
+    merge_lock: std::sync::Arc<Mutex<()>>,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
@@ -568,6 +575,8 @@ async fn run_subtask(
             let review = parse_review_report(&review_output);
 
             if review.passed {
+                // Serialize merges so parallel subtasks don't race on the main workspace.
+                let _merge_guard = merge_lock.lock().await;
                 match merge_isolated_workspace(workspace, &isolated) {
                     Ok(merged_files) => {
                         mutate_board(&board, workspace, |board| {
