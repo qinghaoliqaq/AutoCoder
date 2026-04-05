@@ -10,12 +10,18 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 pub(crate) mod blackboard;
+mod blackboard_parser;
+mod blackboard_render;
 mod code;
 mod debug;
+pub(crate) mod isolated_workspace;
+pub(crate) mod merge_engine;
 mod plan;
 mod plan_board;
 mod qa;
 mod review;
+mod runner_process;
+mod runner_workspace;
 pub(crate) mod runners;
 pub(crate) mod test_skill;
 mod vendored;

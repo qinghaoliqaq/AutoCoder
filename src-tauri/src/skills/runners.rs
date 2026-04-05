@@ -3,6 +3,10 @@
 /// These are the only two functions that actually spawn child processes.
 /// All skill modules call into here — they never spawn processes directly.
 ///
+/// Heavy-lifting is delegated to submodules:
+///   runner_process   — PID registry, ChildProcessGuard, terminate / kill
+///   runner_workspace — workspace snapshot, change tracking, change.log
+///
 /// Claude stream-json protocol:
 ///   Each "assistant" event carries delta text via content[].text.
 ///   Tool calls come as stream_event → content_block_start/delta/stop.
@@ -10,285 +14,27 @@
 /// Codex JSON protocol:
 ///   "item.started" + type "command_execution" → tool call starting.
 ///   "item.completed" + type "agent_message"   → text reply.
+use super::runner_process::{isolate_child_process_group, ChildProcessGuard};
+use super::runner_workspace::{
+    format_workspace_change_list, record_change, record_workspace_snapshot_diff,
+    snapshot_workspace, workspace_change_entries,
+};
 use super::{SkillChunk, ToolLog};
 use crate::config::{AppConfig, ExecutionAccessMode};
 use serde_json::Value;
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
 use tauri::{Emitter, EventTarget};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
+// Re-export for lib.rs which calls runners::kill_registered_processes.
+pub(crate) use super::runner_process::kill_registered_processes;
+
 /// Hard wall-clock timeout for interactive claude/codex runner sessions.
 /// 30 minutes is generous for any single skill invocation.
 const RUNNER_TIMEOUT_SECS: u64 = 1800;
-
-static RUNNER_PIDS: OnceLock<Mutex<HashMap<String, Vec<u32>>>> = OnceLock::new();
-
-fn runner_pid_registry() -> &'static Mutex<HashMap<String, Vec<u32>>> {
-    RUNNER_PIDS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn register_runner_pid(window_label: &str, pid: u32) {
-    let mut registry = runner_pid_registry().lock().unwrap();
-    let entry = registry.entry(window_label.to_string()).or_default();
-    if !entry.contains(&pid) {
-        entry.push(pid);
-    }
-}
-
-fn unregister_runner_pid(window_label: &str, pid: u32) {
-    let mut registry = runner_pid_registry().lock().unwrap();
-    if let Some(entry) = registry.get_mut(window_label) {
-        entry.retain(|registered| *registered != pid);
-        if entry.is_empty() {
-            registry.remove(window_label);
-        }
-    }
-}
-
-pub(crate) fn kill_registered_processes(window_label: &str) {
-    let pids = {
-        let registry = runner_pid_registry().lock().unwrap();
-        registry.get(window_label).cloned().unwrap_or_default()
-    };
-
-    for pid in pids {
-        terminate_process(pid);
-    }
-}
-
-fn terminate_process(pid: u32) {
-    #[cfg(unix)]
-    {
-        let pid_str = pid.to_string();
-        let process_group = format!("-{pid}");
-        let _ = std::process::Command::new("kill")
-            .args(["-TERM", &process_group])
-            .status();
-        let _ = std::process::Command::new("kill")
-            .args(["-TERM", &pid_str])
-            .status();
-        std::thread::sleep(std::time::Duration::from_millis(60));
-        let _ = std::process::Command::new("kill")
-            .args(["-KILL", &process_group])
-            .status();
-        let _ = std::process::Command::new("kill")
-            .args(["-KILL", &pid_str])
-            .status();
-    }
-
-    #[cfg(windows)]
-    {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .status();
-    }
-}
-
-fn isolate_child_process_group(cmd: &mut Command) {
-    #[cfg(unix)]
-    {
-        cmd.process_group(0);
-    }
-}
-
-struct ChildProcessGuard {
-    window_label: String,
-    pid: Option<u32>,
-}
-
-impl ChildProcessGuard {
-    fn new(window_label: &str, pid: Option<u32>) -> Self {
-        if let Some(pid) = pid {
-            register_runner_pid(window_label, pid);
-        }
-        Self {
-            window_label: window_label.to_string(),
-            pid,
-        }
-    }
-}
-
-impl Drop for ChildProcessGuard {
-    fn drop(&mut self) {
-        if let Some(pid) = self.pid {
-            unregister_runner_pid(&self.window_label, pid);
-        }
-    }
-}
-
-/// Append a CREATE or MODIFY entry to <workspace>/change.log.
-/// Called whenever Claude uses a file-writing tool (Write, Edit, Create, MultiEdit).
-/// Silently ignores errors — change.log is best-effort.
-fn record_change(tool: &str, raw_json: &str, cwd: &PathBuf) {
-    let file_path = if let Ok(v) = serde_json::from_str::<Value>(raw_json) {
-        v["file_path"]
-            .as_str()
-            .or_else(|| v["path"].as_str())
-            .map(|s| s.to_string())
-    } else {
-        None
-    };
-    let Some(file_path) = file_path else { return };
-    // Resolve to absolute path
-    let abs = if std::path::Path::new(&file_path).is_absolute() {
-        PathBuf::from(&file_path)
-    } else {
-        cwd.join(&file_path)
-    };
-    let kind = match tool {
-        "Write" | "Create" | "write_file" => "CREATE",
-        _ => "MODIFY", // Edit, MultiEdit, etc.
-    };
-    let entry = format!("{kind}: {}\n", abs.to_string_lossy());
-    let log_path = cwd.join("change.log");
-    use std::io::Write as _;
-    let _ = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .and_then(|mut f| f.write_all(entry.as_bytes()));
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WorkspaceChangeKind {
-    Create,
-    Modify,
-    Delete,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct FileFingerprint {
-    len: u64,
-    modified_unix_nanos: u128,
-}
-
-fn append_change_entry(kind: WorkspaceChangeKind, path: &std::path::Path, cwd: &PathBuf) {
-    let label = match kind {
-        WorkspaceChangeKind::Create => "CREATE",
-        WorkspaceChangeKind::Modify => "MODIFY",
-        WorkspaceChangeKind::Delete => "DELETE",
-    };
-    let abs = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        cwd.join(path)
-    };
-    let entry = format!("{label}: {}\n", abs.to_string_lossy());
-    let log_path = cwd.join("change.log");
-    use std::io::Write as _;
-    let _ = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .and_then(|mut f| f.write_all(entry.as_bytes()));
-}
-
-fn snapshot_workspace(root: &std::path::Path) -> HashMap<PathBuf, FileFingerprint> {
-    let mut files = HashMap::new();
-    collect_workspace_files(root, root, &mut files);
-    files
-}
-
-fn collect_workspace_files(
-    root: &std::path::Path,
-    dir: &std::path::Path,
-    files: &mut HashMap<PathBuf, FileFingerprint>,
-) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-
-        if path.is_dir() {
-            if should_skip_workspace_dir(&name) {
-                continue;
-            }
-            collect_workspace_files(root, &path, files);
-            continue;
-        }
-
-        if !path.is_file() || should_skip_workspace_file(&name) {
-            continue;
-        }
-
-        let Ok(metadata) = entry.metadata() else {
-            continue;
-        };
-        let modified_unix_nanos = metadata
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|duration| duration.as_nanos())
-            .unwrap_or(0);
-
-        let Ok(relative) = path.strip_prefix(root) else {
-            continue;
-        };
-        files.insert(
-            relative.to_path_buf(),
-            FileFingerprint {
-                len: metadata.len(),
-                modified_unix_nanos,
-            },
-        );
-    }
-}
-
-fn should_skip_workspace_dir(name: &str) -> bool {
-    name.starts_with('.')
-        || matches!(
-            name,
-            "node_modules" | "__pycache__" | "target" | "dist" | ".next"
-        )
-}
-
-fn should_skip_workspace_file(name: &str) -> bool {
-    name == "change.log"
-}
-
-fn workspace_change_entries(
-    before: &HashMap<PathBuf, FileFingerprint>,
-    after: &HashMap<PathBuf, FileFingerprint>,
-) -> Vec<(WorkspaceChangeKind, PathBuf)> {
-    let mut entries = Vec::new();
-
-    for (path, fingerprint) in after {
-        match before.get(path) {
-            None => entries.push((WorkspaceChangeKind::Create, path.clone())),
-            Some(previous) if previous != fingerprint => {
-                entries.push((WorkspaceChangeKind::Modify, path.clone()))
-            }
-            Some(_) => {}
-        }
-    }
-
-    for path in before.keys() {
-        if !after.contains_key(path) {
-            entries.push((WorkspaceChangeKind::Delete, path.clone()));
-        }
-    }
-
-    entries.sort_by(|a, b| a.1.cmp(&b.1));
-    entries
-}
-
-fn record_workspace_snapshot_diff(
-    cwd: &PathBuf,
-    before: &HashMap<PathBuf, FileFingerprint>,
-    after: &HashMap<PathBuf, FileFingerprint>,
-) {
-    for (kind, path) in workspace_change_entries(before, after) {
-        append_change_entry(kind, &path, cwd);
-    }
-}
 
 /// Resolve the working directory for a CLI runner.
 /// If an explicit workspace is provided, use it.
@@ -904,21 +650,6 @@ fn is_claude_forbidden_in_read_only(tool: &str) -> bool {
     is_claude_write_tool(tool) || is_claude_shell_tool(tool)
 }
 
-fn format_workspace_change_list(changes: &[(WorkspaceChangeKind, PathBuf)]) -> String {
-    changes
-        .iter()
-        .map(|(kind, path)| {
-            let label = match kind {
-                WorkspaceChangeKind::Create => "CREATE",
-                WorkspaceChangeKind::Modify => "MODIFY",
-                WorkspaceChangeKind::Delete => "DELETE",
-            };
-            format!("{label}: {}", path.display())
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -995,73 +726,6 @@ mod tests {
     }
 
     #[test]
-    fn workspace_change_entries_detect_create_and_modify() {
-        let mut before = HashMap::new();
-        before.insert(
-            PathBuf::from("src/lib.rs"),
-            FileFingerprint {
-                len: 10,
-                modified_unix_nanos: 1,
-            },
-        );
-
-        let mut after = HashMap::new();
-        after.insert(
-            PathBuf::from("src/lib.rs"),
-            FileFingerprint {
-                len: 12,
-                modified_unix_nanos: 2,
-            },
-        );
-        after.insert(
-            PathBuf::from("src/new.rs"),
-            FileFingerprint {
-                len: 5,
-                modified_unix_nanos: 2,
-            },
-        );
-
-        assert_eq!(
-            workspace_change_entries(&before, &after),
-            vec![
-                (WorkspaceChangeKind::Modify, PathBuf::from("src/lib.rs")),
-                (WorkspaceChangeKind::Create, PathBuf::from("src/new.rs")),
-            ]
-        );
-    }
-
-    #[test]
-    fn workspace_change_entries_detect_delete() {
-        let mut before = HashMap::new();
-        before.insert(
-            PathBuf::from("src/old.rs"),
-            FileFingerprint {
-                len: 10,
-                modified_unix_nanos: 1,
-            },
-        );
-
-        let after = HashMap::new();
-
-        assert_eq!(
-            workspace_change_entries(&before, &after),
-            vec![(WorkspaceChangeKind::Delete, PathBuf::from("src/old.rs"))]
-        );
-    }
-
-    #[test]
-    fn snapshot_workspace_skips_change_log() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("src")).unwrap();
-        std::fs::write(dir.path().join("src/lib.rs"), "fn demo() {}").unwrap();
-        std::fs::write(dir.path().join("change.log"), "noise").unwrap();
-
-        let snapshot = snapshot_workspace(dir.path());
-        assert!(snapshot.contains_key(&PathBuf::from("src/lib.rs")));
-        assert!(!snapshot.contains_key(&PathBuf::from("change.log")));
-    }
-
-    #[test]
     fn is_claude_write_tool_matches_all_mutating_tools() {
         for tool in ["Write", "Edit", "Create", "MultiEdit", "write_file"] {
             assert!(is_claude_write_tool(tool));
@@ -1086,19 +750,6 @@ mod tests {
         for tool in ["Read", "Glob", "Grep"] {
             assert!(!is_claude_forbidden_in_read_only(tool));
         }
-    }
-
-    #[test]
-    fn format_workspace_change_list_renders_kinds_and_paths() {
-        let rendered = format_workspace_change_list(&[
-            (WorkspaceChangeKind::Create, PathBuf::from("src/new.rs")),
-            (WorkspaceChangeKind::Modify, PathBuf::from("src/lib.rs")),
-            (WorkspaceChangeKind::Delete, PathBuf::from("src/old.rs")),
-        ]);
-        assert_eq!(
-            rendered,
-            "CREATE: src/new.rs, MODIFY: src/lib.rs, DELETE: src/old.rs"
-        );
     }
 
     #[test]
@@ -1220,50 +871,6 @@ mod tests {
                 "plan",
             ]
         );
-    }
-
-    // ── record_change ─────────────────────────────────────────────────────────
-
-    #[test]
-    fn record_change_writes_create_entry() {
-        let dir = tempfile::tempdir().unwrap();
-        let cwd = dir.path().to_path_buf();
-        let json = r#"{"file_path":"src/main.rs"}"#;
-        record_change("Write", json, &cwd);
-        let log = std::fs::read_to_string(cwd.join("change.log")).unwrap();
-        assert!(log.contains("CREATE:"));
-        assert!(log.contains("src/main.rs"));
-    }
-
-    #[test]
-    fn record_change_writes_modify_entry() {
-        let dir = tempfile::tempdir().unwrap();
-        let cwd = dir.path().to_path_buf();
-        let json = r#"{"file_path":"src/lib.rs"}"#;
-        record_change("Edit", json, &cwd);
-        let log = std::fs::read_to_string(cwd.join("change.log")).unwrap();
-        assert!(log.contains("MODIFY:"));
-    }
-
-    #[test]
-    fn record_change_ignores_invalid_json() {
-        let dir = tempfile::tempdir().unwrap();
-        let cwd = dir.path().to_path_buf();
-        record_change("Write", "not-json", &cwd);
-        // No change.log written — file should not exist
-        assert!(!cwd.join("change.log").exists());
-    }
-
-    #[test]
-    fn record_change_appends_multiple_entries() {
-        let dir = tempfile::tempdir().unwrap();
-        let cwd = dir.path().to_path_buf();
-        record_change("Write", r#"{"file_path":"a.rs"}"#, &cwd);
-        record_change("Edit", r#"{"file_path":"b.rs"}"#, &cwd);
-        let log = std::fs::read_to_string(cwd.join("change.log")).unwrap();
-        assert!(log.contains("a.rs"));
-        assert!(log.contains("b.rs"));
-        assert_eq!(log.lines().count(), 2);
     }
 
     // ── CancellationToken integration ─────────────────────────────────────────
