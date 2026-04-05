@@ -28,6 +28,7 @@ const DEFAULT_CODE_CLAUDE:             &str = include_str!("../prompts/code_clau
 const DEFAULT_DEBUG_CLAUDE:            &str = include_str!("../prompts/debug_claude.md");
 const DEFAULT_DEBUG_CODEX:             &str = include_str!("../prompts/debug_codex.md");
 const DEFAULT_TEST_CLAUDE:             &str = include_str!("../prompts/test_claude.md");
+const DEFAULT_COMPACT_SUMMARY:         &str = include_str!("../prompts/compact_summary.md");
 
 // ── Public struct ─────────────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ pub struct Prompts {
     pub debug_claude:            String,
     pub debug_codex:             String,
     pub test_claude:             String,
+    pub compact_summary:         String,
 }
 
 impl Prompts {
@@ -76,6 +78,7 @@ impl Prompts {
             debug_claude:           load("debug_claude.md",            &search_dirs, DEFAULT_DEBUG_CLAUDE),
             debug_codex:            load("debug_codex.md",             &search_dirs, DEFAULT_DEBUG_CODEX),
             test_claude:            load("test_claude.md",             &search_dirs, DEFAULT_TEST_CLAUDE),
+            compact_summary:        load("compact_summary.md",         &search_dirs, DEFAULT_COMPACT_SUMMARY),
         }
     }
 

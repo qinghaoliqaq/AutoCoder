@@ -55,6 +55,13 @@ base_url   = "https://api.openai.com/v1"
 model      = "gpt-4o"
 api_format = "openai"
 
+# Approximate token budget for conversation history.
+# When estimated history tokens exceed this, older messages are compacted
+# into a structured summary instead of being silently discarded.
+# Increase for models with large context windows (e.g. 128k).
+# Override with env var: DIRECTOR_CONTEXT_BUDGET
+# context_budget = 24000
+
 [features]
 # Enable packaged vendored helper skills such as MiniMax frontend-dev/fullstack-dev.
 # These are injected by the app orchestrator and never written to user-global skill dirs.

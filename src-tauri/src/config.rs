@@ -39,6 +39,11 @@ pub struct DirectorConfig {
     pub model:      String,
     #[serde(default)]
     pub api_format: ApiFormat,
+    /// Approximate context budget in tokens for conversation history.
+    /// When estimated history tokens exceed this, older messages are compacted
+    /// into a structured summary. Defaults to 24 000 tokens.
+    #[serde(default = "default_context_budget")]
+    pub context_budget: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +79,7 @@ impl Default for DirectorConfig {
             base_url:   "https://api.openai.com/v1".to_string(),
             model:      "gpt-4o".to_string(),
             api_format: ApiFormat::OpenAI,
+            context_budget: default_context_budget(),
         }
     }
 }
@@ -158,6 +164,13 @@ impl AppConfig {
             };
         }
 
+        // Context budget
+        if let Ok(v) = std::env::var("DIRECTOR_CONTEXT_BUDGET") {
+            if let Ok(n) = v.parse::<usize>() {
+                cfg.director.context_budget = n;
+            }
+        }
+
         if let Ok(v) = std::env::var("AI_DEV_HUB_VENDORED_SKILLS") {
             cfg.features.vendored_skills = parse_bool(&v).unwrap_or(cfg.features.vendored_skills);
         }
@@ -206,6 +219,10 @@ fn walk_up_for_config(start: &std::path::Path) -> Option<PathBuf> {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_context_budget() -> usize {
+    24_000
 }
 
 fn parse_bool(value: &str) -> Option<bool> {
