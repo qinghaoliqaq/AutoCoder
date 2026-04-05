@@ -4,6 +4,7 @@
 /// Bash and editor use Anthropic built-in tool type shorthand.
 
 use super::{emit_chunk, emit_tool_log, execute, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
+use crate::errors::{self, AppError};
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -41,26 +42,41 @@ pub async fn run_loop(
             "temperature": 0.3
         });
 
-        let resp = client
-            .post(&endpoint)
-            .header("Content-Type", "application/json")
-            .header("x-api-key", api_key)
-            .header("anthropic-version", "2023-06-01")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("API request failed: {e}"))?;
+        let response = {
+            let client = client.clone();
+            let endpoint = endpoint.clone();
+            let api_key = api_key.to_string();
+            let body = body.clone();
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("API error {status}: {text}"));
-        }
+            errors::with_retry(|| {
+                let client = client.clone();
+                let endpoint = endpoint.clone();
+                let api_key = api_key.clone();
+                let body = body.clone();
+                async move {
+                    let resp = client
+                        .post(&endpoint)
+                        .header("Content-Type", "application/json")
+                        .header("x-api-key", &api_key)
+                        .header("anthropic-version", "2023-06-01")
+                        .json(&body)
+                        .send()
+                        .await
+                        .map_err(AppError::from)?;
 
-        let response: Value = resp
-            .json()
+                    let status = resp.status().as_u16();
+                    if !resp.status().is_success() {
+                        let text = resp.text().await.unwrap_or_default();
+                        return Err(AppError::from_api_status(status, text));
+                    }
+
+                    let value: Value = resp.json().await.map_err(AppError::from)?;
+                    Ok(value)
+                }
+            })
             .await
-            .map_err(|e| format!("API JSON parse error: {e}"))?;
+            .map_err(|e| e.to_string())?
+        };
 
         let stop_reason = response["stop_reason"].as_str().unwrap_or("end_turn");
         let content = response["content"]

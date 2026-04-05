@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatedMessageIcon, AnimatedFolderIcon, AnimatedSparklesIcon } from './icons/AnimatedIcons';
 import { ChatMessage, AgentRole } from '../types';
 import ReactMarkdown from 'react-markdown';
+import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 
 const ROLE_CONFIG: Record<AgentRole, { label: string; letter: string; color: string; bg: string; accent: string }> = {
@@ -123,7 +124,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
             <ReportCard content={message.content} />
           ) : (
             <div className="chat-prose custom-scrollbar m-0 overflow-x-auto break-words font-sans text-[13px] leading-[1.65] sm:text-[14px]">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
                 {displayContent}
               </ReactMarkdown>
             </div>

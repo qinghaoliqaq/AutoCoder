@@ -48,7 +48,10 @@ fn workspace_slug(workspace: Option<&str>) -> String {
     let ws = workspace.unwrap_or("default");
     let p = Path::new(ws);
     let components: Vec<&str> = p.components()
-        .filter_map(|c| c.as_os_str().to_str())
+        .filter_map(|c| match c {
+            std::path::Component::Normal(s) => s.to_str(),
+            _ => None,
+        })
         .collect();
     let tail: Vec<&str> = if components.len() >= 2 {
         components[components.len() - 2..].to_vec()

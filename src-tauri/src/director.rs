@@ -391,9 +391,10 @@ async fn call_llm_sync(
                 "max_tokens":  1024,
                 "stream":      false
             });
+            let no_cancel = CancellationToken::new();
             let resp = send_and_check(client, &endpoint,
                 &[("Authorization", &format!("Bearer {}", config.director.api_key))],
-                &body).await?;
+                &body, no_cancel).await?;
             let v: Value = resp.json().await.map_err(|e| format!("JSON parse error: {e}"))?;
             v["choices"][0]["message"]["content"].as_str()
                 .map(|s| s.to_string())
@@ -407,10 +408,11 @@ async fn call_llm_sync(
                 "max_tokens":  1024,
                 "temperature": 0.3
             });
+            let no_cancel = CancellationToken::new();
             let resp = send_and_check(client, &endpoint,
                 &[("x-api-key", config.director.api_key.as_str()),
                   ("anthropic-version", "2023-06-01")],
-                &body).await?;
+                &body, no_cancel).await?;
             let v: Value = resp.json().await.map_err(|e| format!("JSON parse error: {e}"))?;
             v["content"][0]["text"].as_str()
                 .map(|s| s.to_string())

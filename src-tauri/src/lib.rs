@@ -1,6 +1,7 @@
 mod config;
 mod detect;
 mod director;
+pub(crate) mod errors;
 mod evidence;
 mod history;
 pub(crate) mod memory;
@@ -216,8 +217,6 @@ fn open_new_window(app_handle: tauri::AppHandle) -> Result<(), String> {
         .title("FlowForge")
         .inner_size(1200.0, 800.0)
         .min_inner_size(800.0, 600.0)
-        .hidden_title(true)
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
         .build()
         .map_err(|e| format!("Failed to create window: {e}"))?;
     Ok(())
