@@ -52,17 +52,17 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
       <div>
         <button
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-1.5 w-full text-left py-0.5 px-2 rounded outline-none
-                     hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors group"
+          className="flex items-center gap-1.5 w-full text-left py-[3px] px-2 rounded-md outline-none
+                     hover:bg-zinc-100/80 dark:hover:bg-zinc-800/50 transition-all duration-150 group"
           style={{ paddingLeft: `${indent + 6}px` }}
         >
-          <span className="text-zinc-400 dark:text-zinc-500 w-3 flex-shrink-0 flex items-center justify-center transition-transform group-hover:text-zinc-600 dark:group-hover:text-zinc-300">
-            {open ? <VscChevronDown className="w-3.5 h-3.5" /> : <VscChevronRight className="w-3.5 h-3.5" />}
+          <span className="text-zinc-400 dark:text-zinc-500 w-3 flex-shrink-0 flex items-center justify-center transition-all group-hover:text-zinc-600 dark:group-hover:text-zinc-300">
+            {open ? <VscChevronDown className="w-3 h-3" /> : <VscChevronRight className="w-3 h-3" />}
           </span>
-          <span className="text-amber-500 dark:text-amber-400/80 transition-transform group-hover:scale-110 flex items-center justify-center">
-            {open ? <VscFolderOpened className="w-4 h-4" /> : <VscFolder className="w-4 h-4" />}
+          <span className="text-amber-500 dark:text-amber-400/80 transition-transform duration-200 group-hover:scale-110 flex items-center justify-center">
+            {open ? <VscFolderOpened className="w-[15px] h-[15px]" /> : <VscFolder className="w-[15px] h-[15px]" />}
           </span>
-          <span className="text-[12px] font-medium text-zinc-700 dark:text-zinc-300 truncate">
+          <span className="text-[12px] font-medium text-zinc-700 dark:text-zinc-300 truncate group-hover:text-zinc-900 dark:group-hover:text-zinc-100 transition-colors">
             {node.name}
           </span>
         </button>
@@ -75,13 +75,13 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
 
   return (
     <div
-      className="flex items-center gap-1.5 py-0.5 px-2 rounded group
-                 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-default"
+      className="flex items-center gap-1.5 py-[3px] px-2 rounded-md group
+                 hover:bg-zinc-100/80 dark:hover:bg-zinc-800/50 transition-all duration-150 cursor-default"
       style={{ paddingLeft: `${indent + 6 + 18}px` }}
       title={node.path}
     >
       <span className="flex items-center justify-center">{fileIcon(node.name)}</span>
-      <span className="text-[12px] text-zinc-600 dark:text-zinc-400 truncate group-hover:text-zinc-800 dark:group-hover:text-zinc-200 transition-colors">{node.name}</span>
+      <span className="text-[12px] text-zinc-600 dark:text-zinc-400 truncate group-hover:text-zinc-900 dark:group-hover:text-zinc-100 transition-colors">{node.name}</span>
     </div>
   );
 }

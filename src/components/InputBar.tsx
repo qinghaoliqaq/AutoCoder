@@ -155,7 +155,7 @@ export default function InputBar({
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-3 px-2">
+      <div className="flex items-center justify-between gap-3 px-3">
         {configStatus ? (
           <AccessModeToggle
             mode={configStatus.execution_access_mode}
@@ -166,10 +166,12 @@ export default function InputBar({
         ) : (
           <div />
         )}
-        <div className="text-[10px] text-zinc-400 dark:text-zinc-500 flex items-center gap-1.5 opacity-70">
-          <span><kbd className="font-sans">↵</kbd> Send</span>
-          <span>·</span>
-          <span><kbd className="font-sans">⇧</kbd><kbd className="font-sans ml-0.5">↵</kbd> New Line</span>
+        <div className="text-[10px] text-zinc-400 dark:text-zinc-600 flex items-center gap-2 tabular-nums select-none">
+          <kbd className="rounded border border-zinc-200/60 bg-zinc-100/60 px-1 py-0.5 font-mono text-[9px] dark:border-zinc-800 dark:bg-zinc-900/60">Enter</kbd>
+          <span>Send</span>
+          <span className="text-zinc-300 dark:text-zinc-700">|</span>
+          <kbd className="rounded border border-zinc-200/60 bg-zinc-100/60 px-1 py-0.5 font-mono text-[9px] dark:border-zinc-800 dark:bg-zinc-900/60">Shift+Enter</kbd>
+          <span>Newline</span>
         </div>
       </div>
     </div>

@@ -12,7 +12,11 @@ export default {
           claude: '#cc785c',
           codex: '#10a37f',
           director: '#7c3aed',
-        }
+        },
+        background: {
+          light: 'rgb(250 250 249)', // zinc-50
+          dark: 'rgb(9 9 11)',       // zinc-950
+        },
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace'],

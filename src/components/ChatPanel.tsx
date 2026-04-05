@@ -1,27 +1,37 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatedMessageIcon, AnimatedFolderIcon, AnimatedSparklesIcon } from './icons/AnimatedIcons';
 import { ChatMessage, AgentRole } from '../types';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
-const ROLE_CONFIG: Record<AgentRole, { label: string; color: string; bg: string }> = {
+const ROLE_CONFIG: Record<AgentRole, { label: string; letter: string; color: string; bg: string; accent: string }> = {
   claude: {
     label: 'Claude',
+    letter: 'C',
     color: 'text-orange-600 dark:text-accent-claude',
-    bg: 'bg-orange-100/60 dark:bg-accent-claude/20 border-orange-200/60 dark:border-accent-claude/30 backdrop-blur-md',
+    bg: 'bg-orange-500/10 border-orange-500/20',
+    accent: 'bg-orange-500',
   },
   codex: {
     label: 'Codex',
+    letter: 'X',
     color: 'text-emerald-600 dark:text-accent-codex',
-    bg: 'bg-emerald-100/60 dark:bg-accent-codex/20 border-emerald-200/60 dark:border-accent-codex/30 backdrop-blur-md',
+    bg: 'bg-emerald-500/10 border-emerald-500/20',
+    accent: 'bg-emerald-500',
   },
   director: {
     label: 'Director',
+    letter: 'D',
     color: 'text-violet-600 dark:text-violet-400',
-    bg: 'bg-violet-100/60 dark:bg-violet-500/20 border-violet-200/60 dark:border-violet-500/30 backdrop-blur-md',
+    bg: 'bg-violet-500/10 border-violet-500/20',
+    accent: 'bg-violet-500',
   },
   user: {
     label: 'You',
+    letter: 'U',
     color: 'text-zinc-700 dark:text-zinc-300',
-    bg: 'bg-zinc-200/60 dark:bg-zinc-700/60 border-zinc-300/60 dark:border-zinc-600/60 backdrop-blur-md',
+    bg: 'bg-zinc-500/10 border-zinc-500/20',
+    accent: 'bg-zinc-500',
   },
 };
 
@@ -84,12 +94,9 @@ function MessageBubble({ message }: MessageBubbleProps) {
   return (
     <div className={`flex gap-2.5 animate-slide-up ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
       {/* Avatar */}
-      <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-2xl border text-[11px] font-bold ${config.bg} shadow-sm`}>
-        <span className={config.color}>
-          {message.role === 'claude' ? 'C' :
-            message.role === 'codex' ? 'X' :
-              message.role === 'director' ? 'D' : 'U'}
-        </span>
+      <div className={`relative flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl border text-[10px] font-bold ${config.bg}`}>
+        <span className={config.color}>{config.letter}</span>
+        <span className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ${config.accent} ring-2 ring-white dark:ring-zinc-900`} />
       </div>
 
       <div className={`flex w-full max-w-[46rem] flex-col space-y-1 ${isUser ? 'items-end' : 'items-start'}`}>
@@ -115,8 +122,10 @@ function MessageBubble({ message }: MessageBubbleProps) {
           ) : message.isReport ? (
             <ReportCard content={message.content} />
           ) : (
-            <div className="custom-scrollbar m-0 overflow-x-auto whitespace-pre-wrap break-words font-sans text-[13px] leading-[1.55] sm:text-[14px]">
-              {displayContent}
+            <div className="chat-prose custom-scrollbar m-0 overflow-x-auto break-words font-sans text-[13px] leading-[1.65] sm:text-[14px]">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {displayContent}
+              </ReactMarkdown>
             </div>
           )}
         </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { VscArrowLeft, VscChevronDown, VscChevronRight, VscChevronUp, VscLayoutSidebarRightOff, VscRefresh } from 'react-icons/vsc';
+import { VscArrowLeft, VscChecklist, VscChevronDown, VscChevronRight, VscChevronUp, VscLayoutSidebarRightOff, VscRefresh } from 'react-icons/vsc';
 import { BlackboardEvent } from '../types';
 import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -396,7 +396,10 @@ export default function BlackboardPanel({
           )}
           <div>
           <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-            <span className="text-violet-500">📋</span> BLACKBOARD
+            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-500/10 text-violet-500 dark:bg-violet-500/20">
+              <VscChecklist className="h-3.5 w-3.5" />
+            </span>
+            BLACKBOARD
           </h2>
           <p className="mt-0.5 max-w-[220px] truncate text-[11px] text-zinc-500" title={workspacePath || 'No workspace'}>
             {workspacePath ? workspacePath.split('/').pop() : 'No active workspace'}
@@ -540,22 +543,40 @@ export default function BlackboardPanel({
             {execView === 'cards' ? (
               execJson ? (
                 <>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-xl border border-zinc-200/80 bg-white/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/60">
-                      <div className="text-[10px] uppercase tracking-[0.08em] text-zinc-400">Total</div>
-                      <div className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-100">{summary.total}</div>
+                  {/* Progress bar */}
+                  {summary.total > 0 && (
+                    <div className="glass-card">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="stat-card__label text-zinc-500">Overall Progress</span>
+                        <span className="text-[12px] font-bold tabular-nums text-violet-600 dark:text-violet-400">
+                          {Math.round((summary.done / summary.total) * 100)}%
+                        </span>
+                      </div>
+                      <div className="progress-bar">
+                        <div
+                          className="progress-bar__fill"
+                          style={{ width: `${Math.round((summary.done / summary.total) * 100)}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/90 px-3 py-2 dark:border-emerald-500/20 dark:bg-emerald-500/10">
-                      <div className="text-[10px] uppercase tracking-[0.08em] text-emerald-500">Done</div>
-                      <div className="mt-1 text-lg font-semibold text-emerald-700 dark:text-emerald-300">{summary.done}</div>
+                  )}
+
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="stat-card border-zinc-200/80 bg-white/70 dark:border-zinc-800 dark:bg-zinc-950/60 hover:border-zinc-300 dark:hover:border-zinc-700">
+                      <div className="stat-card__value text-zinc-900 dark:text-zinc-100">{summary.total}</div>
+                      <div className="stat-card__label text-zinc-400">Total</div>
                     </div>
-                    <div className="rounded-xl border border-blue-200/80 bg-blue-50/90 px-3 py-2 dark:border-blue-500/20 dark:bg-blue-500/10">
-                      <div className="text-[10px] uppercase tracking-[0.08em] text-blue-500">Active</div>
-                      <div className="mt-1 text-lg font-semibold text-blue-700 dark:text-blue-300">{summary.active}</div>
+                    <div className="stat-card border-emerald-200/80 bg-emerald-50/80 dark:border-emerald-500/20 dark:bg-emerald-500/10 hover:border-emerald-300 dark:hover:border-emerald-500/40">
+                      <div className="stat-card__value text-emerald-700 dark:text-emerald-300">{summary.done}</div>
+                      <div className="stat-card__label text-emerald-500">Done</div>
                     </div>
-                    <div className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2 dark:border-amber-500/20 dark:bg-amber-500/10">
-                      <div className="text-[10px] uppercase tracking-[0.08em] text-amber-500">Needs Fix</div>
-                      <div className="mt-1 text-lg font-semibold text-amber-700 dark:text-amber-300">{summary.needsFix}</div>
+                    <div className="stat-card border-blue-200/80 bg-blue-50/80 dark:border-blue-500/20 dark:bg-blue-500/10 hover:border-blue-300 dark:hover:border-blue-500/40">
+                      <div className="stat-card__value text-blue-700 dark:text-blue-300">{summary.active}</div>
+                      <div className="stat-card__label text-blue-500">Active</div>
+                    </div>
+                    <div className="stat-card border-amber-200/80 bg-amber-50/80 dark:border-amber-500/20 dark:bg-amber-500/10 hover:border-amber-300 dark:hover:border-amber-500/40">
+                      <div className="stat-card__value text-amber-700 dark:text-amber-300">{summary.needsFix}</div>
+                      <div className="stat-card__label text-amber-500">Fix</div>
                     </div>
                   </div>
 
@@ -923,8 +944,8 @@ export default function BlackboardPanel({
             </button>
           </div>
           {!activityCollapsed && (
-            <div className="custom-scrollbar flex flex-1 flex-col gap-2.5 overflow-y-auto p-3">
-              {[...filteredEvents].reverse().slice(0, 10).map((ev, i) => (
+            <div className="custom-scrollbar flex flex-1 flex-col gap-0 overflow-y-auto px-3 py-2">
+              {[...filteredEvents].reverse().slice(0, 10).map((ev, i, arr) => (
                   <button
                     key={i}
                     onClick={() => {
@@ -932,34 +953,32 @@ export default function BlackboardPanel({
                         focusSubtask(ev.subtask_id);
                       }
                     }}
-                  className="relative flex gap-2.5 text-left"
+                  className="group/ev relative flex gap-3 py-2 text-left transition-colors hover:bg-zinc-100/40 dark:hover:bg-zinc-800/30 rounded-lg px-1"
                 >
-                  {i < Math.min(filteredEvents.length, 10) - 1 && (
-                    <div className="absolute bottom-[-12px] left-[7px] top-4 w-[1px] bg-zinc-200 dark:bg-zinc-800" />
+                  {/* Timeline line */}
+                  {i < arr.length - 1 && (
+                    <div className="absolute left-[9px] top-[28px] bottom-0 w-[1.5px] bg-gradient-to-b from-zinc-300 to-zinc-200/50 dark:from-zinc-700 dark:to-zinc-800/50" />
                   )}
 
-                  <div className="z-10 mt-1 flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-full border border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-900">
-                    <div
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        ev.status === 'completed' || ev.status === 'done'
-                          ? 'bg-emerald-500'
-                          : ev.status === 'failed'
-                            ? 'bg-rose-500'
-                            : ev.status === 'needs_fix'
-                              ? 'bg-amber-500'
-                              : 'bg-blue-500'
-                      }`}
-                    />
-                  </div>
+                  {/* Timeline dot */}
+                  <div className={`timeline-dot mt-0.5 shrink-0 ${
+                    ev.status === 'completed' || ev.status === 'done'
+                      ? 'success'
+                      : ev.status === 'failed'
+                        ? 'error'
+                        : ev.status === 'needs_fix'
+                          ? 'warning'
+                          : 'info'
+                  }`} />
 
-                  <div className="flex-1 pb-1">
-                    <div className="flex items-baseline gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       {ev.subtask_id && (
-                        <span className="rounded bg-zinc-200 px-1 py-0.5 font-mono text-[10px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                        <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
                           {ev.subtask_id}
                         </span>
                       )}
-                      <span className="text-[11px] font-medium leading-5 text-zinc-700 dark:text-zinc-300">
+                      <span className="text-[11px] font-medium leading-5 text-zinc-700 dark:text-zinc-300 group-hover/ev:text-zinc-900 dark:group-hover/ev:text-zinc-100 transition-colors">
                         {ev.summary}
                       </span>
                     </div>

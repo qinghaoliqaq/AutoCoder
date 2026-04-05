@@ -928,14 +928,20 @@ export default function App() {
 
         {/* Top bar / Custom Window Titlebar */}
         <header
-          className="flex items-center justify-between pr-5 pl-24 h-14 flex-shrink-0
+          className="flex items-center justify-between pr-5 pl-24 h-12 flex-shrink-0
                      glass-header relative z-50 select-none"
         >
-          <div className="flex items-center gap-2 relative z-50 pointer-events-auto shrink-0">
+          <div className="flex items-center gap-2.5 relative z-50 pointer-events-auto shrink-0">
             {modeLabel && (
-              <div className="flex items-center gap-1.5 glass-button px-2 py-1 rounded-lg">
-                <span className="text-xs text-zinc-500">skill:</span>
-                <span className="text-xs font-medium text-violet-600 dark:text-violet-400">{modeLabel}</span>
+              <div className="flex items-center gap-1.5 rounded-lg border border-violet-200/50 bg-violet-50/50 px-2.5 py-1 dark:border-violet-500/20 dark:bg-violet-500/10">
+                <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-pulse" />
+                <span className="text-[11px] font-semibold text-violet-600 dark:text-violet-400">{modeLabel}</span>
+              </div>
+            )}
+            {isRunning && !modeLabel && (
+              <div className="flex items-center gap-1.5 rounded-lg border border-blue-200/50 bg-blue-50/50 px-2.5 py-1 dark:border-blue-500/20 dark:bg-blue-500/10">
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+                <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400">Running</span>
               </div>
             )}
           </div>
@@ -943,39 +949,46 @@ export default function App() {
           {/* Central explicit drag region occupying all empty space */}
           <div data-tauri-drag-region className="flex-1 h-full self-stretch drag-region" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
 
-          <div className="flex items-center gap-3 relative z-50 pointer-events-auto shrink-0">
+          <div className="flex items-center gap-1.5 relative z-50 pointer-events-auto shrink-0">
             <button
               onClick={handleOpenConfigEditor}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-zinc-600 transition-colors glass-button dark:text-zinc-300"
-              title="设置"
+              className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] text-zinc-500 transition-all
+                         hover:bg-zinc-200/50 hover:text-zinc-700
+                         dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
+              title="Settings"
             >
               <VscSettingsGear className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline font-medium">设置</span>
+              <span className="hidden sm:inline font-medium">Settings</span>
             </button>
             <button
               onClick={() => { setContextDraft(projectContext ?? ''); setShowContextEditor(true); }}
-              className={`text-xs transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg glass-button
-                          ${projectContext
-                  ? 'text-rose-600 dark:text-rose-400'
-                  : 'text-zinc-600 dark:text-zinc-300'}`}
-              title="项目文档"
+              className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-all
+                         hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50
+                         ${projectContext
+                  ? 'text-violet-600 dark:text-violet-400'
+                  : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'}`}
+              title="Project Context"
             >
-              📄
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+              </svg>
               {projectContext && (
                 <span className="hidden sm:inline font-medium">
-                  {(projectContext.length / 1024).toFixed(1)}KB
+                  {(projectContext.length / 1024).toFixed(1)}K
                 </span>
               )}
             </button>
             <button
               onClick={handleNewWindow}
-              className="text-xs text-zinc-600 dark:text-zinc-300 transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg glass-button"
-              title="新建窗口"
+              className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] text-zinc-500 transition-all
+                         hover:bg-zinc-200/50 hover:text-zinc-700
+                         dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
+              title="New Window"
             >
               <VscMultipleWindows className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline font-medium">新窗口</span>
             </button>
-            <div className="glass-button rounded-lg">
+            <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800" />
+            <div className="rounded-lg transition-all hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50">
               <ThemeToggle />
             </div>
           </div>
@@ -984,65 +997,45 @@ export default function App() {
         {/* Main area: Integrated Activity Bar + Sidebar + Chat */}
         <div className="flex-1 flex min-h-0 bg-transparent overflow-hidden relative">
 
-          {/* Activity Bar (Integrated Minimalist style) */}
-          <div className="w-14 h-full flex flex-col items-center py-4 glass-container border-r border-zinc-200/50 dark:border-zinc-800/50 z-30 flex-shrink-0">
-            <button
-              onClick={() => toggleSidebarTab('explorer')}
-              className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-300 cursor-pointer mb-2 ${activeSidebarTab === 'explorer'
-                  ? 'text-violet-600 bg-white shadow-sm ring-1 ring-zinc-200/50 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50 shadow-[0_4px_12px_rgba(0,0,0,0.05)]'
-                  : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/50'
+          {/* Activity Bar */}
+          <div className="w-12 h-full flex flex-col items-center py-3 gap-1 glass-container border-r border-zinc-200/50 dark:border-zinc-800/50 z-30 flex-shrink-0">
+            {[
+              { tab: 'explorer' as const, icon: <VscFiles className="w-[18px] h-[18px]" />, title: 'Explorer', badge: false },
+              { tab: 'logs' as const, icon: <VscTerminal className="w-[18px] h-[18px]" />, title: 'Tool Logs', badge: toolLogs.length > 0 && activeSidebarTab !== 'logs' },
+              { tab: 'history' as const, icon: <VscHistory className="w-[18px] h-[18px]" />, title: 'History', badge: sessions.length > 0 && activeSidebarTab !== 'history' },
+            ].map(({ tab, icon, title, badge }) => (
+              <button
+                key={tab}
+                onClick={() => toggleSidebarTab(tab)}
+                className={`relative flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-200 ${
+                  activeSidebarTab === tab
+                    ? 'bg-white text-violet-600 shadow-sm ring-1 ring-zinc-200/60 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50'
+                    : 'text-zinc-400 hover:bg-zinc-200/40 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-300'
                 }`}
-              title="文件浏览器 (Explorer)"
-            >
-              <VscFiles className="w-5 h-5 stroke-[0.2]" />
-            </button>
-
-            <button
-              onClick={() => toggleSidebarTab('logs')}
-              className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-300 cursor-pointer mb-2 ${activeSidebarTab === 'logs'
-                  ? 'text-violet-600 bg-white shadow-sm ring-1 ring-zinc-200/50 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50 shadow-[0_4px_12px_rgba(0,0,0,0.05)]'
-                  : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/50'
-                }`}
-              title="工具日志 (Tool Logs)"
-            >
-              <div className="relative">
-                <VscTerminal className="w-5 h-5 stroke-[0.2]" />
-                {toolLogs.length > 0 && activeSidebarTab !== 'logs' && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-zinc-50/50 dark:ring-zinc-950/50 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" />
+                title={title}
+              >
+                {icon}
+                {badge && (
+                  <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-blue-500 ring-[1.5px] ring-white shadow-[0_0_6px_rgba(59,130,246,0.5)] dark:ring-zinc-950" />
                 )}
-              </div>
-            </button>
+              </button>
+            ))}
 
-            <button
-              onClick={() => toggleSidebarTab('history')}
-              className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-300 cursor-pointer mb-2 ${activeSidebarTab === 'history'
-                  ? 'text-violet-600 bg-white shadow-sm ring-1 ring-zinc-200/50 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50 shadow-[0_4px_12px_rgba(0,0,0,0.05)]'
-                  : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/50'
-                }`}
-              title="历史对话 (History)"
-            >
-              <div className="relative">
-                <VscHistory className="w-5 h-5 stroke-[0.2]" />
-                {sessions.length > 0 && activeSidebarTab !== 'history' && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-violet-500 ring-2 ring-zinc-50/50 dark:ring-zinc-950/50" />
-                )}
-              </div>
-            </button>
+            <div className="my-1 h-px w-5 bg-zinc-200/60 dark:bg-zinc-800/60" />
 
             <button
               onClick={toggleBlackboardWorkspace}
-              className={`w-10 h-10 rounded-xl flex justify-center items-center relative transition-all duration-300 cursor-pointer ${activeSidebarTab === 'blackboard'
-                  ? 'text-violet-600 bg-white shadow-sm ring-1 ring-zinc-200/50 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50 shadow-[0_4px_12px_rgba(0,0,0,0.05)]'
-                  : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800/50'
-                }`}
-              title="黑板 / Blackboard"
+              className={`relative flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-200 ${
+                activeSidebarTab === 'blackboard'
+                  ? 'bg-white text-violet-600 shadow-sm ring-1 ring-zinc-200/60 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50'
+                  : 'text-zinc-400 hover:bg-zinc-200/40 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-300'
+              }`}
+              title="Blackboard"
             >
-              <div className="relative">
-                <VscChecklist className="w-5 h-5 stroke-[0.2]" />
-                {(blackboardEvents.length > 0 || unreadAgentMessages > 0) && activeSidebarTab !== 'blackboard' && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-zinc-50/50 dark:ring-zinc-950/50 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" />
-                )}
-              </div>
+              <VscChecklist className="w-[18px] h-[18px]" />
+              {(blackboardEvents.length > 0 || unreadAgentMessages > 0) && activeSidebarTab !== 'blackboard' && (
+                <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-violet-500 ring-[1.5px] ring-white shadow-[0_0_6px_rgba(139,92,246,0.5)] dark:ring-zinc-950" />
+              )}
             </button>
           </div>
 
