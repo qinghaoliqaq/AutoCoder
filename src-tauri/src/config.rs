@@ -130,6 +130,15 @@ pub struct ConfigDraft {
     pub vendored_skills: bool,
     pub max_parallel_subtasks: usize,
     pub execution_access_mode: ExecutionAccessMode,
+    // Agent layer
+    #[serde(default)]
+    pub agent_provider: String,
+    #[serde(default)]
+    pub agent_api_key: String,
+    #[serde(default)]
+    pub agent_base_url: String,
+    #[serde(default)]
+    pub agent_model: String,
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -312,6 +321,10 @@ impl AppConfig {
             vendored_skills: self.features.vendored_skills,
             max_parallel_subtasks: self.features.parallel_subtask_limit(),
             execution_access_mode: self.features.execution_access_mode,
+            agent_provider: self.agent.provider.clone(),
+            agent_api_key: self.agent.api_key.clone(),
+            agent_base_url: self.agent.base_url.clone(),
+            agent_model: self.agent.model.clone(),
         }
     }
 
@@ -340,7 +353,20 @@ impl AppConfig {
                 max_parallel_subtasks: clamp_parallel_subtasks(draft.max_parallel_subtasks),
                 execution_access_mode: draft.execution_access_mode,
             },
-            agent: AgentConfig::default(),
+            agent: AgentConfig {
+                api_key: draft.agent_api_key.trim().to_string(),
+                base_url: draft.agent_base_url.trim().to_string(),
+                model: if draft.agent_model.trim().is_empty() {
+                    default_agent_model()
+                } else {
+                    draft.agent_model.trim().to_string()
+                },
+                provider: if draft.agent_provider.trim().is_empty() {
+                    default_provider()
+                } else {
+                    draft.agent_provider.trim().to_lowercase()
+                },
+            },
         };
 
         let path = writable_config_path()?;

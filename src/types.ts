@@ -33,7 +33,30 @@ export interface ConfigDraft {
   vendored_skills: boolean;
   max_parallel_subtasks: number;
   execution_access_mode: 'sandbox' | 'full_access';
+  // Agent layer
+  agent_provider: string;
+  agent_api_key: string;
+  agent_base_url: string;
+  agent_model: string;
 }
+
+/** Supported agent providers for the UI dropdown. */
+export const AGENT_PROVIDERS = [
+  { value: '',           label: '未配置 (Not configured)' },
+  { value: 'anthropic',  label: 'Anthropic Claude' },
+  { value: 'openai',     label: 'OpenAI' },
+  { value: 'deepseek',   label: 'DeepSeek' },
+  { value: 'zhipu',      label: '智谱 GLM' },
+  { value: 'minimax',    label: 'MiniMax' },
+  { value: 'moonshot',   label: '月之暗面 Moonshot' },
+  { value: 'qwen',       label: '通义千问 Qwen' },
+  { value: 'yi',         label: '零一万物 Yi' },
+  { value: 'baichuan',   label: '百川 Baichuan' },
+  { value: 'groq',       label: 'Groq' },
+  { value: 'together',   label: 'Together AI' },
+  { value: 'fireworks',  label: 'Fireworks AI' },
+  { value: 'siliconflow',label: '硅基流动 SiliconFlow' },
+] as const;
 
 export interface ChatMessage {
   id: string;
