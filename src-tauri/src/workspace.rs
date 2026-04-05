@@ -1,6 +1,5 @@
 /// Workspace management — create per-task project dirs on the Desktop
 /// and build a file-tree snapshot for the frontend file explorer.
-
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -9,16 +8,16 @@ use std::path::{Path, PathBuf};
 #[derive(Serialize, Clone)]
 pub struct ProjectDocs {
     /// Concatenated content of all discovered document files.
-    pub content:   String,
+    pub content: String,
     /// File names found (relative to the workspace root), in discovery order.
     pub filenames: Vec<String>,
 }
 
 #[derive(Serialize, Clone)]
 pub struct FileNode {
-    pub name:     String,
-    pub path:     String,
-    pub is_dir:   bool,
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
     pub children: Vec<FileNode>,
 }
 
@@ -30,11 +29,10 @@ pub struct FileNode {
 /// the task description.
 #[tauri::command]
 pub fn create_workspace(task: String, dir_name: Option<String>) -> Result<String, String> {
-    let desktop = dirs::desktop_dir()
-        .ok_or("Cannot locate Desktop directory")?;
+    let desktop = dirs::desktop_dir().ok_or("Cannot locate Desktop directory")?;
 
     let dir_name = dir_name
-        .map(|d| sanitize_name(&d))          // Director-supplied name wins
+        .map(|d| sanitize_name(&d)) // Director-supplied name wins
         .filter(|d| !d.is_empty())
         .unwrap_or_else(|| sanitize_name(&task)); // fallback: derive from task
     let workspace = desktop.join(&dir_name);
@@ -61,24 +59,38 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
     }
 
     const WELL_KNOWN: &[&str] = &[
-        "plan.md", "readme.md", "spec.md", "requirements.md",
-        "design.md", "architecture.md",
+        "plan.md",
+        "readme.md",
+        "spec.md",
+        "requirements.md",
+        "design.md",
+        "architecture.md",
     ];
     const MAX_BYTES: usize = 400 * 1024;
 
     let mut filenames: Vec<String> = Vec::new();
-    let mut parts:     Vec<String> = Vec::new();
-    let mut total:     usize = 0;
+    let mut parts: Vec<String> = Vec::new();
+    let mut total: usize = 0;
 
     // Helper: try to append a file if it hasn't been added yet and fits within cap
-    let try_add = |rel: String, full: &PathBuf,
-                       filenames: &mut Vec<String>, parts: &mut Vec<String>, total: &mut usize|
-    {
-        if filenames.contains(&rel) { return; }
-        let Ok(content) = std::fs::read_to_string(full) else { return };
-        if content.trim().is_empty() { return; }
+    let try_add = |rel: String,
+                   full: &PathBuf,
+                   filenames: &mut Vec<String>,
+                   parts: &mut Vec<String>,
+                   total: &mut usize| {
+        if filenames.contains(&rel) {
+            return;
+        }
+        let Ok(content) = std::fs::read_to_string(full) else {
+            return;
+        };
+        if content.trim().is_empty() {
+            return;
+        }
         let remaining = MAX_BYTES.saturating_sub(*total);
-        if remaining == 0 { return; }
+        if remaining == 0 {
+            return;
+        }
         let chunk = if content.len() > remaining {
             content[..remaining].to_string()
         } else {
@@ -95,7 +107,9 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
             .flatten()
             .filter_map(|e| {
                 let p = e.path();
-                if !p.is_file() { return None; }
+                if !p.is_file() {
+                    return None;
+                }
                 let name = e.file_name().to_string_lossy().to_lowercase();
                 if WELL_KNOWN.contains(&name.as_str()) {
                     Some((e.file_name().to_string_lossy().into_owned(), p))
@@ -106,7 +120,10 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
             .collect();
         // Sort by WELL_KNOWN order so PLAN.md always comes first
         root_files.sort_by_key(|(name, _)| {
-            WELL_KNOWN.iter().position(|&w| w == name.to_lowercase().as_str()).unwrap_or(99)
+            WELL_KNOWN
+                .iter()
+                .position(|&w| w == name.to_lowercase().as_str())
+                .unwrap_or(99)
         });
         for (name, full_path) in root_files {
             try_add(name, &full_path, &mut filenames, &mut parts, &mut total);
@@ -116,13 +133,17 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
     // 2. *.md files inside docs/ or doc/
     for sub in &["docs", "doc"] {
         let dir = root.join(sub);
-        if !dir.is_dir() { continue; }
+        if !dir.is_dir() {
+            continue;
+        }
         if let Ok(entries) = std::fs::read_dir(&dir) {
             let mut doc_files: Vec<(String, PathBuf)> = entries
                 .flatten()
                 .filter_map(|e| {
                     let p = e.path();
-                    if !p.is_file() { return None; }
+                    if !p.is_file() {
+                        return None;
+                    }
                     let name = e.file_name().to_string_lossy().into_owned();
                     if name.to_lowercase().ends_with(".md") {
                         Some((format!("{sub}/{name}"), p))
@@ -139,7 +160,7 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
     }
 
     Ok(ProjectDocs {
-        content:   parts.join("\n\n---\n\n"),
+        content: parts.join("\n\n---\n\n"),
         filenames,
     })
 }
@@ -153,19 +174,19 @@ pub fn read_workspace_file(path: String, relative_path: String) -> Result<String
     if !root.is_dir() {
         return Err(format!("Workspace is not a directory: {path}"));
     }
-    
+
     let target = root.join(&relative_path);
-    
-    let canonical_root = std::fs::canonicalize(&root)
-        .map_err(|e| format!("Invalid workspace path: {e}"))?;
-        
+
+    let canonical_root =
+        std::fs::canonicalize(&root).map_err(|e| format!("Invalid workspace path: {e}"))?;
+
     let canonical_target = std::fs::canonicalize(&target)
         .map_err(|e| format!("Cannot resolve target path {relative_path}: {e}"))?;
-    
+
     if !canonical_target.starts_with(&canonical_root) {
         return Err("Path traversal denied".to_string());
     }
-    
+
     std::fs::read_to_string(&canonical_target)
         .map_err(|e| format!("Cannot read file {relative_path}: {e}"))
 }
@@ -249,8 +270,16 @@ fn sanitize_name(task: &str) -> String {
 
     let s = s.trim_matches('-').to_lowercase();
     // Collapse consecutive hyphens
-    let s = s.split('-').filter(|p| !p.is_empty()).collect::<Vec<_>>().join("-");
+    let s = s
+        .split('-')
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
     // Fallback if nothing ASCII survives
-    let s = if s.is_empty() { "project".to_string() } else { s };
+    let s = if s.is_empty() {
+        "project".to_string()
+    } else {
+        s
+    };
     s.chars().take(48).collect()
 }

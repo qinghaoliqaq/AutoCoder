@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { relativeTime, getGroup, makeId, makeSessionId } from '../utils';
+import { relativeTime, getGroup, makeId, makeSessionId, syncSessionIdentity } from '../utils';
 
 // ── relativeTime ──────────────────────────────────────────────────────────────
 
@@ -103,5 +103,21 @@ describe('makeSessionId', () => {
   it('returns unique values on successive calls', () => {
     const ids = new Set(Array.from({ length: 20 }, () => makeSessionId()));
     expect(ids.size).toBe(20);
+  });
+});
+
+// ── syncSessionIdentity ────────────────────────────────────────────────────────
+
+describe('syncSessionIdentity', () => {
+  it('updates both the ref and React state sink to the same session id', () => {
+    const sessionIdRef = { current: 'sess-old' };
+    const setCurrentSessionId = vi.fn();
+
+    const result = syncSessionIdentity('sess-new', sessionIdRef, setCurrentSessionId);
+
+    expect(result).toBe('sess-new');
+    expect(sessionIdRef.current).toBe('sess-new');
+    expect(setCurrentSessionId).toHaveBeenCalledTimes(1);
+    expect(setCurrentSessionId).toHaveBeenCalledWith('sess-new');
   });
 });

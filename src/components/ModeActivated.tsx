@@ -8,6 +8,7 @@ const MODE_META: Record<AppMode, { icon: string; label: string; gradient: string
   debug: { icon: '🔍', label: 'DEBUG', gradient: 'from-emerald-600 to-emerald-500' },
   test: { icon: '✅', label: 'TEST', gradient: 'from-sky-600 to-sky-500' },
   review: { icon: '🔎', label: 'REVIEW', gradient: 'from-rose-600 to-rose-500' },
+  qa: { icon: '🏁', label: 'QA', gradient: 'from-amber-600 to-amber-500' },
 };
 
 export default function ModeActivated({ mode }: { mode: AppMode | null }) {

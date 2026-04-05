@@ -9,25 +9,25 @@
 /// has been moved to the test skill (test_skill.rs / run_phase).
 ///
 /// Each phase emits "review-phase-result" when it finishes.
-
-use super::{ReviewPhaseResult, runners};
+use super::{runners, ReviewPhaseResult};
+use crate::evidence::{self, EvidenceEvent};
+use chrono::Utc;
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
 
 pub(super) async fn run_phase(
-    phase:        &str,
-    task:         &str,
-    issue:        Option<&str>,
-    workspace:    Option<&str>,
-    context:      Option<&str>,
+    phase: &str,
+    task: &str,
+    issue: Option<&str>,
+    workspace: Option<&str>,
+    context: Option<&str>,
     window_label: &str,
-    app_handle:   &tauri::AppHandle,
-    token:        CancellationToken,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
 ) -> Result<(), String> {
     let _ = issue; // unused in static phases
 
     let (passed, found_issue) = match phase {
-
         // ── Plan completion check ─────────────────────────────────────────────
         // Claude and Codex check in parallel; missing lists are unioned.
         // Claude then ticks completed items in PLAN.md.
@@ -75,15 +75,27 @@ pub(super) async fn run_phase(
 
             // Inject plan context into both prompts
             let claude_prompt = super::inject_context(context, claude_prompt);
-            let codex_prompt  = super::inject_context(context, codex_prompt);
+            let codex_prompt = super::inject_context(context, codex_prompt);
 
             // Run both agents in parallel
             let (claude_result, codex_result) = tokio::join!(
-                runners::claude(&claude_prompt, workspace, window_label, app_handle, token.clone()),
-                runners::codex_read_only(&codex_prompt,  workspace, window_label, app_handle, token.clone()),
+                runners::claude(
+                    &claude_prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone()
+                ),
+                runners::codex_read_only(
+                    &codex_prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone()
+                ),
             );
             let claude_out = claude_result?;
-            let codex_out  = codex_result?;
+            let codex_out = codex_result?;
 
             // Union the missing lists from both agents
             let missing = union_missing(&claude_out, &codex_out);
@@ -122,7 +134,10 @@ pub(super) async fn run_phase(
                  [RESULT:FAIL:brief description] if CRITICAL or HIGH issues need immediate action"
             );
             let prompt = super::inject_context(context, prompt);
-            parse_result(&runners::claude(&prompt, workspace, window_label, app_handle, token.clone()).await?)
+            parse_result(
+                &runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
+                    .await?,
+            )
         }
 
         // ── Code cleanup — only files recorded in change.log ─────────────────
@@ -142,9 +157,9 @@ pub(super) async fn run_phase(
                         EventTarget::webview_window(window_label),
                         "review-phase-result",
                         ReviewPhaseResult {
-                            phase:  phase.to_string(),
+                            phase: phase.to_string(),
                             passed: true,
-                            issue:  String::new(),
+                            issue: String::new(),
                         },
                     )
                     .map_err(|e| e.to_string())?;
@@ -177,7 +192,10 @@ pub(super) async fn run_phase(
                  At the very end append: [RESULT:PASS]"
             );
             let prompt = super::inject_context(context, prompt);
-            parse_result(&runners::claude(&prompt, workspace, window_label, app_handle, token.clone()).await?)
+            parse_result(
+                &runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
+                    .await?,
+            )
         }
 
         unknown => return Err(format!("Unknown review phase: {unknown}")),
@@ -188,14 +206,43 @@ pub(super) async fn run_phase(
             EventTarget::webview_window(window_label),
             "review-phase-result",
             ReviewPhaseResult {
-                phase:  phase.to_string(),
+                phase: phase.to_string(),
                 passed,
-                issue:  found_issue,
+                issue: found_issue.clone(),
             },
         )
         .map_err(|e| e.to_string())?;
+    if let Some(workspace) = workspace {
+        evidence::record_event(
+            workspace,
+            EvidenceEvent {
+                ts: Utc::now().timestamp_millis() as u64,
+                event_type: format!(
+                    "review_{phase}_{}",
+                    if passed { "passed" } else { "failed" }
+                ),
+                agent: "system".to_string(),
+                subtask_id: None,
+                summary: if found_issue.trim().is_empty() {
+                    format!("Review phase {phase} completed successfully.")
+                } else {
+                    format!("Review phase {phase} completed with issue: {found_issue}")
+                },
+                artifacts: artifacts_for_review_phase(phase),
+            },
+        )?;
+    }
 
     Ok(())
+}
+
+fn artifacts_for_review_phase(phase: &str) -> Vec<String> {
+    match phase {
+        "plan_check" => vec!["PLAN.md".to_string(), "BLACKBOARD.json".to_string()],
+        "security" => vec!["security.md".to_string()],
+        "cleanup" => vec!["change.log".to_string()],
+        _ => Vec::new(),
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -211,7 +258,11 @@ fn extract_missing(text: &str) -> Vec<String> {
             if inner.is_empty() {
                 return vec![];
             }
-            return inner.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+            return inner
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
         }
     }
     vec![]
@@ -220,14 +271,14 @@ fn extract_missing(text: &str) -> Vec<String> {
 /// Union the MISSING lists from Claude and Codex, deduplicating by ID prefix (e.g. "F2", "P3").
 fn union_missing(claude_out: &str, codex_out: &str) -> Vec<String> {
     let mut claude_list = extract_missing(claude_out);
-    let codex_list      = extract_missing(codex_out);
+    let codex_list = extract_missing(codex_out);
 
     // Deduplicate: add codex items whose ID is not already present from Claude
     for item in codex_list {
         let id = item.split_whitespace().next().unwrap_or("").to_string();
-        let already = claude_list.iter().any(|existing| {
-            existing.split_whitespace().next().unwrap_or("") == id
-        });
+        let already = claude_list
+            .iter()
+            .any(|existing| existing.split_whitespace().next().unwrap_or("") == id);
         if !already {
             claude_list.push(item);
         }
@@ -275,8 +326,17 @@ fn parse_result(text: &str) -> (bool, String) {
             return (false, issue);
         }
         // [RESULT:...] found but neither PASS nor FAIL:reason — treat as failure
-        return (false, format!("malformed result marker: {}", &suffix[..suffix.len().min(40)]));
+        return (
+            false,
+            format!(
+                "malformed result marker: {}",
+                &suffix[..suffix.len().min(40)]
+            ),
+        );
     }
     // No marker at all — output was likely truncated or agent skipped it
-    (false, "no [RESULT:*] marker found — output may be truncated".to_string())
+    (
+        false,
+        "no [RESULT:*] marker found — output may be truncated".to_string(),
+    )
 }

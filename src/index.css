@@ -39,10 +39,12 @@
     width: 100%;
     margin: 0;
     padding: 0;
+    overflow: hidden;
   }
 
   body {
     @apply bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100;
+    overscroll-behavior: none;
   }
 
   * {
@@ -72,19 +74,19 @@
 
   /* Core Layout Components */
   .glass-panel {
-    @apply bg-white/60 dark:bg-zinc-900/40 backdrop-blur-xl border border-white/40 dark:border-zinc-700/30 rounded-2xl shadow-[0_8px_32px_0_rgba(0,0,0,0.05)] dark:shadow-[0_8px_32px_0_rgba(0,0,0,0.3)];
+    @apply bg-white/30 dark:bg-zinc-900/40 backdrop-blur-2xl border border-white/60 dark:border-white/10 rounded-2xl shadow-[0_18px_48px_rgba(15,23,42,0.08)] dark:shadow-[0_18px_48px_rgba(0,0,0,0.28)];
   }
   
   .glass-container {
-    @apply bg-zinc-50/70 dark:bg-zinc-950/60 backdrop-blur-2xl;
+    @apply bg-white/20 dark:bg-zinc-950/60 backdrop-blur-2xl;
   }
   
   .glass-header {
-    @apply bg-white/40 dark:bg-zinc-900/30 backdrop-blur-md border-b border-zinc-200/50 dark:border-zinc-800/50 shadow-[0_4px_30px_rgba(0,0,0,0.03)];
+    @apply bg-white/10 dark:bg-zinc-900/30 backdrop-blur-xl border-b border-zinc-200/40 dark:border-zinc-800/50 shadow-[0_8px_24px_rgba(15,23,42,0.04)];
   }
   
   .glass-button {
-    @apply bg-white/50 dark:bg-zinc-800/50 backdrop-blur-sm border border-zinc-200/50 dark:border-zinc-700/50 shadow-sm hover:bg-white/80 dark:hover:bg-zinc-700/70 transition-all;
+    @apply bg-white/25 dark:bg-zinc-800/50 backdrop-blur-xl border border-white/50 dark:border-zinc-700/50 shadow-[0_8px_20px_rgba(15,23,42,0.04)] hover:bg-white/40 dark:hover:bg-zinc-700/70 transition-all;
   }
 
   /* Status Badges */
@@ -106,7 +108,7 @@
 
   /* Chat Bubbles - Floating & Elegant */
   .chat-bubble {
-    @apply w-fit max-w-[90%] sm:max-w-[85%] rounded-2xl px-5 py-3 sm:px-6 sm:py-4 text-[15px] sm:text-[16px] leading-relaxed shadow-[0_4px_16px_rgba(0,0,0,0.03)] dark:shadow-[0_4px_16px_rgba(0,0,0,0.2)] transition-all backdrop-blur-xl;
+    @apply w-fit max-w-[84%] sm:max-w-[78%] rounded-[1.35rem] px-4 py-3 sm:px-5 sm:py-3.5 text-[13px] sm:text-[14px] leading-6 shadow-[0_10px_26px_rgba(15,23,42,0.06)] dark:shadow-[0_10px_26px_rgba(0,0,0,0.22)] transition-all backdrop-blur-xl;
     animation: fade-up 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
   }
 
@@ -125,6 +127,11 @@
 
   .chat-bubble.user {
     @apply bg-white/70 border border-zinc-200/50 text-zinc-900 dark:bg-zinc-800/60 dark:border-zinc-700/50 dark:text-zinc-100 shadow-sm;
+  }
+
+  .chat-bubble > pre,
+  .chat-bubble > div {
+    @apply m-0;
   }
 
   /* Micro Animations */
@@ -275,4 +282,130 @@
 
 .animate-slide-in-right {
   animation: slide-in-right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.hero-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.hero-icon__halo {
+  position: absolute;
+  inset: 10%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0));
+  opacity: 0.6;
+  filter: blur(8px);
+}
+
+.dark .hero-icon__halo {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0));
+}
+
+.hero-icon__glyph {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+}
+
+.hero-icon-message .hero-icon__glyph {
+  animation: heroMessageFloat 4.6s ease-in-out infinite;
+}
+
+.hero-icon-folder .hero-icon__glyph {
+  animation: heroFolderSwing 4.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  transform-origin: 42% 42%;
+}
+
+.hero-icon-sparkles .hero-icon__glyph {
+  animation: heroSparklePulse 3.2s ease-in-out infinite;
+}
+
+.hero-icon__dots {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: inline-flex;
+  gap: 2px;
+  transform: translate(-50%, -10%);
+}
+
+.hero-icon__dots span {
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.3;
+  animation: heroTypingDot 1.5s ease-in-out infinite;
+}
+
+.hero-icon__dots span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.hero-icon__dots span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes heroMessageFloat {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+
+  50% {
+    transform: translateY(-1.5px) scale(1.03);
+  }
+}
+
+@keyframes heroTypingDot {
+  0%,
+  70%,
+  100% {
+    opacity: 0.28;
+    transform: translateY(0);
+  }
+
+  35% {
+    opacity: 1;
+    transform: translateY(-1.5px);
+  }
+}
+
+@keyframes heroFolderSwing {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  18% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  42% {
+    transform: translateY(-1px) rotate(-7deg);
+  }
+
+  68% {
+    transform: translateY(-0.5px) rotate(-3deg);
+  }
+}
+
+@keyframes heroSparklePulse {
+  0%,
+  100% {
+    transform: scale(0.96) rotate(0deg);
+    opacity: 0.9;
+  }
+
+  50% {
+    transform: scale(1.06) rotate(10deg);
+    opacity: 1;
+  }
 }

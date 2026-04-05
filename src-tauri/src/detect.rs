@@ -1,5 +1,5 @@
-use std::process::Command;
 use serde::{Deserialize, Serialize};
+use std::process::Command;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ToolInfo {
@@ -19,18 +19,15 @@ fn detect_tool(name: &str, version_args: &[&str]) -> ToolInfo {
     let path = get_tool_path(name);
 
     // Then try to get the version
-    let version_result = Command::new(name)
-        .args(version_args)
-        .output();
+    let version_result = Command::new(name).args(version_args).output();
 
     match version_result {
         Ok(output) if output.status.success() => {
             let version_output = String::from_utf8_lossy(&output.stdout).to_string();
-            let version = extract_version(&version_output)
-                .or_else(|| {
-                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                    extract_version(&stderr)
-                });
+            let version = extract_version(&version_output).or_else(|| {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                extract_version(&stderr)
+            });
 
             ToolInfo {
                 installed: true,
@@ -59,11 +56,12 @@ fn detect_tool(name: &str, version_args: &[&str]) -> ToolInfo {
 }
 
 fn get_tool_path(name: &str) -> Option<String> {
-    let which_cmd = if cfg!(target_os = "windows") { "where" } else { "which" };
-    let output = Command::new(which_cmd)
-        .arg(name)
-        .output()
-        .ok()?;
+    let which_cmd = if cfg!(target_os = "windows") {
+        "where"
+    } else {
+        "which"
+    };
+    let output = Command::new(which_cmd).arg(name).output().ok()?;
 
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout)

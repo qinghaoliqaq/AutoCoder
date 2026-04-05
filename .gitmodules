@@ -1,0 +1,6 @@
+[submodule "claude-code"]
+	path = claude-code
+	url = https://github.com/instructkr/claude-code.git
+[submodule "gstack"]
+	path = gstack
+	url = https://github.com/garrytan/gstack.git

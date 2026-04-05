@@ -30,3 +30,13 @@ export const makeId = (() => {
 
 export const makeSessionId = () =>
   `sess-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+export function syncSessionIdentity(
+  nextSessionId: string,
+  sessionIdRef: { current: string },
+  setCurrentSessionId: (sessionId: string) => void,
+): string {
+  sessionIdRef.current = nextSessionId;
+  setCurrentSessionId(nextSessionId);
+  return nextSessionId;
+}

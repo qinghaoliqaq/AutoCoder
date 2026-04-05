@@ -1,6 +1,6 @@
 export type AgentRole = 'claude' | 'codex' | 'director' | 'user';
 
-export type AppMode = 'chat' | 'plan' | 'code' | 'debug' | 'test' | 'review';
+export type AppMode = 'chat' | 'plan' | 'code' | 'debug' | 'test' | 'review' | 'qa';
 
 export interface ToolInfo {
   installed: boolean;
@@ -21,6 +21,18 @@ export interface ConfigStatus {
   api_format: 'openai' | 'anthropic';
   api_key_hint: string;
   vendored_skills: boolean;
+  max_parallel_subtasks: number;
+  execution_access_mode: 'sandbox' | 'full_access';
+}
+
+export interface ConfigDraft {
+  api_key: string;
+  base_url: string;
+  model: string;
+  api_format: 'openai' | 'anthropic';
+  vendored_skills: boolean;
+  max_parallel_subtasks: number;
+  execution_access_mode: 'sandbox' | 'full_access';
 }
 
 export interface ChatMessage {
@@ -35,6 +47,13 @@ export interface ChatMessage {
 export interface ReviewPhaseResult {
   phase: string;
   passed: boolean;
+  issue: string;
+}
+
+export interface QaResult {
+  verdict: 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
+  recommended_next_step: 'complete' | 'review' | 'debug' | 'code';
+  summary: string;
   issue: string;
 }
 
@@ -130,6 +149,15 @@ export const MODES: ModeConfig[] = [
     leader: 'claude',
     description: '全局安全审计与代码清理',
     color: 'text-rose-400',
+    requiresBoth: false,
+  },
+  {
+    id: 'qa',
+    label: 'QA',
+    icon: '🏁',
+    leader: 'claude',
+    description: '基于测试证据做功能级验收裁决',
+    color: 'text-amber-400',
     requiresBoth: false,
   },
 ];

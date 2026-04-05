@@ -2,13 +2,12 @@
 ///
 /// The Director LLM handles all user interaction.
 /// When a dev task is detected, the model appends to its reply:
-///   <invoke skill="plan|code|debug|test" task="..." />
+///   <invoke skill="plan|code|debug|test|review|qa" task="..." />
 /// The frontend parses this tag and routes to the appropriate skill.
 ///
 /// Supports two API wire formats (set api_format in config.toml):
 ///   "openai"    → POST {base_url}/chat/completions, Authorization: Bearer
 ///   "anthropic" → POST {base_url}/messages,         x-api-key header
-
 use crate::config::{ApiFormat, AppConfig};
 use crate::prompts::Prompts;
 use futures_util::StreamExt;
@@ -31,13 +30,13 @@ const RECENT_PRESERVE_COUNT: usize = 6;
 /// Each token is pushed to the frontend via the "director-chat-chunk" Tauri event.
 /// The full response is appended to history after streaming completes.
 pub async fn chat_with_director(
-    config:       &AppConfig,
-    prompts:      &Prompts,
-    user_input:   &str,
-    histories:    &Mutex<HashMap<String, Vec<Value>>>,
+    config: &AppConfig,
+    prompts: &Prompts,
+    user_input: &str,
+    histories: &Mutex<HashMap<String, Vec<Value>>>,
     window_label: &str,
-    app_handle:   &tauri::AppHandle,
-    token:        CancellationToken,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
 ) -> Result<(), String> {
     if !config.is_configured() {
         return Err(
@@ -54,22 +53,48 @@ pub async fn chat_with_director(
 
     // Snapshot current history for this window (avoid holding the lock during I/O)
     let history_snapshot = {
-        let h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+        let h = histories
+            .lock()
+            .map_err(|e| format!("History lock error: {e}"))?;
         h.get(window_label).cloned().unwrap_or_default()
     };
 
     let assistant_reply = match config.director.api_format {
         ApiFormat::OpenAI => {
-            stream_openai(&client, config, &prompts.director_chat, user_input, &history_snapshot, window_label, app_handle, token).await?
+            stream_openai(
+                &client,
+                config,
+                &prompts.director_chat,
+                user_input,
+                &history_snapshot,
+                window_label,
+                app_handle,
+                token.clone(),
+                token,
+            )
+            .await?
         }
         ApiFormat::Anthropic => {
-            stream_anthropic(&client, config, &prompts.director_chat, user_input, &history_snapshot, window_label, app_handle, token).await?
+            stream_anthropic(
+                &client,
+                config,
+                &prompts.director_chat,
+                user_input,
+                &history_snapshot,
+                window_label,
+                app_handle,
+                token.clone(),
+                token,
+            )
+            .await?
         }
     };
 
     // Append this exchange to history
     {
-        let mut h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+        let mut h = histories
+            .lock()
+            .map_err(|e| format!("History lock error: {e}"))?;
         let window_history = h.entry(window_label.to_string()).or_default();
         window_history.push(json!({ "role": "user",      "content": user_input      }));
         window_history.push(json!({ "role": "assistant", "content": assistant_reply }));
@@ -257,14 +282,23 @@ pub fn clear_history(histories: &Mutex<HashMap<String, Vec<Value>>>, window_labe
 }
 
 /// Return a snapshot of the conversation history for a specific window.
-pub fn get_history(histories: &Mutex<HashMap<String, Vec<Value>>>, window_label: &str) -> Vec<Value> {
-    histories.lock()
+pub fn get_history(
+    histories: &Mutex<HashMap<String, Vec<Value>>>,
+    window_label: &str,
+) -> Vec<Value> {
+    histories
+        .lock()
         .map(|h| h.get(window_label).cloned().unwrap_or_default())
         .unwrap_or_default()
 }
 
 /// Replace the conversation history for a specific window (used when restoring a saved session).
-pub fn set_history(histories: &Mutex<HashMap<String, Vec<Value>>>, window_label: &str, new_history: Vec<Value>) {
+pub fn set_history(
+    histories: &Mutex<HashMap<String, Vec<Value>>>,
+    window_label: &str,
+    mut new_history: Vec<Value>,
+) {
+    trim_history(&mut new_history);
     if let Ok(mut h) = histories.lock() {
         h.insert(window_label.to_string(), new_history);
     }
@@ -273,23 +307,26 @@ pub fn set_history(histories: &Mutex<HashMap<String, Vec<Value>>>, window_label:
 // ── OpenAI SSE streaming ──────────────────────────────────────────────────────
 
 async fn stream_openai(
-    client:       &Client,
-    config:       &AppConfig,
+    client: &Client,
+    config: &AppConfig,
     system_prompt: &str,
-    user_msg:     &str,
-    history:      &[Value],
+    user_msg: &str,
+    history: &[Value],
     window_label: &str,
-    app_handle:   &tauri::AppHandle,
-    token:        CancellationToken,
+    app_handle: &tauri::AppHandle,
+    request_token: CancellationToken,
+    token: CancellationToken,
 ) -> Result<String, String> {
-    let endpoint = format!("{}/chat/completions", config.director.base_url.trim_end_matches('/'));
+    let endpoint = format!(
+        "{}/chat/completions",
+        config.director.base_url.trim_end_matches('/')
+    );
 
     // system role (for APIs that support it) + seed exchange (fallback for APIs that ignore system role)
     // Many self-hosted OpenAI-compatible endpoints silently ignore "role: system",
     // so we also inject the prompt as the first user/assistant turn.
-    let seed_user = format!(
-        "[指令]\n{system_prompt}\n[/指令]\n\n以上是你的完整行为规则，请严格遵守。"
-    );
+    let seed_user =
+        format!("[指令]\n{system_prompt}\n[/指令]\n\n以上是你的完整行为规则，请严格遵守。");
     let mut messages = vec![
         json!({ "role": "system", "content": system_prompt }),
         json!({ "role": "user",      "content": seed_user }),
@@ -309,8 +346,12 @@ async fn stream_openai(
     let resp = send_and_check(
         client,
         &endpoint,
-        &[("Authorization", &format!("Bearer {}", config.director.api_key))],
+        &[(
+            "Authorization",
+            &format!("Bearer {}", config.director.api_key),
+        )],
         &body,
+        request_token,
     )
     .await?;
 
@@ -364,16 +405,20 @@ async fn stream_openai(
 // ── Anthropic SSE streaming ───────────────────────────────────────────────────
 
 async fn stream_anthropic(
-    client:       &Client,
-    config:       &AppConfig,
+    client: &Client,
+    config: &AppConfig,
     system_prompt: &str,
-    user_msg:     &str,
-    history:      &[Value],
+    user_msg: &str,
+    history: &[Value],
     window_label: &str,
-    app_handle:   &tauri::AppHandle,
-    token:        CancellationToken,
+    app_handle: &tauri::AppHandle,
+    request_token: CancellationToken,
+    token: CancellationToken,
 ) -> Result<String, String> {
-    let endpoint = format!("{}/messages", config.director.base_url.trim_end_matches('/'));
+    let endpoint = format!(
+        "{}/messages",
+        config.director.base_url.trim_end_matches('/')
+    );
 
     // history + current user message (system prompt is a top-level field in Anthropic format)
     let mut messages: Vec<Value> = history.to_vec();
@@ -392,10 +437,11 @@ async fn stream_anthropic(
         client,
         &endpoint,
         &[
-            ("x-api-key",         config.director.api_key.as_str()),
+            ("x-api-key", config.director.api_key.as_str()),
             ("anthropic-version", "2023-06-01"),
         ],
         &body,
+        request_token,
     )
     .await?;
 
@@ -452,6 +498,7 @@ async fn send_and_check(
     endpoint: &str,
     extra_headers: &[(&str, &str)],
     body: &Value,
+    token: CancellationToken,
 ) -> Result<reqwest::Response, String> {
     let mut req = client
         .post(endpoint)
@@ -461,11 +508,10 @@ async fn send_and_check(
         req = req.header(*k, *v);
     }
 
-    let resp = req
-        .json(body)
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {e}"))?;
+    let resp = tokio::select! {
+        _ = token.cancelled() => return Err("cancelled".to_string()),
+        result = req.json(body).send() => result.map_err(|e| format!("Request failed: {e}"))?,
+    };
 
     if resp.status().is_success() {
         return Ok(resp);

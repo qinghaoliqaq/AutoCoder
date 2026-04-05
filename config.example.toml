@@ -9,6 +9,8 @@
 #   DIRECTOR_MODEL        or  AGENT_MINIMAX_MODEL
 #   DIRECTOR_API_FORMAT                               ("openai" | "anthropic")
 #   AI_DEV_HUB_VENDORED_SKILLS                       ("true" | "false")
+#   AI_DEV_HUB_MAX_PARALLEL_SUBTASKS                 (1-8)
+#   AI_DEV_HUB_EXECUTION_ACCESS_MODE                 ("sandbox" | "full_access")
 #
 # ── api_format options ────────────────────────────────────────────────────────
 #
@@ -85,3 +87,12 @@ api_format = "openai"
 # Enable packaged vendored helper skills such as MiniMax frontend-dev/fullstack-dev.
 # These are injected by the app orchestrator and never written to user-global skill dirs.
 vendored_skills = true
+
+# Bounded lane count for code-mode subtask execution.
+# Each lane gets an isolated Claude implementation pass followed by Codex review.
+max_parallel_subtasks = 5
+
+# Global execution privilege for write-capable agents.
+# "sandbox" keeps Codex in workspace-write sandbox and Claude in safer permission mode.
+# "full_access" removes execution restrictions for write passes. Review / QA remain read-only.
+execution_access_mode = "sandbox"

@@ -19,9 +19,15 @@ export default function HistoryPanel({
   onNewChat,
   onClose,
 }: HistoryPanelProps) {
+  const sortedSessions = [...sessions].sort((a, b) => {
+    if (b.updated_at !== a.updated_at) return b.updated_at - a.updated_at;
+    if (b.created_at !== a.created_at) return b.created_at - a.created_at;
+    return a.id.localeCompare(b.id);
+  });
+
   // Group sessions while preserving sort order (most-recent-first)
   const grouped: { label: string; items: SessionMeta[] }[] = [];
-  for (const session of sessions) {
+  for (const session of sortedSessions) {
     const label = getGroup(session.updated_at);
     const last = grouped[grouped.length - 1];
     if (last && last.label === label) {
