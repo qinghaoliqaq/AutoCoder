@@ -1,6 +1,7 @@
 import { ConfigDraft, SystemStatus, AGENT_PROVIDERS } from '../types';
 import AccessModeToggle from './AccessModeToggle';
 import ToggleSwitch from './ToggleSwitch';
+import ProviderSelect from './ProviderSelect';
 import { CheckCircle2, AlertTriangle, LoaderCircle } from 'lucide-react';
 
 interface ConfigEditorModalProps {
@@ -204,18 +205,13 @@ export default function ConfigEditorModal({
               </p>
 
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-1.5">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">供应商</span>
-                  <select
+                  <ProviderSelect
                     value={draft.agent_provider}
-                    onChange={(event) => update('agent_provider', event.target.value)}
-                    className="rounded-xl border border-zinc-200/80 bg-white/70 px-3 py-2.5 text-sm text-zinc-800 outline-none transition focus:border-violet-300 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-100"
-                  >
-                    {AGENT_PROVIDERS.map((p) => (
-                      <option key={p.value} value={p.value}>{p.label}</option>
-                    ))}
-                  </select>
-                </label>
+                    onChange={(value) => update('agent_provider', value)}
+                  />
+                </div>
 
                 <label className="flex flex-col gap-1.5">
                   <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">API Key</span>
