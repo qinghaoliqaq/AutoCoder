@@ -100,9 +100,22 @@ fn load_evidence_section(workspace: &str) -> Result<Option<String>, String> {
     };
     let json = serde_json::to_string_pretty(&index)
         .map_err(|e| format!("Cannot serialize {EVIDENCE_INDEX_JSON} for prompt: {e}"))?;
-    Ok(Some(format!(
+
+    // Include both the structured JSON and a human-readable digest summary.
+    // The digest highlights trouble spots, failure patterns, and QA history
+    // so the LLM can reason about multi-round quality trends.
+    let digest = evidence::build_evidence_digest(workspace)
+        .unwrap_or_default();
+
+    let mut section = format!(
         "## Evidence Index ({EVIDENCE_INDEX_JSON})\n\n```json\n{json}\n```"
-    )))
+    );
+    if !digest.is_empty() {
+        section.push_str("\n\n");
+        section.push_str(&digest);
+    }
+
+    Ok(Some(section))
 }
 
 fn emit_acceptance_warning_log(

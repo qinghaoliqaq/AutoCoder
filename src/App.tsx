@@ -36,7 +36,7 @@ function ThemeToggle() {
 
 
 import { parseInvoke, stripInvoke } from './invoke';
-import { buildNextInputAfterQa, buildNextInputAfterReview, buildNextInputAfterTest } from './directorFlow';
+import { buildNextInputAfterReview, buildNextInputAfterQaWithEvidence, buildNextInputAfterTestWithEvidence, buildNextInputAfterCodeWithEvidence } from './directorFlow';
 import { makeId, makeSessionId, syncSessionIdentity } from './utils';
 
 // ── App ────────────────────────────────────────────────────────────────────────
@@ -425,10 +425,10 @@ export default function App() {
             hitRoundBudget = false;
             break;
           }
-          nextInput = buildNextInputAfterTest();
+          nextInput = await buildNextInputAfterTestWithEvidence(currentWsPath);
         } else if (invocation.skill === 'qa') {
           const qaResult = await runQa(invocation.task, currentWsPath);
-          nextInput = buildNextInputAfterQa(qaResult);
+          nextInput = await buildNextInputAfterQaWithEvidence(qaResult, currentWsPath);
         } else {
           const result = await runSkill(invocation.skill, invocation.task);
           if (result === null) {
@@ -437,11 +437,7 @@ export default function App() {
             break;
           }
           currentWsPath = result;
-          if (invocation.skill === 'plan') {
-            nextInput = `plan 技能已完成：Claude 完成了 5 轮规划讨论，并将完整架构文档（PLAN.md）写入了项目目录。请用一句话简要说明最终技术方案，然后立即调用 code 技能按照 PLAN.md 开始开发。`;
-          } else {
-            nextInput = `${invocation.skill} 技能已完成。code 模式中的功能级 review 已按子任务执行完毕。请立即调用 review 进行最终安全审查和代码清理。`;
-          }
+          nextInput = await buildNextInputAfterCodeWithEvidence(invocation.skill, currentWsPath);
         }
       }
 

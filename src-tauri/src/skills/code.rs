@@ -448,6 +448,15 @@ async fn run_subtask(
                 )
             };
             let claude_prompt = super::inject_context(context, claude_prompt);
+            // Inject evidence history for retries so Claude knows what failed before.
+            let claude_prompt = if attempt > 1 {
+                match evidence::build_subtask_context(workspace, &card.id) {
+                    Some(ctx) => format!("{claude_prompt}\n\n---\n\n{ctx}"),
+                    None => claude_prompt,
+                }
+            } else {
+                claude_prompt
+            };
             let claude_output = runners::claude_quiet(
                 &claude_prompt,
                 Some(isolated.root.to_string_lossy().as_ref()),

@@ -281,6 +281,18 @@ fn memory_list(workspace: Option<String>) -> Vec<String> {
     memory::list_memories(workspace.as_deref())
 }
 
+// ── Evidence commands ─────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn evidence_digest(workspace: String) -> Option<String> {
+    evidence::build_evidence_digest(&workspace)
+}
+
+#[tauri::command]
+fn evidence_subtask_context(workspace: String, subtask_id: String) -> Option<String> {
+    evidence::build_subtask_context(&workspace, &subtask_id)
+}
+
 // ── Entry point ────────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -327,6 +339,8 @@ pub fn run() {
             memory_append,
             memory_write_topic,
             memory_list,
+            evidence_digest,
+            evidence_subtask_context,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

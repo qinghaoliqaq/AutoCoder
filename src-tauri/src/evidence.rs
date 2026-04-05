@@ -56,6 +56,167 @@ pub(crate) struct SubtaskEvidence {
     pub artifacts: Vec<String>,
 }
 
+/// Compact, LLM-friendly digest of project evidence for injection into prompts.
+/// Unlike the full EvidenceIndex JSON dump, this is a short markdown summary
+/// designed to fit in a system prompt without overwhelming context.
+pub(crate) fn build_evidence_digest(workspace: &str) -> Option<String> {
+    let _ = refresh_evidence_index(workspace);
+    let index = read_evidence_index(workspace).ok()??;
+
+    let mut lines = Vec::new();
+    lines.push("## Project Evidence Digest".to_string());
+    lines.push(String::new());
+
+    // Overall status
+    if let Some(task) = &index.task {
+        lines.push(format!("**Task:** {task}"));
+    }
+    if let Some(state) = &index.board_state {
+        lines.push(format!("**Board state:** {state}"));
+    }
+    lines.push(format!("**Total events:** {}", index.total_events));
+
+    // Aggregate statistics
+    let total = index.subtasks.len();
+    if total > 0 {
+        let done = index.subtasks.iter().filter(|s| s.status == "done").count();
+        let failed = index.subtasks.iter().filter(|s| s.status == "failed").count();
+        let in_progress = index.subtasks.iter().filter(|s| s.status == "in_progress").count();
+        let needs_fix = index.subtasks.iter().filter(|s| s.status == "needs_fix").count();
+        let pending = index.subtasks.iter().filter(|s| s.status == "pending").count();
+        let total_attempts: u32 = index.subtasks.iter().map(|s| s.attempts).sum();
+        let multi_attempt: Vec<_> = index.subtasks.iter().filter(|s| s.attempts > 1).collect();
+
+        lines.push(format!(
+            "**Subtasks:** {done}/{total} done, {failed} failed, {in_progress} active, {needs_fix} needs_fix, {pending} pending"
+        ));
+        if total_attempts > total as u32 {
+            lines.push(format!(
+                "**Total attempts:** {total_attempts} (avg {:.1}/subtask)",
+                total_attempts as f64 / total as f64
+            ));
+        }
+
+        // Highlight trouble spots — subtasks that needed multiple attempts
+        if !multi_attempt.is_empty() {
+            lines.push(String::new());
+            lines.push("### Trouble spots (multiple attempts)".to_string());
+            for sub in &multi_attempt {
+                lines.push(format!(
+                    "- **{}** ({}): {} attempts, status: {}",
+                    sub.subtask_id, sub.title, sub.attempts, sub.status
+                ));
+                if !sub.review_findings.is_empty() {
+                    for finding in sub.review_findings.iter().take(3) {
+                        lines.push(format!("  - {finding}"));
+                    }
+                }
+                if let Some(review) = &sub.latest_review {
+                    lines.push(format!("  - Last review: {review}"));
+                }
+            }
+        }
+
+        // Failed subtasks
+        let failed_subs: Vec<_> = index.subtasks.iter().filter(|s| s.status == "failed").collect();
+        if !failed_subs.is_empty() {
+            lines.push(String::new());
+            lines.push("### Failed subtasks".to_string());
+            for sub in &failed_subs {
+                lines.push(format!("- **{}** ({}): {}", sub.subtask_id, sub.title, sub.status));
+                for summary in sub.recent_event_summaries.iter().rev().take(2) {
+                    lines.push(format!("  - {summary}"));
+                }
+            }
+        }
+    }
+
+    // Recent events timeline (last 10)
+    if !index.recent_events.is_empty() {
+        lines.push(String::new());
+        lines.push("### Recent activity".to_string());
+        for event in index.recent_events.iter().rev().take(10) {
+            let subtask = event.subtask_id.as_deref().unwrap_or("project");
+            lines.push(format!(
+                "- [{}] {}: {}",
+                subtask, event.event_type, event.summary
+            ));
+        }
+    }
+
+    // QA history — extract previous QA verdicts for multi-round reasoning
+    let qa_events: Vec<_> = index
+        .recent_events
+        .iter()
+        .filter(|e| e.event_type.starts_with("qa_"))
+        .collect();
+    if !qa_events.is_empty() {
+        lines.push(String::new());
+        lines.push("### QA history".to_string());
+        for event in &qa_events {
+            lines.push(format!("- **{}**: {}", event.event_type, event.summary));
+        }
+    }
+
+    if lines.len() <= 2 {
+        return None; // Nothing meaningful to report
+    }
+
+    Some(lines.join("\n"))
+}
+
+/// Build a focused context block for a specific subtask, summarizing its
+/// history of attempts, failures, review findings, and verifier results.
+/// Injected into the Claude prompt when retrying a subtask so the LLM knows
+/// what went wrong previously.
+pub(crate) fn build_subtask_context(workspace: &str, subtask_id: &str) -> Option<String> {
+    let index = read_evidence_index(workspace).ok()??;
+    let sub = index.subtasks.iter().find(|s| s.subtask_id == subtask_id)?;
+
+    if sub.attempts <= 1 && sub.review_findings.is_empty() {
+        return None; // First attempt, no history to inject
+    }
+
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "## Previous history for subtask {} ({})",
+        sub.subtask_id, sub.title
+    ));
+    lines.push(format!(
+        "This is attempt {}. Previous attempts encountered these issues:",
+        sub.attempts + 1
+    ));
+
+    if !sub.review_findings.is_empty() {
+        lines.push(String::new());
+        lines.push("**Review findings to address:**".to_string());
+        for finding in &sub.review_findings {
+            lines.push(format!("- {finding}"));
+        }
+    }
+
+    if let Some(review) = &sub.latest_review {
+        lines.push(format!("\n**Latest review:** {review}"));
+    }
+
+    if let Some(impl_note) = &sub.latest_implementation {
+        lines.push(format!("\n**Previous implementation note:** {impl_note}"));
+    }
+
+    if !sub.recent_event_summaries.is_empty() {
+        lines.push(String::new());
+        lines.push("**Event timeline:**".to_string());
+        for summary in &sub.recent_event_summaries {
+            lines.push(format!("- {summary}"));
+        }
+    }
+
+    lines.push(String::new());
+    lines.push("Use this history to avoid repeating the same mistakes. Fix the identified issues while preserving what worked.".to_string());
+
+    Some(lines.join("\n"))
+}
+
 pub(crate) fn record_event(workspace: &str, event: EvidenceEvent) -> Result<(), String> {
     append_event(workspace, &event)?;
     refresh_evidence_index(workspace)?;
@@ -399,5 +560,84 @@ mod tests {
             artifacts,
             vec!["PLAN.md".to_string(), "bugs.md".to_string()]
         );
+    }
+
+    #[test]
+    fn evidence_digest_includes_trouble_spots() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().to_str().unwrap();
+        let mut board = sample_board();
+        board.subtasks[0].attempts = 3;
+        std::fs::write(
+            dir.path().join(BLACKBOARD_JSON),
+            serde_json::to_string_pretty(&board).unwrap(),
+        )
+        .unwrap();
+        record_event(
+            workspace,
+            EvidenceEvent {
+                ts: 1,
+                event_type: "needs_fix".to_string(),
+                agent: "codex".to_string(),
+                subtask_id: Some("F1".to_string()),
+                summary: "Validation missing".to_string(),
+                artifacts: Vec::new(),
+            },
+        )
+        .unwrap();
+        record_event(
+            workspace,
+            EvidenceEvent {
+                ts: 2,
+                event_type: "qa_failed".to_string(),
+                agent: "claude".to_string(),
+                subtask_id: None,
+                summary: "API tests fail".to_string(),
+                artifacts: Vec::new(),
+            },
+        )
+        .unwrap();
+
+        let digest = build_evidence_digest(workspace).expect("should produce digest");
+        assert!(digest.contains("Trouble spots"), "should have trouble spots section");
+        assert!(digest.contains("F1"), "should mention subtask F1");
+        assert!(digest.contains("3 attempts"), "should show attempt count");
+        assert!(digest.contains("QA history"), "should have QA history section");
+        assert!(digest.contains("qa_failed"), "should show QA failure");
+    }
+
+    #[test]
+    fn subtask_context_returns_none_for_first_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().to_str().unwrap();
+        let mut board = sample_board();
+        board.subtasks[0].attempts = 1;
+        board.subtasks[0].review_findings.clear();
+        std::fs::write(
+            dir.path().join(BLACKBOARD_JSON),
+            serde_json::to_string_pretty(&board).unwrap(),
+        )
+        .unwrap();
+        refresh_evidence_index(workspace).unwrap();
+
+        assert!(build_subtask_context(workspace, "F1").is_none());
+    }
+
+    #[test]
+    fn subtask_context_includes_findings_on_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().to_str().unwrap();
+        let board = sample_board(); // attempts=2, has review_findings
+        std::fs::write(
+            dir.path().join(BLACKBOARD_JSON),
+            serde_json::to_string_pretty(&board).unwrap(),
+        )
+        .unwrap();
+        refresh_evidence_index(workspace).unwrap();
+
+        let ctx = build_subtask_context(workspace, "F1").expect("should produce context");
+        assert!(ctx.contains("Previous history"), "should have header");
+        assert!(ctx.contains("4xx validation"), "should include review finding");
+        assert!(ctx.contains("Missing validation"), "should include latest review");
     }
 }

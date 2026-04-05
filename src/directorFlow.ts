@@ -1,4 +1,16 @@
 import type { QaResult } from './types';
+import { invoke } from '@tauri-apps/api/core';
+
+/** Fetch a compact evidence digest from the backend for the given workspace. */
+async function getEvidenceDigest(workspace: string | null): Promise<string> {
+  if (!workspace) return '';
+  try {
+    const digest = await invoke<string | null>('evidence_digest', { workspace });
+    return digest ? `\n\n${digest}` : '';
+  } catch {
+    return '';
+  }
+}
 
 export function buildNextInputAfterReview(result: {
   securityFailed?: boolean;
@@ -39,4 +51,40 @@ export function buildNextInputAfterQa(result: QaResult): string {
   }
 
   return `qa 验收失败。摘要：${result.summary}。阻塞问题：${qaIssue}。请立即调用 debug 技能定位根因并修复，完成后继续 review -> test -> qa。`;
+}
+
+/**
+ * Enhanced versions that inject evidence digest into the director message.
+ * This gives the Director LLM historical context about what happened across
+ * the entire skill chain, enabling smarter routing decisions.
+ */
+export async function buildNextInputAfterQaWithEvidence(
+  result: QaResult,
+  workspace: string | null,
+): Promise<string> {
+  const base = buildNextInputAfterQa(result);
+  const digest = await getEvidenceDigest(workspace);
+  return base + digest;
+}
+
+export async function buildNextInputAfterTestWithEvidence(
+  workspace: string | null,
+): Promise<string> {
+  const base = buildNextInputAfterTest();
+  const digest = await getEvidenceDigest(workspace);
+  return base + digest;
+}
+
+export async function buildNextInputAfterCodeWithEvidence(
+  skill: string,
+  workspace: string | null,
+): Promise<string> {
+  let base: string;
+  if (skill === 'plan') {
+    base = 'plan 技能已完成：Claude 完成了 5 轮规划讨论，并将完整架构文档（PLAN.md）写入了项目目录。请用一句话简要说明最终技术方案，然后立即调用 code 技能按照 PLAN.md 开始开发。';
+  } else {
+    base = `${skill} 技能已完成。code 模式中的功能级 review 已按子任务执行完毕。请立即调用 review 进行最终安全审查和代码清理。`;
+  }
+  const digest = await getEvidenceDigest(workspace);
+  return base + digest;
 }
