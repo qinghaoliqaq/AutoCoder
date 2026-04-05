@@ -3,6 +3,7 @@ mod detect;
 mod director;
 mod evidence;
 mod history;
+pub(crate) mod memory;
 mod planning_schema;
 mod prompts;
 mod skills;
@@ -249,6 +250,37 @@ async fn write_bug_report(
     Ok(path.to_string_lossy().into_owned())
 }
 
+// ── Memory commands ───────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn memory_load(workspace: Option<String>) -> Option<String> {
+    memory::load_entrypoint(workspace.as_deref())
+}
+
+#[tauri::command]
+fn memory_prompt(workspace: Option<String>, task_hint: String) -> Option<String> {
+    memory::build_memory_prompt(workspace.as_deref(), &task_hint)
+}
+
+#[tauri::command]
+fn memory_append(workspace: Option<String>, line: String) -> Result<String, String> {
+    memory::append_to_entrypoint(workspace.as_deref(), &line)
+}
+
+#[tauri::command]
+fn memory_write_topic(
+    workspace: Option<String>,
+    name: String,
+    content: String,
+) -> Result<String, String> {
+    memory::write_topic(workspace.as_deref(), &name, &content)
+}
+
+#[tauri::command]
+fn memory_list(workspace: Option<String>) -> Vec<String> {
+    memory::list_memories(workspace.as_deref())
+}
+
 // ── Entry point ────────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -290,6 +322,11 @@ pub fn run() {
             history::load_session,
             history::delete_session,
             sanitize_blackboard_state,
+            memory_load,
+            memory_prompt,
+            memory_append,
+            memory_write_topic,
+            memory_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

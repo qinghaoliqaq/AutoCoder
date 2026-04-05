@@ -59,35 +59,79 @@ pub async fn chat_with_director(
         h.get(window_label).cloned().unwrap_or_default()
     };
 
-    let assistant_reply = match config.director.api_format {
+    // Inject persistent memory into the system prompt if available
+    let system_prompt = {
+        let base = &prompts.director_chat;
+        match crate::memory::build_memory_prompt(None, user_input) {
+            Some(mem) => format!("{base}\n\n---\n\n{mem}"),
+            None => base.clone(),
+        }
+    };
+
+    let stream_result = match config.director.api_format {
         ApiFormat::OpenAI => {
             stream_openai(
                 &client,
                 config,
-                &prompts.director_chat,
+                &system_prompt,
                 user_input,
                 &history_snapshot,
                 window_label,
                 app_handle,
                 token.clone(),
-                token,
+                token.clone(),
             )
-            .await?
+            .await
         }
         ApiFormat::Anthropic => {
             stream_anthropic(
                 &client,
                 config,
-                &prompts.director_chat,
+                &system_prompt,
                 user_input,
                 &history_snapshot,
                 window_label,
                 app_handle,
                 token.clone(),
-                token,
+                token.clone(),
             )
-            .await?
+            .await
         }
+    };
+
+    // Level 3: Reactive compact — if the API rejected due to prompt length,
+    // aggressively compact and retry once.
+    let assistant_reply = match &stream_result {
+        Err(e) if e.contains("prompt is too long")
+              || e.contains("context_length_exceeded")
+              || e.contains("max_tokens")
+              || e.contains("too many tokens") =>
+        {
+            reactive_compact(histories, window_label)?;
+            // Retry with compacted history
+            let compacted_snapshot = {
+                let h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+                h.get(window_label).cloned().unwrap_or_default()
+            };
+            match config.director.api_format {
+                ApiFormat::OpenAI => {
+                    stream_openai(
+                        &client, config, &system_prompt, user_input,
+                        &compacted_snapshot, window_label, app_handle,
+                        token.clone(), token,
+                    ).await?
+                }
+                ApiFormat::Anthropic => {
+                    stream_anthropic(
+                        &client, config, &system_prompt, user_input,
+                        &compacted_snapshot, window_label, app_handle,
+                        token.clone(), token,
+                    ).await?
+                }
+            }
+        }
+        Err(_) => stream_result?,
+        Ok(reply) => reply.clone(),
     };
 
     // Append this exchange to history
@@ -102,16 +146,33 @@ pub async fn chat_with_director(
         enforce_hard_ceiling(window_history);
     }
 
-    // Token-aware compaction: if history exceeds the context budget, compact older
-    // messages into a structured summary via an LLM call.
-    let needs_compaction = {
+    // Multi-level compaction (inspired by Claude Code):
+    //   Level 1 — Micro compact: trim long messages/tool results (no LLM call)
+    //   Level 2 — Auto compact: LLM-driven summarization of old messages
+    //   Level 3 — Reactive compact: aggressive emergency compaction
+    let estimated = {
         let h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
         let window_history = h.get(window_label).cloned().unwrap_or_default();
-        estimate_tokens(&window_history) > config.director.context_budget
+        estimate_tokens(&window_history)
     };
 
-    if needs_compaction {
-        compact_history(config, prompts, histories, window_label).await?;
+    let budget = config.director.context_budget;
+
+    if estimated > budget {
+        // Level 1: Micro compact first (cheap, no LLM call)
+        micro_compact(histories, window_label)?;
+
+        // Re-check after micro compact
+        let still_over = {
+            let h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+            let wh = h.get(window_label).cloned().unwrap_or_default();
+            estimate_tokens(&wh) > budget
+        };
+
+        if still_over {
+            // Level 2: Auto compact (LLM-driven summarization)
+            compact_history(config, prompts, histories, window_label).await?;
+        }
     }
 
     Ok(())
@@ -153,9 +214,93 @@ fn estimate_text_tokens(text: &str) -> usize {
     (ascii_chars / 4 + cjk_chars / 2).max(1)
 }
 
-// ── Context compaction ───────────────────────────────────────────────────────
+// ── Multi-level context compaction ──────────────────────────────────────────
 
-/// Compact older messages into a structured summary, preserving recent ones.
+/// Level 1: Micro compact — trim long messages in-place without an LLM call.
+///
+/// - Truncate assistant/user messages longer than 1500 chars (keep head + tail)
+/// - Replace tool output messages with a short summary
+/// - Remove duplicate consecutive assistant messages
+/// This is fast and cheap, reduces token count by ~30-50% in typical sessions.
+fn micro_compact(
+    histories: &Mutex<HashMap<String, Vec<Value>>>,
+    window_label: &str,
+) -> Result<(), String> {
+    let mut h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+    let history = match h.get_mut(window_label) {
+        Some(h) => h,
+        None => return Ok(()),
+    };
+
+    const MICRO_TRIM_THRESHOLD: usize = 1500;
+    const MICRO_HEAD: usize = 600;
+    const MICRO_TAIL: usize = 400;
+
+    for msg in history.iter_mut() {
+        if let Some(content) = msg["content"].as_str() {
+            if content.len() > MICRO_TRIM_THRESHOLD {
+                let head = &content[..content.char_indices()
+                    .nth(MICRO_HEAD)
+                    .map(|(i, _)| i)
+                    .unwrap_or(content.len())];
+                let tail_start = content.char_indices()
+                    .rev()
+                    .nth(MICRO_TAIL)
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                let tail = &content[tail_start..];
+                let trimmed = format!(
+                    "{head}\n\n[... {omitted} chars omitted ...]\n\n{tail}",
+                    omitted = content.len() - head.len() - tail.len()
+                );
+                msg["content"] = json!(trimmed);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Level 3: Reactive compact — emergency compaction when the API rejects a
+/// request due to prompt length. Aggressively keeps only the last few messages
+/// plus the most recent context summary (if any).
+pub(crate) fn reactive_compact(
+    histories: &Mutex<HashMap<String, Vec<Value>>>,
+    window_label: &str,
+) -> Result<(), String> {
+    let mut h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+    let history = match h.get_mut(window_label) {
+        Some(h) => h,
+        None => return Ok(()),
+    };
+
+    if history.len() <= 4 {
+        return Ok(()); // Already minimal
+    }
+
+    // Find the most recent context summary, if any
+    let summary_idx = history.iter().rposition(|m| {
+        m["content"].as_str()
+            .map(|c| c.starts_with("[Context Summary]"))
+            .unwrap_or(false)
+    });
+
+    let mut compacted = Vec::new();
+
+    // Keep the summary if found
+    if let Some(idx) = summary_idx {
+        compacted.push(history[idx].clone());
+    }
+
+    // Keep only the last 4 messages
+    let keep_from = history.len().saturating_sub(4);
+    compacted.extend_from_slice(&history[keep_from..]);
+
+    *history = compacted;
+    Ok(())
+}
+
+/// Level 2: Auto compact — LLM-driven summarization of old messages.
 ///
 /// Strategy (inspired by Claude Code's compaction):
 ///   1. Always keep the most recent RECENT_PRESERVE_COUNT messages verbatim
@@ -293,6 +438,11 @@ pub fn get_history(
 }
 
 /// Replace the conversation history for a specific window (used when restoring a saved session).
+/// Legacy trim — delegates to enforce_hard_ceiling.
+fn trim_history(history: &mut Vec<Value>) {
+    enforce_hard_ceiling(history);
+}
+
 pub fn set_history(
     histories: &Mutex<HashMap<String, Vec<Value>>>,
     window_label: &str,

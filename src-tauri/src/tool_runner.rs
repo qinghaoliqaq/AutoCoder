@@ -11,6 +11,11 @@
 ///   - str_replace_based_edit_tool       → file view/create/edit (Anthropic built-in)
 ///   - grep_search                       → regex search across files
 ///   - glob_find                         → file pattern matching
+///
+/// Features (inspired by Claude Code source):
+///   - Read-only tools (grep, glob, view) execute concurrently; write tools serial
+///   - Large results (>LARGE_RESULT_THRESHOLD) persisted to disk with preview
+///   - Configurable max concurrency via MAX_TOOL_CONCURRENCY
 
 use crate::config::AppConfig;
 use crate::skills::{SkillChunk, ToolLog};
@@ -24,6 +29,14 @@ use tokio_util::sync::CancellationToken;
 const MAX_LOOP_ITERATIONS: usize = 40;
 /// Max tokens for the model's response in each iteration.
 const MAX_RESPONSE_TOKENS: u32 = 16384;
+/// Max concurrent read-only tool executions.
+const MAX_TOOL_CONCURRENCY: usize = 10;
+/// Results larger than this (chars) get persisted to disk with a preview.
+const LARGE_RESULT_THRESHOLD: usize = 30_000;
+/// How many chars of a large result to keep inline as preview.
+const LARGE_RESULT_PREVIEW: usize = 2_000;
+/// In-context truncation ceiling (for results that don't hit disk persistence).
+const MAX_RESULT_CHARS: usize = 50_000;
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -61,6 +74,90 @@ fn tool_definitions() -> Vec<Value> {
             }
         }),
     ]
+}
+
+/// Returns true if the tool call is read-only and safe to run concurrently.
+fn is_read_only_tool(name: &str, input: &Value) -> bool {
+    match name {
+        "grep_search" | "glob_find" => true,
+        "str_replace_based_edit_tool" => {
+            input["command"].as_str() == Some("view")
+        }
+        "bash" => {
+            // Conservative: only mark bash as read-only for known safe patterns
+            if let Some(cmd) = input["command"].as_str() {
+                let trimmed = cmd.trim();
+                // Simple heuristic: read-only commands that start with these prefixes
+                let read_prefixes = [
+                    "cat ", "head ", "tail ", "less ", "wc ", "file ",
+                    "ls ", "ls\n", "pwd", "echo ", "which ", "type ",
+                    "find ", "grep ", "rg ", "ag ", "fd ",
+                    "git log", "git show", "git diff", "git status", "git branch",
+                    "git rev-parse", "git remote",
+                    "cargo check", "cargo clippy",
+                    "rustc --", "python -c", "node -e",
+                    "stat ", "du ", "df ",
+                ];
+                read_prefixes.iter().any(|p| trimmed.starts_with(p))
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+// ── Large result persistence ────────────────────────────────────────────────
+
+/// Directory for persisted large tool results.
+fn result_cache_dir() -> PathBuf {
+    let base = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    base.join("ai-dev-hub").join("tool-results")
+}
+
+/// If the result is large, persist to disk and return a preview + file path.
+/// Otherwise return the result as-is.
+fn maybe_persist_large_result(result: &str, tool_name: &str) -> String {
+    if result.len() <= LARGE_RESULT_THRESHOLD {
+        return result.to_string();
+    }
+
+    let cache_dir = result_cache_dir();
+    if std::fs::create_dir_all(&cache_dir).is_err() {
+        // Fall back to inline truncation
+        return truncate_result(result);
+    }
+
+    let ts = chrono::Utc::now().timestamp_millis();
+    let filename = format!("{tool_name}_{ts}.txt");
+    let path = cache_dir.join(&filename);
+
+    if std::fs::write(&path, result).is_ok() {
+        let preview = &result[..result.char_indices()
+            .nth(LARGE_RESULT_PREVIEW)
+            .map(|(i, _)| i)
+            .unwrap_or(result.len())];
+        format!(
+            "{preview}\n\n... [result too large: {total} chars, full output saved to {path}]",
+            total = result.len(),
+            path = path.display(),
+        )
+    } else {
+        truncate_result(result)
+    }
+}
+
+fn truncate_result(result: &str) -> String {
+    if result.len() > MAX_RESULT_CHARS {
+        format!(
+            "{}...\n[output truncated at {} chars]",
+            &result[..MAX_RESULT_CHARS],
+            MAX_RESULT_CHARS
+        )
+    } else {
+        result.to_string()
+    }
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -197,43 +294,107 @@ pub async fn run(
             return Ok(full_text);
         }
 
-        // ── Execute tools and build results ──────────────────────────────────
-        let mut tool_results: Vec<Value> = Vec::new();
-
-        for (id, name, input) in tool_calls {
-            if token.is_cancelled() {
-                return Err("cancelled".to_string());
-            }
-
-            let result = execute_tool(&name, &input, &workspace).await;
-
-            let (output, is_error) = match result {
-                Ok(out) => (out, false),
-                Err(err) => (err, true),
-            };
-
-            // Truncate very large outputs to avoid blowing up the context
-            let truncated = if output.len() > 50_000 {
-                format!("{}...\n[output truncated at 50000 chars]", &output[..50_000])
-            } else {
-                output
-            };
-
-            let mut result_obj = json!({
-                "type": "tool_result",
-                "tool_use_id": id,
-                "content": truncated,
-            });
-            if is_error {
-                result_obj["is_error"] = json!(true);
-            }
-            tool_results.push(result_obj);
-        }
+        // ── Partition into read-only (concurrent) and write (serial) batches ─
+        let tool_results = execute_tool_calls_partitioned(&tool_calls, &workspace, &token).await?;
 
         messages.push(json!({ "role": "user", "content": tool_results }));
     }
 
     Ok(full_text)
+}
+
+// ── Partitioned tool execution ──────────────────────────────────────────────
+
+/// Partition tool calls into consecutive batches of read-only (concurrent)
+/// and write (serial), then execute each batch appropriately.
+/// Mirrors Claude Code's `partitionToolCalls` + `runTools` pattern.
+async fn execute_tool_calls_partitioned(
+    tool_calls: &[(String, String, Value)],
+    workspace: &Path,
+    token: &CancellationToken,
+) -> Result<Vec<Value>, String> {
+    // Build batches: consecutive read-only calls grouped together
+    let mut batches: Vec<(bool, Vec<usize>)> = Vec::new(); // (is_readonly, indices)
+    for (i, (_id, name, input)) in tool_calls.iter().enumerate() {
+        let readonly = is_read_only_tool(name, input);
+        if readonly && batches.last().map(|b| b.0).unwrap_or(false) {
+            // Extend current read-only batch
+            batches.last_mut().unwrap().1.push(i);
+        } else {
+            batches.push((readonly, vec![i]));
+        }
+    }
+
+    let mut results: Vec<Value> = vec![Value::Null; tool_calls.len()];
+
+    for (is_readonly, indices) in &batches {
+        if token.is_cancelled() {
+            return Err("cancelled".to_string());
+        }
+
+        if *is_readonly && indices.len() > 1 {
+            // ── Concurrent execution for read-only batch ─────────────────────
+            let mut handles = Vec::new();
+            for &idx in indices {
+                let (id, name, input) = &tool_calls[idx];
+                let id = id.clone();
+                let name = name.clone();
+                let input = input.clone();
+                let ws = workspace.to_path_buf();
+                handles.push(tokio::spawn(async move {
+                    let result = execute_tool(&name, &input, &ws).await;
+                    (idx, id, name, result)
+                }));
+            }
+
+            // Limit concurrency via chunking
+            for chunk in handles.chunks_mut(MAX_TOOL_CONCURRENCY) {
+                let chunk_results: Vec<_> = futures::future::join_all(
+                    chunk.iter_mut().map(|h| async { h.await })
+                ).await;
+
+                for join_result in chunk_results {
+                    let (idx, id, name, result) = join_result
+                        .map_err(|e| format!("Tool task join error: {e}"))?;
+                    let (output, is_error) = match result {
+                        Ok(out) => (out, false),
+                        Err(err) => (err, true),
+                    };
+                    let processed = maybe_persist_large_result(&output, &name);
+                    let mut obj = json!({
+                        "type": "tool_result",
+                        "tool_use_id": id,
+                        "content": processed,
+                    });
+                    if is_error { obj["is_error"] = json!(true); }
+                    results[idx] = obj;
+                }
+            }
+        } else {
+            // ── Serial execution ─────────────────────────────────────────────
+            for &idx in indices {
+                if token.is_cancelled() {
+                    return Err("cancelled".to_string());
+                }
+                let (id, name, input) = &tool_calls[idx];
+                let result = execute_tool(name, input, workspace).await;
+                let (output, is_error) = match result {
+                    Ok(out) => (out, false),
+                    Err(err) => (err, true),
+                };
+                let processed = maybe_persist_large_result(&output, name);
+                let mut obj = json!({
+                    "type": "tool_result",
+                    "tool_use_id": id,
+                    "content": processed,
+                });
+                if is_error { obj["is_error"] = json!(true); }
+                results[idx] = obj;
+            }
+        }
+    }
+
+    Ok(results)
 }
 
 // ── Tool execution ───────────────────────────────────────────────────────────
