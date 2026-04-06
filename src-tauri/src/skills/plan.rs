@@ -5,12 +5,14 @@ use super::{
 /// Plan skill — shared-blackboard orchestration for both scratch planning and
 /// document-review planning.
 use crate::{
+    evidence::{self, EvidenceEvent},
     planning_schema::{
         parse_plan_acceptance, parse_plan_graph, validate_acceptance_matches_graph,
         PLAN_ACCEPTANCE_JSON, PLAN_GRAPH_JSON,
     },
     prompts::Prompts,
 };
+use chrono::Utc;
 use dirs;
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
@@ -72,6 +74,13 @@ pub(super) async fn run(
             &ws_str,
         )
         .map_err(|e| format!("Emit error: {e}"))?;
+    record_plan_evidence(
+        Some(&ws_str),
+        "plan_started",
+        &format!("Planning started for task: {task}"),
+        "system",
+        vec!["PLAN.md".to_string()],
+    );
 
     if let Some(doc) = context.filter(|c| !c.trim().is_empty()) {
         run_review_mode(
@@ -104,6 +113,19 @@ pub(super) async fn run(
 
     let plan_doc =
         validate_or_repair_plan_artifacts(task, &ws_path, window_label, app_handle, token).await?;
+
+    record_plan_evidence(
+        Some(&ws_str),
+        "plan_completed",
+        &format!("Planning completed. PLAN.md, {PLAN_GRAPH_JSON}, and {PLAN_ACCEPTANCE_JSON} validated."),
+        "system",
+        vec![
+            "PLAN.md".to_string(),
+            PLAN_GRAPH_JSON.to_string(),
+            PLAN_ACCEPTANCE_JSON.to_string(),
+            PLAN_BOARD_MD.to_string(),
+        ],
+    );
 
     app_handle
         .emit_to(
@@ -151,6 +173,13 @@ async fn run_scratch_mode(
         "round_1",
         "Claude recorded proposal candidates on the shared plan blackboard.".to_string(),
     )?;
+    record_plan_evidence(
+        Some(ws_dir),
+        "plan_round_1",
+        "Claude recorded proposal candidates on the shared plan blackboard.",
+        "claude",
+        vec![PLAN_BOARD_MD.to_string()],
+    );
 
     let r2 = Prompts::render(
         &prompts.plan_codex,
@@ -176,6 +205,13 @@ async fn run_scratch_mode(
         "round_2",
         "Codex evaluated the proposals by reading the shared plan blackboard.".to_string(),
     )?;
+    record_plan_evidence(
+        Some(ws_dir),
+        "plan_round_2",
+        "Codex evaluated the proposals by reading the shared plan blackboard.",
+        "codex",
+        vec![PLAN_BOARD_MD.to_string()],
+    );
 
     let r3 = Prompts::render(
         &prompts.plan_claude_response,
@@ -195,6 +231,13 @@ async fn run_scratch_mode(
         "round_3",
         "Claude updated the shared plan blackboard with rebuttals and refinements.".to_string(),
     )?;
+    record_plan_evidence(
+        Some(ws_dir),
+        "plan_round_3",
+        "Claude updated the shared plan blackboard with rebuttals and refinements.",
+        "claude",
+        vec![PLAN_BOARD_MD.to_string()],
+    );
 
     let r4 = Prompts::render(
         &prompts.plan_codex_final,
@@ -220,6 +263,13 @@ async fn run_scratch_mode(
         "round_4",
         "Codex wrote the final planning verdict to the shared plan blackboard.".to_string(),
     )?;
+    record_plan_evidence(
+        Some(ws_dir),
+        "plan_round_4",
+        "Codex wrote the final planning verdict to the shared plan blackboard.",
+        "codex",
+        vec![PLAN_BOARD_MD.to_string()],
+    );
 
     let r5 = Prompts::render(
         &prompts.plan_synthesis,
@@ -279,6 +329,13 @@ async fn run_review_mode(
         "round_1",
         "Claude wrote the initial document analysis onto the shared plan blackboard.".to_string(),
     )?;
+    record_plan_evidence(
+        Some(ws_dir),
+        "plan_review_round_1",
+        "Claude wrote the initial document analysis onto the shared plan blackboard.",
+        "claude",
+        vec![PLAN_BOARD_MD.to_string()],
+    );
 
     let r2 = Prompts::render(
         &prompts.plan_review_codex,
@@ -308,6 +365,13 @@ async fn run_review_mode(
         "round_2",
         "Codex added its review perspective via the shared plan blackboard.".to_string(),
     )?;
+    record_plan_evidence(
+        Some(ws_dir),
+        "plan_review_round_2",
+        "Codex added its review perspective via the shared plan blackboard.",
+        "codex",
+        vec![PLAN_BOARD_MD.to_string()],
+    );
 
     let r3 = Prompts::render(
         &prompts.plan_review_claude_resp,
@@ -328,6 +392,13 @@ async fn run_review_mode(
         "round_3",
         "Claude consolidated the change list on the shared plan blackboard.".to_string(),
     )?;
+    record_plan_evidence(
+        Some(ws_dir),
+        "plan_review_round_3",
+        "Claude consolidated the change list on the shared plan blackboard.",
+        "claude",
+        vec![PLAN_BOARD_MD.to_string()],
+    );
 
     let r4 = Prompts::render(
         &prompts.plan_review_codex_final,
@@ -357,6 +428,13 @@ async fn run_review_mode(
         "round_4",
         "Codex finalized the approved changes on the shared plan blackboard.".to_string(),
     )?;
+    record_plan_evidence(
+        Some(ws_dir),
+        "plan_review_round_4",
+        "Codex finalized the approved changes on the shared plan blackboard.",
+        "codex",
+        vec![PLAN_BOARD_MD.to_string()],
+    );
 
     let r5 = Prompts::render(
         &prompts.plan_review_synthesis,
@@ -491,6 +569,27 @@ fn emit_plan_event(
             },
         )
         .map_err(|e| format!("Emit error: {e}"))
+}
+
+fn record_plan_evidence(
+    workspace: Option<&str>,
+    event_type: &str,
+    summary: &str,
+    agent: &str,
+    artifacts: Vec<String>,
+) {
+    let Some(ws) = workspace else { return };
+    let _ = evidence::record_event(
+        ws,
+        EvidenceEvent {
+            ts: Utc::now().timestamp_millis() as u64,
+            event_type: event_type.to_string(),
+            agent: agent.to_string(),
+            subtask_id: None,
+            summary: summary.to_string(),
+            artifacts,
+        },
+    );
 }
 
 fn create_plan_workspace_unique(base_name: &str) -> Result<std::path::PathBuf, String> {

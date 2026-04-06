@@ -30,6 +30,26 @@ You must answer:
 - Are there blocking regressions, missing pieces, or unresolved failures?
 - Is the project ready to be considered complete right now?
 
+## Quantitative evidence-based judgment
+
+**You MUST base your verdict on the quantitative evidence metrics provided in the context, not on subjective text reasoning alone.**
+
+When a "Quantitative Evidence Metrics" table is present in the context:
+
+1. **Read the health_score first** — it is a pre-computed weighted score (0-100).
+2. **Check completion_ratio** — if subtasks are incomplete (< 1.0), the project cannot PASS unless all remaining items are explicitly out of scope.
+3. **Check failure counts** — any subtask_failed > 0 or test_failed > 0 is a strong signal against PASS.
+4. **Check multi-attempt patterns** — high avg_attempts signals fragile implementation.
+5. **Cross-reference with the evidence timeline** — did later events fix earlier failures?
+
+Use these thresholds as starting points (override only with documented justification):
+- **health_score >= 80** + no failed subtasks + completion_ratio == 1.0 → PASS
+- **health_score 60-79** or minor gaps → PASS_WITH_CONCERNS
+- **health_score < 60** or failed subtasks or completion_ratio < 0.8 → FAIL
+- **review_failed > 0 or test_failed > 0** → weigh carefully; FAIL unless fixed in later events
+
+Your confidence score should reflect how much concrete evidence supports your verdict (0 = pure speculation, 100 = every claim backed by data).
+
 ## Rules
 
 - Prefer concrete evidence over guesses.
@@ -52,6 +72,12 @@ Write a concise QA report with these sections:
 
 QA Verdict: PASS | PASS_WITH_CONCERNS | FAIL
 
+Metrics Assessment:
+- Health score: <value>/100
+- Completion: <done>/<total> subtasks (<percentage>%)
+- Failures: <count> failed subtasks, <count> failed reviews, <count> failed tests
+- Confidence: <0-100> (how much evidence backs this verdict)
+
 Validated Scope:
 - ...
 
@@ -68,11 +94,12 @@ Recommended Next Step:
 
 ## Required machine-readable markers
 
-At the very end of your response append exactly these 4 lines:
+At the very end of your response append exactly these 5 lines:
 
 [QA_VERDICT:PASS|PASS_WITH_CONCERNS|FAIL]
 [QA_NEXT:complete|review|debug|code]
 [QA_SUMMARY:one-sentence overall assessment]
 [QA_ISSUE:brief blocking issue summary or none]
+[QA_CONFIDENCE:0-100]
 
-Do not append anything after these 4 lines.
+Do not append anything after these 5 lines.

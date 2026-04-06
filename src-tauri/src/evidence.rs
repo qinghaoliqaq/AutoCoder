@@ -56,6 +56,162 @@ pub(crate) struct SubtaskEvidence {
     pub artifacts: Vec<String>,
 }
 
+/// Quantitative metrics derived from evidence, used for data-driven QA decisions.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub(crate) struct EvidenceMetrics {
+    pub subtask_total: usize,
+    pub subtask_done: usize,
+    pub subtask_failed: usize,
+    pub subtask_in_progress: usize,
+    pub subtask_needs_fix: usize,
+    pub subtask_pending: usize,
+    /// Fraction of subtasks that are done (0.0 - 1.0).
+    pub completion_ratio: f64,
+    /// Total attempts across all subtasks.
+    pub total_attempts: u32,
+    /// Average attempts per subtask.
+    pub avg_attempts: f64,
+    /// Number of subtasks that required more than one attempt.
+    pub multi_attempt_count: usize,
+    /// Total evidence events recorded.
+    pub total_events: usize,
+    /// Number of review phases that passed.
+    pub review_passed: usize,
+    /// Number of review phases that failed.
+    pub review_failed: usize,
+    /// Number of test phases that passed.
+    pub test_passed: usize,
+    /// Number of test phases that failed.
+    pub test_failed: usize,
+    /// Number of QA runs that passed.
+    pub qa_passed: usize,
+    /// Number of QA runs that failed.
+    pub qa_failed: usize,
+    /// Whether a plan_completed event exists.
+    pub plan_completed: bool,
+    /// Whether a debug session was run.
+    pub debug_sessions: usize,
+    /// Overall health score (0-100), computed from sub-metrics.
+    pub health_score: u32,
+}
+
+/// Compute quantitative metrics from the evidence index and raw events.
+pub(crate) fn compute_evidence_metrics(workspace: &str) -> Option<EvidenceMetrics> {
+    let _ = refresh_evidence_index(workspace);
+    let index = read_evidence_index(workspace).ok()??;
+    let events = read_events(workspace).ok()?;
+
+    let subtask_total = index.subtasks.len();
+    let subtask_done = index.subtasks.iter().filter(|s| s.status == "done").count();
+    let subtask_failed = index.subtasks.iter().filter(|s| s.status == "failed").count();
+    let subtask_in_progress = index.subtasks.iter().filter(|s| s.status == "in_progress").count();
+    let subtask_needs_fix = index.subtasks.iter().filter(|s| s.status == "needs_fix").count();
+    let subtask_pending = index.subtasks.iter().filter(|s| s.status == "pending").count();
+
+    let completion_ratio = if subtask_total > 0 {
+        subtask_done as f64 / subtask_total as f64
+    } else {
+        0.0
+    };
+
+    let total_attempts: u32 = index.subtasks.iter().map(|s| s.attempts).sum();
+    let avg_attempts = if subtask_total > 0 {
+        total_attempts as f64 / subtask_total as f64
+    } else {
+        0.0
+    };
+    let multi_attempt_count = index.subtasks.iter().filter(|s| s.attempts > 1).count();
+
+    let review_passed = events.iter().filter(|e| e.event_type.starts_with("review_") && e.event_type.ends_with("_passed")).count();
+    let review_failed = events.iter().filter(|e| e.event_type.starts_with("review_") && e.event_type.ends_with("_failed")).count();
+    let test_passed = events.iter().filter(|e| e.event_type.starts_with("test_") && e.event_type.ends_with("_passed")).count();
+    let test_failed = events.iter().filter(|e| e.event_type.starts_with("test_") && e.event_type.ends_with("_failed")).count();
+    let qa_passed = events.iter().filter(|e| matches!(e.event_type.as_str(), "qa_passed" | "qa_pass_with_concerns")).count();
+    let qa_failed = events.iter().filter(|e| e.event_type == "qa_failed").count();
+    let plan_completed = events.iter().any(|e| e.event_type == "plan_completed");
+    let debug_sessions = events.iter().filter(|e| e.event_type == "debug_completed").count();
+
+    // Health score: weighted composite
+    let completion_score = (completion_ratio * 40.0) as u32; // 40 points max
+    let failure_penalty = (subtask_failed as u32).min(20) * 2; // -2 per failure, max -40
+    let review_score = if review_passed + review_failed > 0 {
+        ((review_passed as f64 / (review_passed + review_failed) as f64) * 20.0) as u32
+    } else {
+        10 // neutral if no reviews
+    };
+    let test_score = if test_passed + test_failed > 0 {
+        ((test_passed as f64 / (test_passed + test_failed) as f64) * 20.0) as u32
+    } else {
+        10 // neutral if no tests
+    };
+    let attempt_penalty = if avg_attempts > 2.0 {
+        ((avg_attempts - 2.0) * 5.0).min(10.0) as u32
+    } else {
+        0
+    };
+    let plan_bonus = if plan_completed { 10 } else { 0 };
+
+    let raw_score = completion_score + review_score + test_score + plan_bonus;
+    let health_score = raw_score.saturating_sub(failure_penalty + attempt_penalty).min(100);
+
+    Some(EvidenceMetrics {
+        subtask_total,
+        subtask_done,
+        subtask_failed,
+        subtask_in_progress,
+        subtask_needs_fix,
+        subtask_pending,
+        completion_ratio,
+        total_attempts,
+        avg_attempts,
+        multi_attempt_count,
+        total_events: events.len(),
+        review_passed,
+        review_failed,
+        test_passed,
+        test_failed,
+        qa_passed,
+        qa_failed,
+        plan_completed,
+        debug_sessions,
+        health_score,
+    })
+}
+
+/// Format evidence metrics as a concise markdown section for prompt injection.
+pub(crate) fn format_metrics_section(metrics: &EvidenceMetrics) -> String {
+    let mut lines = Vec::new();
+    lines.push("## Quantitative Evidence Metrics".to_string());
+    lines.push(String::new());
+    lines.push(format!("| Metric | Value |"));
+    lines.push(format!("|--------|-------|"));
+    lines.push(format!("| Subtask completion | {}/{} ({:.0}%) |", metrics.subtask_done, metrics.subtask_total, metrics.completion_ratio * 100.0));
+    lines.push(format!("| Subtasks failed | {} |", metrics.subtask_failed));
+    lines.push(format!("| Subtasks needs_fix | {} |", metrics.subtask_needs_fix));
+    lines.push(format!("| Subtasks pending | {} |", metrics.subtask_pending));
+    lines.push(format!("| Subtasks in_progress | {} |", metrics.subtask_in_progress));
+    lines.push(format!("| Total attempts | {} (avg {:.1}/subtask) |", metrics.total_attempts, metrics.avg_attempts));
+    lines.push(format!("| Multi-attempt subtasks | {} |", metrics.multi_attempt_count));
+    lines.push(format!("| Review phases passed/failed | {}/{} |", metrics.review_passed, metrics.review_failed));
+    lines.push(format!("| Test phases passed/failed | {}/{} |", metrics.test_passed, metrics.test_failed));
+    lines.push(format!("| Previous QA passed/failed | {}/{} |", metrics.qa_passed, metrics.qa_failed));
+    lines.push(format!("| Plan completed | {} |", if metrics.plan_completed { "yes" } else { "no" }));
+    lines.push(format!("| Debug sessions run | {} |", metrics.debug_sessions));
+    lines.push(format!("| Total evidence events | {} |", metrics.total_events));
+    lines.push(format!("| **Health score** | **{}/100** |", metrics.health_score));
+    lines.push(String::new());
+    lines.push("### Scoring guidance".to_string());
+    lines.push(String::new());
+    lines.push("Use the metrics above to ground your QA verdict:".to_string());
+    lines.push("- **completion_ratio < 1.0** with pending/in_progress subtasks → likely FAIL (incomplete work)".to_string());
+    lines.push("- **subtask_failed > 0** → FAIL unless failures are non-blocking and documented".to_string());
+    lines.push("- **health_score >= 80** with no failed subtasks → strong PASS candidate".to_string());
+    lines.push("- **health_score 50-79** → PASS_WITH_CONCERNS or FAIL depending on severity".to_string());
+    lines.push("- **health_score < 50** → likely FAIL".to_string());
+    lines.push("- **review_failed > 0 or test_failed > 0** → weigh against pass unless issues were fixed in later events".to_string());
+    lines.join("\n")
+}
+
 /// Compact, LLM-friendly digest of project evidence for injection into prompts.
 /// Unlike the full EvidenceIndex JSON dump, this is a short markdown summary
 /// designed to fit in a system prompt without overwhelming context.
@@ -639,5 +795,100 @@ mod tests {
         assert!(ctx.contains("Previous history"), "should have header");
         assert!(ctx.contains("4xx validation"), "should include review finding");
         assert!(ctx.contains("Missing validation"), "should include latest review");
+    }
+
+    #[test]
+    fn compute_metrics_from_board_and_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().to_str().unwrap();
+        let mut board = sample_board();
+        board.subtasks[0].status = SubtaskState::Done;
+        board.subtasks[0].attempts = 2;
+        std::fs::write(
+            dir.path().join(BLACKBOARD_JSON),
+            serde_json::to_string_pretty(&board).unwrap(),
+        )
+        .unwrap();
+
+        // Record a mix of events
+        for (event_type, agent) in &[
+            ("plan_completed", "system"),
+            ("review_plan_check_passed", "system"),
+            ("review_security_failed", "system"),
+            ("test_integration_test_passed", "system"),
+            ("test_gen_test_plan_passed", "system"),
+            ("qa_failed", "claude"),
+        ] {
+            record_event(
+                workspace,
+                EvidenceEvent {
+                    ts: 1,
+                    event_type: event_type.to_string(),
+                    agent: agent.to_string(),
+                    subtask_id: None,
+                    summary: "test".to_string(),
+                    artifacts: Vec::new(),
+                },
+            )
+            .unwrap();
+        }
+
+        let metrics = compute_evidence_metrics(workspace).expect("should compute metrics");
+        assert_eq!(metrics.subtask_total, 1);
+        assert_eq!(metrics.subtask_done, 1);
+        assert_eq!(metrics.subtask_failed, 0);
+        assert!((metrics.completion_ratio - 1.0).abs() < f64::EPSILON);
+        assert_eq!(metrics.total_attempts, 2);
+        assert_eq!(metrics.multi_attempt_count, 1);
+        assert_eq!(metrics.review_passed, 1);
+        assert_eq!(metrics.review_failed, 1);
+        assert_eq!(metrics.test_passed, 2);
+        assert_eq!(metrics.test_failed, 0);
+        assert_eq!(metrics.qa_passed, 0);
+        assert_eq!(metrics.qa_failed, 1);
+        assert!(metrics.plan_completed);
+        assert_eq!(metrics.total_events, 6);
+        assert!(metrics.health_score > 0, "health score should be positive");
+    }
+
+    #[test]
+    fn compute_metrics_returns_none_without_board() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().to_str().unwrap();
+        // No BLACKBOARD.json, no events
+        assert!(compute_evidence_metrics(workspace).is_none());
+    }
+
+    #[test]
+    fn format_metrics_section_includes_key_fields() {
+        let metrics = EvidenceMetrics {
+            subtask_total: 5,
+            subtask_done: 3,
+            subtask_failed: 1,
+            subtask_in_progress: 0,
+            subtask_needs_fix: 1,
+            subtask_pending: 0,
+            completion_ratio: 0.6,
+            total_attempts: 8,
+            avg_attempts: 1.6,
+            multi_attempt_count: 2,
+            total_events: 20,
+            review_passed: 2,
+            review_failed: 1,
+            test_passed: 3,
+            test_failed: 0,
+            qa_passed: 1,
+            qa_failed: 1,
+            plan_completed: true,
+            debug_sessions: 1,
+            health_score: 65,
+        };
+        let section = format_metrics_section(&metrics);
+        assert!(section.contains("Quantitative Evidence Metrics"));
+        assert!(section.contains("3/5"));
+        assert!(section.contains("60%"));
+        assert!(section.contains("**65/100**"));
+        assert!(section.contains("Health score"));
+        assert!(section.contains("Scoring guidance"));
     }
 }

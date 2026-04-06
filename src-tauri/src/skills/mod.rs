@@ -56,6 +56,12 @@ pub struct QaResult {
     pub recommended_next_step: String,
     pub summary: String,
     pub issue: String,
+    /// Quantitative confidence score (0-100) from the QA agent.
+    #[serde(default)]
+    pub confidence_score: u32,
+    /// Pre-computed health score from evidence metrics (0-100).
+    #[serde(default)]
+    pub health_score: u32,
 }
 
 /// Tool-call entry emitted via "tool-log" whenever Claude or Codex calls a tool.

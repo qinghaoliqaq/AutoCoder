@@ -1,6 +1,6 @@
 use super::{runners, QaResult, ToolLog};
 use crate::{
-    evidence::{self, read_evidence_index, EvidenceEvent, EVIDENCE_INDEX_JSON},
+    evidence::{self, read_evidence_index, EvidenceEvent, EvidenceMetrics, EVIDENCE_INDEX_JSON},
     planning_schema::{read_plan_acceptance_lenient, PLAN_ACCEPTANCE_JSON},
     prompts::Prompts,
 };
@@ -28,6 +28,10 @@ pub(super) async fn run(
     } else {
         None
     };
+    let metrics_section = workspace.and_then(|ws| {
+        evidence::compute_evidence_metrics(ws)
+            .map(|m| evidence::format_metrics_section(&m))
+    });
     let (acceptance, acceptance_warning) = workspace
         .map(read_plan_acceptance_lenient)
         .unwrap_or((None, None));
@@ -45,6 +49,7 @@ pub(super) async fn run(
     });
     let merged_context = super::merge_context_sections(&[
         context.map(ToOwned::to_owned),
+        metrics_section,
         evidence_section,
         warning_section,
         acceptance_section,
@@ -59,7 +64,11 @@ pub(super) async fn run(
 
     let output =
         runners::claude_read_only(&prompt, workspace, window_label, app_handle, token).await?;
-    let result = parse_qa_result(&output)?;
+    let health_score = workspace
+        .and_then(|ws| evidence::compute_evidence_metrics(ws))
+        .map(|m| m.health_score)
+        .unwrap_or(0);
+    let result = parse_qa_result(&output, health_score)?;
     if let Some(workspace) = workspace {
         evidence::record_event(
             workspace,
@@ -72,7 +81,10 @@ pub(super) async fn run(
                 },
                 agent: "claude".to_string(),
                 subtask_id: None,
-                summary: result.summary.clone(),
+                summary: format!(
+                    "{} [confidence={}, health={}]",
+                    result.summary, result.confidence_score, result.health_score
+                ),
                 artifacts: vec![
                     EVIDENCE_INDEX_JSON.to_string(),
                     "PROJECT_REPORT.md".to_string(),
@@ -137,7 +149,7 @@ fn emit_acceptance_warning_log(
         .map_err(|e| e.to_string())
 }
 
-fn parse_qa_result(text: &str) -> Result<QaResult, String> {
+fn parse_qa_result(text: &str, health_score: u32) -> Result<QaResult, String> {
     let verdict = extract_marker_value(text, "QA_VERDICT")
         .ok_or_else(|| "QA output missing [QA_VERDICT:*] marker".to_string())?;
     let recommended_next_step = extract_marker_value(text, "QA_NEXT")
@@ -146,6 +158,10 @@ fn parse_qa_result(text: &str) -> Result<QaResult, String> {
         .ok_or_else(|| "QA output missing [QA_SUMMARY:*] marker".to_string())?;
     let issue = extract_marker_value(text, "QA_ISSUE")
         .ok_or_else(|| "QA output missing [QA_ISSUE:*] marker".to_string())?;
+    let confidence_score = extract_marker_value(text, "QA_CONFIDENCE")
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(0)
+        .min(100);
 
     if !matches!(verdict.as_str(), "PASS" | "PASS_WITH_CONCERNS" | "FAIL") {
         return Err(format!("Invalid QA verdict marker: {verdict}"));
@@ -165,6 +181,8 @@ fn parse_qa_result(text: &str) -> Result<QaResult, String> {
         recommended_next_step,
         summary,
         issue,
+        confidence_score,
+        health_score,
     })
 }
 
@@ -211,17 +229,52 @@ QA Verdict: PASS
 \n\
 [QA_SUMMARY:Feature is ready for handoff]
 \n\
-[QA_ISSUE:none]";
-        let result = parse_qa_result(text).unwrap();
+[QA_ISSUE:none]
+\n\
+[QA_CONFIDENCE:85]";
+        let result = parse_qa_result(text, 90).unwrap();
         assert_eq!(result.verdict, "PASS");
         assert_eq!(result.recommended_next_step, "complete");
         assert_eq!(result.summary, "Feature is ready for handoff");
         assert_eq!(result.issue, "none");
+        assert_eq!(result.confidence_score, 85);
+        assert_eq!(result.health_score, 90);
+    }
+
+    #[test]
+    fn parse_qa_result_defaults_confidence_when_missing() {
+        let text = "\
+[QA_VERDICT:PASS]
+\n\
+[QA_NEXT:complete]
+\n\
+[QA_SUMMARY:All good]
+\n\
+[QA_ISSUE:none]";
+        let result = parse_qa_result(text, 75).unwrap();
+        assert_eq!(result.confidence_score, 0);
+        assert_eq!(result.health_score, 75);
+    }
+
+    #[test]
+    fn parse_qa_result_clamps_confidence_to_100() {
+        let text = "\
+[QA_VERDICT:PASS]
+\n\
+[QA_NEXT:complete]
+\n\
+[QA_SUMMARY:All good]
+\n\
+[QA_ISSUE:none]
+\n\
+[QA_CONFIDENCE:150]";
+        let result = parse_qa_result(text, 50).unwrap();
+        assert_eq!(result.confidence_score, 100);
     }
 
     #[test]
     fn parse_qa_result_fails_closed_without_markers() {
-        let err = parse_qa_result("plain text only").unwrap_err();
+        let err = parse_qa_result("plain text only", 0).unwrap_err();
         assert!(err.contains("QA_VERDICT"));
     }
 
@@ -235,7 +288,7 @@ QA Verdict: PASS
 [QA_SUMMARY:Need more evidence]
 \n\
 [QA_ISSUE:no test evidence]";
-        let err = parse_qa_result(text).unwrap_err();
+        let err = parse_qa_result(text, 0).unwrap_err();
         assert!(err.contains("Invalid QA next-step marker"));
     }
 
@@ -249,7 +302,7 @@ QA Verdict: PASS
 [QA_SUMMARY:Looks good]
 \n\
 [QA_ISSUE:none]";
-        let err = parse_qa_result(text).unwrap_err();
+        let err = parse_qa_result(text, 0).unwrap_err();
         assert!(err.contains("Invalid QA verdict/next-step combination"));
     }
 
@@ -263,7 +316,7 @@ QA Verdict: PASS
 [QA_SUMMARY:Mostly usable]
 \n\
 [QA_ISSUE:minor gaps]";
-        let err = parse_qa_result(text).unwrap_err();
+        let err = parse_qa_result(text, 0).unwrap_err();
         assert!(err.contains("Invalid QA verdict/next-step combination"));
     }
 }
