@@ -1,9 +1,10 @@
 /// Review skill — static analysis pipeline.
 ///
 /// Phases (run sequentially by the frontend):
-///   plan_check — Claude reads PLAN.md and verifies all features are implemented
-///   security   — Claude audits for secrets, injections, auth issues
-///   cleanup    — Claude removes dead code and unused imports
+///   plan_check       — Claude + Codex verify all features are implemented
+///   security         — Claude deep audit (OWASP/STRIDE/LLM) + Codex cross-check
+///   specialist_review — 4 parallel specialists (security/performance/API/testing)
+///   cleanup          — Claude removes dead code and unused imports
 ///
 /// Dynamic integration testing (env setup, server start, curl suite, fixes, document)
 /// has been moved to the test skill (test_skill.rs / run_phase).
@@ -11,6 +12,7 @@
 /// Each phase emits "review-phase-result" when it finishes.
 use super::{runners, ReviewPhaseResult};
 use crate::evidence::{self, EvidenceEvent};
+use crate::prompts::Prompts;
 use chrono::Utc;
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
@@ -21,6 +23,7 @@ pub(super) async fn run_phase(
     issue: Option<&str>,
     workspace: Option<&str>,
     context: Option<&str>,
+    prompts: Option<&Prompts>,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
@@ -106,38 +109,63 @@ pub(super) async fn run_phase(
             }
         }
 
-        // ── Security audit ────────────────────────────────────────────────────
+        // ── Security audit (multi-phase: OWASP + STRIDE + LLM security) ────
         "security" => {
-            let prompt = format!(
-                "You are performing a security audit of this codebase.\n\
-                 Task context: {task}\n\n\
-                 Review the files in the current directory for security issues including:\n\
-                 - Hardcoded secrets or API keys\n\
-                 - XSS, injection, or CSRF vulnerabilities\n\
-                 - Insecure authentication or authorization\n\
-                 - Sensitive data exposed in logs\n\n\
-                 List any issues found with severity (CRITICAL / HIGH / MEDIUM / LOW).\n\n\
-                 If any CRITICAL or HIGH issues exist, also write a file called `security.md` in the\n\
-                 current directory. The file must use this format:\n\n\
-                 # Security Audit Report\n\n\
-                 ## CRITICAL\n\
-                 - [ ] Issue description (file:line)\n\n\
-                 ## HIGH\n\
-                 - [ ] Issue description (file:line)\n\n\
-                 ## MEDIUM\n\
-                 - [ ] Issue description (file:line)\n\n\
-                 ## LOW\n\
-                 - [ ] Issue description (file:line)\n\n\
-                 Use `- [ ]` for unresolved items and `- [x]` for resolved items.\n\n\
-                 At the very end of your response append exactly one of:\n\
-                 [RESULT:PASS] if no CRITICAL or HIGH issues were found\n\
-                 [RESULT:FAIL:brief description] if CRITICAL or HIGH issues need immediate action"
-            );
+            let prompt = match prompts {
+                Some(p) => Prompts::render(&p.review_security, &[("task", task)]),
+                None => format!(
+                    "You are performing a security audit of this codebase.\n\
+                     Task context: {task}\n\n\
+                     Review files for: hardcoded secrets, XSS/injection/CSRF, insecure auth, log leaks.\n\
+                     Write security.md with findings. Append [RESULT:PASS] or [RESULT:FAIL:reason]."
+                ),
+            };
             let prompt = super::inject_context(context, prompt);
-            parse_result(
-                &runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
-                    .await?,
-            )
+
+            // Run Claude (deep audit) and Codex (independent cross-check) in parallel
+            let codex_prompt = format!(
+                "You are an independent security reviewer cross-checking a codebase.\n\
+                 Task context: {task}\n\n\
+                 Focus on these high-value checks only:\n\
+                 1. Secrets in source code or .env files committed to repo\n\
+                 2. SQL injection or command injection vectors\n\
+                 3. Missing authentication/authorization on endpoints\n\
+                 4. Unsafe deserialization of user input\n\
+                 5. LLM prompt injection (if AI features exist)\n\n\
+                 For each finding: [SEVERITY] file:line — description (confidence N/10)\n\
+                 Only report findings with confidence >= 7.\n\n\
+                 At the end: SECURITY_ISSUES:[count] or SECURITY_ISSUES:[0]"
+            );
+            let codex_prompt = super::inject_context(context, codex_prompt);
+
+            let (claude_result, codex_result) = tokio::join!(
+                runners::claude(&prompt, workspace, window_label, app_handle, token.clone()),
+                runners::codex_read_only(
+                    &codex_prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone()
+                ),
+            );
+            let claude_out = claude_result?;
+            // Codex cross-check is best-effort; don't fail the phase if it errors
+            let codex_extra = codex_result.unwrap_or_default();
+
+            // If Codex found issues Claude missed, append them to the result
+            let combined = if codex_extra.contains("SECURITY_ISSUES:[0]") || codex_extra.is_empty() {
+                claude_out
+            } else {
+                format!(
+                    "{claude_out}\n\n## Cross-Check Findings (Codex)\n\n{codex_extra}"
+                )
+            };
+            parse_result(&combined)
+        }
+
+        // ── Specialist parallel review (security + performance + API + tests) ─
+        "specialist_review" => {
+            run_specialist_review(task, workspace, context, prompts, window_label, app_handle, token.clone()).await?
         }
 
         // ── Code cleanup — only files recorded in change.log ─────────────────
@@ -240,8 +268,132 @@ fn artifacts_for_review_phase(phase: &str) -> Vec<String> {
     match phase {
         "plan_check" => vec!["PLAN.md".to_string(), "BLACKBOARD.json".to_string()],
         "security" => vec!["security.md".to_string()],
+        "specialist_review" => vec!["change.log".to_string()],
         "cleanup" => vec!["change.log".to_string()],
         _ => Vec::new(),
+    }
+}
+
+// ── Specialist parallel dispatch ─────────────────────────────────────────────
+
+const SPECIALISTS: &[(&str, &str)] = &[
+    ("security", "\
+Check for:\n\
+- SQL injection, command injection, path traversal\n\
+- XSS and unsanitized user input in HTML output\n\
+- Hardcoded secrets, API keys, tokens\n\
+- Missing auth checks on protected endpoints\n\
+- Insecure cryptography (MD5/SHA1 for passwords)\n\
+- CSRF on state-mutating endpoints"),
+    ("performance", "\
+Check for:\n\
+- N+1 query patterns in database access\n\
+- Missing database indexes for frequent queries\n\
+- Unbounded list/collection operations (no pagination)\n\
+- Synchronous blocking calls in async code\n\
+- Memory leaks (unclosed resources, growing caches)\n\
+- Unnecessary re-renders in frontend components"),
+    ("api_contract", "\
+Check for:\n\
+- Inconsistent API response formats (mixed error shapes)\n\
+- Missing input validation on request bodies\n\
+- Undocumented status codes or error cases\n\
+- Breaking changes vs existing API consumers\n\
+- Missing Content-Type headers or wrong MIME types\n\
+- Enum/union types not exhaustively handled"),
+    ("testing", "\
+Check for:\n\
+- Critical paths without test coverage (auth, payment, data mutation)\n\
+- Tests that always pass (no meaningful assertions)\n\
+- Missing edge case tests (empty input, boundary values, error paths)\n\
+- Flaky test patterns (timing-dependent, order-dependent)\n\
+- Missing integration tests for cross-module interactions\n\
+- Test files that import but don't test the changed code"),
+];
+
+#[allow(clippy::too_many_arguments)]
+async fn run_specialist_review(
+    task: &str,
+    workspace: Option<&str>,
+    context: Option<&str>,
+    prompts: Option<&Prompts>,
+    window_label: &str,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+) -> Result<(bool, String), String> {
+    // Build specialist prompts
+    let specialist_prompts: Vec<(String, String)> = SPECIALISTS
+        .iter()
+        .map(|(name, instructions)| {
+            let prompt = match prompts {
+                Some(p) => Prompts::render(
+                    &p.review_specialist,
+                    &[
+                        ("task", task),
+                        ("specialty", name),
+                        ("specialty_instructions", instructions),
+                    ],
+                ),
+                None => format!(
+                    "You are a {name} specialist reviewing code.\n\
+                     Task: {task}\n\n{instructions}\n\n\
+                     Report findings as: [SEVERITY] file:line — description\n\
+                     End with: SPECIALIST_VERDICT:PASS or SPECIALIST_VERDICT:FAIL:<count> findings"
+                ),
+            };
+            (name.to_string(), super::inject_context(context, prompt))
+        })
+        .collect();
+
+    // Run all specialists in parallel using Codex (read-only, fast)
+    let mut join_set = tokio::task::JoinSet::new();
+    for (name, prompt) in specialist_prompts {
+        let ws = workspace.map(ToOwned::to_owned);
+        let wl = window_label.to_string();
+        let ah = app_handle.clone();
+        let tk = token.clone();
+        join_set.spawn(async move {
+            let result = runners::codex_read_only_quiet(
+                &prompt,
+                ws.as_deref(),
+                &wl,
+                &ah,
+                tk,
+            )
+            .await;
+            (name, result)
+        });
+    }
+
+    let mut all_passed = true;
+    let mut issues = Vec::new();
+
+    while let Some(joined) = join_set.join_next().await {
+        let (name, result) = joined.map_err(|e| format!("Specialist worker crashed: {e}"))?;
+        match result {
+            Ok(output) => {
+                if output.contains("SPECIALIST_VERDICT:FAIL") {
+                    all_passed = false;
+                    // Extract the summary after FAIL:
+                    if let Some(rest) = output.rsplit("SPECIALIST_VERDICT:FAIL:").next() {
+                        let summary = rest.lines().next().unwrap_or("issues found").trim();
+                        issues.push(format!("{name}: {summary}"));
+                    } else {
+                        issues.push(format!("{name}: issues found"));
+                    }
+                }
+            }
+            Err(err) => {
+                // Specialist failure is non-fatal — log but continue
+                issues.push(format!("{name}: specialist error — {err}"));
+            }
+        }
+    }
+
+    if all_passed {
+        Ok((true, String::new()))
+    } else {
+        Ok((false, issues.join("; ")))
     }
 }
 

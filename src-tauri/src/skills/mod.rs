@@ -189,6 +189,7 @@ pub async fn execute(
                 issue,
                 workspace,
                 context,
+                Some(prompts),
                 window_label,
                 app_handle,
                 token,
