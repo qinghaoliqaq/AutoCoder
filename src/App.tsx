@@ -729,20 +729,26 @@ export default function App() {
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-white/20 backdrop-blur-xl dark:bg-zinc-950/60"
           onClick={() => setShowContextEditor(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setShowContextEditor(false); }}
         >
           <div
             className="mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden glass-panel"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-zinc-200/40 bg-white/10 px-5 py-4 dark:border-zinc-800/50 dark:bg-zinc-900/25">
+            <div className="flex items-start justify-between gap-4 border-b border-zinc-200/40 bg-white/10 px-5 py-4 dark:border-zinc-800/50 dark:bg-zinc-900/25">
               <div>
-                <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">项目文档 / Project Context</h2>
+                <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Project Context</h2>
                 <p className="text-xs text-zinc-500 mt-0.5">粘贴开发文档，Claude & Codex 编码时将以此为依据</p>
               </div>
               <button
                 onClick={() => setShowContextEditor(false)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-xl leading-none"
-              >×</button>
+                className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+                title="关闭 (Esc)"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
             <textarea
               value={contextDraft}
@@ -751,6 +757,7 @@ export default function App() {
               className="flex-1 bg-transparent p-4 text-sm font-mono text-zinc-800 dark:text-zinc-200
                          border-none resize-none focus:outline-none min-h-[300px]
                          placeholder-zinc-400 dark:placeholder-zinc-600"
+              autoFocus
             />
             <div className="flex items-center justify-between border-t border-zinc-200/40 bg-white/10 px-5 py-3 dark:border-zinc-800/50 dark:bg-zinc-900/25">
               <button
@@ -761,7 +768,7 @@ export default function App() {
                   setContextDraft('');
                   setShowContextEditor(false);
                 }}
-                className="text-xs text-rose-500 hover:text-rose-600 transition-colors"
+                className="text-xs text-rose-500 hover:text-rose-600 transition-colors font-medium"
               >
                 清除文档
               </button>
