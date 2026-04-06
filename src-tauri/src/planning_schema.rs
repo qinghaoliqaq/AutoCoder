@@ -68,6 +68,8 @@ pub(crate) enum SuggestedSkill {
     FrontendDev,
     #[serde(rename = "fullstack-dev")]
     FullstackDev,
+    #[serde(rename = "ui-design-system")]
+    UiDesignSystem,
 }
 
 fn default_true() -> bool {

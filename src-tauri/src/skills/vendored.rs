@@ -10,6 +10,7 @@ const MAX_EXCERPT_CHARS: usize = 4000;
 pub(crate) enum VendoredSkillId {
     FrontendDev,
     FullstackDev,
+    UiDesignSystem,
 }
 
 impl VendoredSkillId {
@@ -17,6 +18,7 @@ impl VendoredSkillId {
         match self {
             Self::FrontendDev => "frontend-dev",
             Self::FullstackDev => "fullstack-dev",
+            Self::UiDesignSystem => "ui-design-system",
         }
     }
 
@@ -24,6 +26,7 @@ impl VendoredSkillId {
         match self {
             Self::FrontendDev => "MiniMax frontend-dev",
             Self::FullstackDev => "MiniMax fullstack-dev",
+            Self::UiDesignSystem => "MiniMax ui-design-system",
         }
     }
 }
@@ -41,6 +44,7 @@ pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> 
         return Some(match skill {
             SuggestedSkill::FrontendDev => VendoredSkillId::FrontendDev,
             SuggestedSkill::FullstackDev => VendoredSkillId::FullstackDev,
+            SuggestedSkill::UiDesignSystem => VendoredSkillId::UiDesignSystem,
         });
     }
 
@@ -50,6 +54,27 @@ pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> 
 
     let text = format!("{} {}", card.title, card.description).to_lowercase();
     let tokens = tokenize(&text);
+
+    // Check for design/polish subtasks first
+    let design_keywords = [
+        "beautify", "polish", "redesign", "visual", "spacing", "typography",
+    ];
+    let design_phrases = [
+        "design system",
+        "look and feel",
+        "ui polish",
+        "visual consistency",
+        "color palette",
+        "micro-interaction",
+    ];
+    let has_design = design_keywords
+        .iter()
+        .any(|kw| tokens.iter().any(|token| token == kw))
+        || design_phrases.iter().any(|phrase| text.contains(phrase));
+    if has_design {
+        return Some(VendoredSkillId::UiDesignSystem);
+    }
+
     let ui_keywords = [
         "screen",
         "page",
@@ -238,6 +263,60 @@ mod tests {
             merge_conflict: None,
         };
         assert_eq!(select_for_subtask(&card), None);
+    }
+
+    #[test]
+    fn select_design_skill_for_polish_subtask() {
+        let card = SubtaskCard {
+            id: "D1".to_string(),
+            title: "Polish dashboard".to_string(),
+            description: "Beautify the main dashboard with visual consistency".to_string(),
+            kind: SubtaskKind::Feature,
+            depends_on: Vec::new(),
+            can_run_in_parallel: true,
+            parallel_group: None,
+            suggested_skill: None,
+            expected_touch: Vec::new(),
+            status: super::super::blackboard::SubtaskState::Pending,
+            attempts: 0,
+            latest_implementation: None,
+            latest_review: None,
+            review_findings: Vec::new(),
+            files_touched: Vec::new(),
+            isolated_workspace: None,
+            merge_conflict: None,
+        };
+        assert_eq!(
+            select_for_subtask(&card),
+            Some(VendoredSkillId::UiDesignSystem)
+        );
+    }
+
+    #[test]
+    fn select_design_skill_via_suggested_skill() {
+        let card = SubtaskCard {
+            id: "D2".to_string(),
+            title: "Fix layout".to_string(),
+            description: "Fix spacing issues".to_string(),
+            kind: SubtaskKind::Feature,
+            depends_on: Vec::new(),
+            can_run_in_parallel: true,
+            parallel_group: None,
+            suggested_skill: Some(SuggestedSkill::UiDesignSystem),
+            expected_touch: Vec::new(),
+            status: super::super::blackboard::SubtaskState::Pending,
+            attempts: 0,
+            latest_implementation: None,
+            latest_review: None,
+            review_findings: Vec::new(),
+            files_touched: Vec::new(),
+            isolated_workspace: None,
+            merge_conflict: None,
+        };
+        assert_eq!(
+            select_for_subtask(&card),
+            Some(VendoredSkillId::UiDesignSystem)
+        );
     }
 
     #[test]
