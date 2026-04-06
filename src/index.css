@@ -32,6 +32,22 @@
 
 @layer base {
 
+  :root {
+    --bg-primary: 250 250 249;
+    --bg-secondary: 255 255 255;
+    --bg-tertiary: 244 244 245;
+    --bg-elevated: 255 255 255;
+    --bg-input: 250 250 249;
+    --text-primary: 24 24 27;
+    --text-secondary: 113 113 122;
+    --text-tertiary: 161 161 170;
+    --border-primary: 228 228 231;
+    --border-secondary: 244 244 245;
+    --accent: 124 58 237;
+    --accent-soft: 237 233 254;
+    --accent-text: 109 40 217;
+  }
+
   html,
   body,
   #root {
@@ -43,7 +59,8 @@
   }
 
   body {
-    @apply bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100;
+    background-color: rgb(var(--bg-primary));
+    color: rgb(var(--text-primary));
     overscroll-behavior: none;
   }
 

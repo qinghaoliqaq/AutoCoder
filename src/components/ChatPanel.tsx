@@ -249,9 +249,9 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
               <AnimatedMessageIcon className="w-10 h-10 text-violet-500 drop-shadow-sm opacity-90" />
             </div>
 
-            <p className="text-zinc-800 dark:text-zinc-100 text-3xl font-bold mb-3 tracking-tight animate-text-reveal delay-100">How can I help you today?</p>
+            <p className="text-zinc-800 dark:text-zinc-100 text-3xl font-bold mb-3 tracking-tight animate-text-reveal delay-100">What are we building?</p>
             <p className="text-zinc-500 dark:text-zinc-400 text-[15px] max-w-md leading-relaxed mb-10 animate-text-reveal delay-200">
-              Ask anything. I can plan architecture, write code, run terminal commands, and debug errors.
+              Describe your idea and I'll orchestrate planning, coding, testing, and review — end to end.
             </p>
 
             {/* Action cards */}
@@ -270,7 +270,7 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
                       Open Project
                     </p>
                     <p className="mt-1.5 text-[12.5px] leading-5.5 text-zinc-600 dark:text-zinc-300">
-                      {workspace ? `Continue in ${workspace.split('/').pop()}` : 'Choose a local folder and load its workspace context.'}
+                      {workspace ? `Continue working on ${workspace.split('/').pop()}` : 'Load an existing codebase to plan features, fix bugs, or refactor.'}
                     </p>
                   </div>
                 </div>
@@ -284,10 +284,10 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
                   </div>
                   <div className="mt-5">
                     <p className="text-[1.28rem] font-semibold tracking-[-0.03em] text-zinc-900 dark:text-zinc-50">
-                      New Project
+                      Start Fresh
                     </p>
                     <p className="mt-1.5 text-[12.5px] leading-5.5 text-zinc-600 dark:text-zinc-300">
-                      Describe the product, target users, and constraints below to start from a blank brief.
+                      Describe what you want to build. Director will create a plan and scaffold the project.
                     </p>
                   </div>
                 </div>

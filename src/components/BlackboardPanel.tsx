@@ -377,7 +377,7 @@ export default function BlackboardPanel({
 
   return (
     <div className="flex h-full flex-col bg-transparent font-sans">
-      <div className="glass-header flex shrink-0 items-center justify-between border-b border-zinc-200/50 px-4 py-3 dark:border-zinc-800/50">
+      <div className="flex shrink-0 items-center justify-between border-b border-zinc-200/40 bg-white/40 px-4 py-3 backdrop-blur-md dark:border-zinc-800/50 dark:bg-zinc-900/40">
         <div className="flex items-center gap-3">
           {fullscreen && onBack && (
             <button
@@ -432,21 +432,21 @@ export default function BlackboardPanel({
       </div>
 
       {workspacePath && (
-        <div className="flex shrink-0 gap-1 border-b border-zinc-200/50 bg-white/20 p-2 backdrop-blur-sm dark:border-zinc-800/50 dark:bg-zinc-900/40">
+        <div className="flex shrink-0 gap-1 border-b border-zinc-200/40 bg-white/10 p-1.5 dark:border-zinc-800/50 dark:bg-zinc-900/20">
           <button
             onClick={() => setActiveBoard('plan')}
-            className={`flex-1 rounded-md border px-3 py-1.5 text-xs font-medium transition-all ${activeBoard === 'plan'
-              ? 'border-white/60 bg-white/80 text-zinc-800 shadow-sm backdrop-blur-md dark:border-zinc-700/50 dark:bg-zinc-800/80 dark:text-zinc-200'
-              : 'border-transparent text-zinc-500 hover:bg-white/40 hover:text-zinc-700 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-300'}`}
+            className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${activeBoard === 'plan'
+              ? 'bg-white/80 text-zinc-800 shadow-sm dark:bg-zinc-800/80 dark:text-zinc-200'
+              : 'text-zinc-500 hover:bg-white/40 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-300'}`}
           >
             Plan Board
             {planMd && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />}
           </button>
           <button
             onClick={() => setActiveBoard('exec')}
-            className={`flex-1 rounded-md border px-3 py-1.5 text-xs font-medium transition-all ${activeBoard === 'exec'
-              ? 'border-white/60 bg-white/80 text-zinc-800 shadow-sm backdrop-blur-md dark:border-zinc-700/50 dark:bg-zinc-800/80 dark:text-zinc-200'
-              : 'border-transparent text-zinc-500 hover:bg-white/40 hover:text-zinc-700 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-300'}`}
+            className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${activeBoard === 'exec'
+              ? 'bg-white/80 text-zinc-800 shadow-sm dark:bg-zinc-800/80 dark:text-zinc-200'
+              : 'text-zinc-500 hover:bg-white/40 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-300'}`}
           >
             Exec Board
             {execMd && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-blue-400" />}
@@ -506,7 +506,7 @@ export default function BlackboardPanel({
             </div>
 
             {planMd ? (
-              <div className="glass-panel overflow-hidden p-3.5">
+              <div className="rounded-2xl border border-zinc-200/50 bg-white/40 overflow-hidden p-3.5 dark:border-zinc-800/50 dark:bg-zinc-900/30">
                 {renderMarkdown(planMd)}
               </div>
             ) : (
@@ -545,7 +545,7 @@ export default function BlackboardPanel({
                 <>
                   {/* Progress bar */}
                   {summary.total > 0 && (
-                    <div className="glass-card">
+                    <div className="rounded-xl border border-zinc-200/50 bg-white/50 px-4 py-3 dark:border-zinc-800/50 dark:bg-zinc-900/30">
                       <div className="mb-2 flex items-center justify-between">
                         <span className="stat-card__label text-zinc-500">Overall Progress</span>
                         <span className="text-[12px] font-bold tabular-nums text-violet-600 dark:text-violet-400">
@@ -561,23 +561,18 @@ export default function BlackboardPanel({
                     </div>
                   )}
 
-                  <div className="grid grid-cols-4 gap-2">
-                    <div className="stat-card border-zinc-200/80 bg-white/70 dark:border-zinc-800 dark:bg-zinc-950/60 hover:border-zinc-300 dark:hover:border-zinc-700">
-                      <div className="stat-card__value text-zinc-900 dark:text-zinc-100">{summary.total}</div>
-                      <div className="stat-card__label text-zinc-400">Total</div>
-                    </div>
-                    <div className="stat-card border-emerald-200/80 bg-emerald-50/80 dark:border-emerald-500/20 dark:bg-emerald-500/10 hover:border-emerald-300 dark:hover:border-emerald-500/40">
-                      <div className="stat-card__value text-emerald-700 dark:text-emerald-300">{summary.done}</div>
-                      <div className="stat-card__label text-emerald-500">Done</div>
-                    </div>
-                    <div className="stat-card border-blue-200/80 bg-blue-50/80 dark:border-blue-500/20 dark:bg-blue-500/10 hover:border-blue-300 dark:hover:border-blue-500/40">
-                      <div className="stat-card__value text-blue-700 dark:text-blue-300">{summary.active}</div>
-                      <div className="stat-card__label text-blue-500">Active</div>
-                    </div>
-                    <div className="stat-card border-amber-200/80 bg-amber-50/80 dark:border-amber-500/20 dark:bg-amber-500/10 hover:border-amber-300 dark:hover:border-amber-500/40">
-                      <div className="stat-card__value text-amber-700 dark:text-amber-300">{summary.needsFix}</div>
-                      <div className="stat-card__label text-amber-500">Fix</div>
-                    </div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[
+                      { value: summary.total, label: 'Total', border: 'border-zinc-200/60 dark:border-zinc-800', bg: 'bg-white/60 dark:bg-zinc-950/50', valColor: 'text-zinc-900 dark:text-zinc-100', labelColor: 'text-zinc-400' },
+                      { value: summary.done, label: 'Done', border: 'border-emerald-200/60 dark:border-emerald-500/20', bg: 'bg-emerald-50/60 dark:bg-emerald-500/5', valColor: 'text-emerald-700 dark:text-emerald-300', labelColor: 'text-emerald-500/80' },
+                      { value: summary.active, label: 'Active', border: 'border-blue-200/60 dark:border-blue-500/20', bg: 'bg-blue-50/60 dark:bg-blue-500/5', valColor: 'text-blue-700 dark:text-blue-300', labelColor: 'text-blue-500/80' },
+                      { value: summary.needsFix, label: 'Fix', border: 'border-amber-200/60 dark:border-amber-500/20', bg: 'bg-amber-50/60 dark:bg-amber-500/5', valColor: 'text-amber-700 dark:text-amber-300', labelColor: 'text-amber-500/80' },
+                    ].map(s => (
+                      <div key={s.label} className={`rounded-xl border ${s.border} ${s.bg} px-3 py-2.5 transition-all`}>
+                        <div className={`text-xl font-bold tabular-nums tracking-tight ${s.valColor}`}>{s.value}</div>
+                        <div className={`text-[10px] font-semibold uppercase tracking-[0.1em] ${s.labelColor}`}>{s.label}</div>
+                      </div>
+                    ))}
                   </div>
 
                   <div className="flex flex-wrap gap-1.5">
@@ -599,24 +594,24 @@ export default function BlackboardPanel({
                     })}
                   </div>
 
-                  <div className="glass-panel p-3">
+                  <div className="rounded-2xl border border-zinc-200/50 bg-white/40 p-3 dark:border-zinc-800/50 dark:bg-zinc-900/30">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
                           Parallel Lanes
                         </div>
                         <div className="mt-1 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">
-                          Each lane runs Claude implementation inside an isolated workspace, then hands the result to Codex for immediate review before merge.
+                          Each lane runs implementation in an isolated workspace, then reviews before merge.
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-1.5 text-[10px]">
-                        <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 font-medium text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300">
+                        <span className="rounded-full border border-blue-200/60 bg-blue-50/60 px-2 py-1 font-medium text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300">
                           Running {activeSubtaskCards.length}
                         </span>
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-medium text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                        <span className="rounded-full border border-amber-200/60 bg-amber-50/60 px-2 py-1 font-medium text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
                           Queue {queuedSubtasks.length}
                         </span>
-                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+                        <span className="rounded-full border border-emerald-200/60 bg-emerald-50/60 px-2 py-1 font-medium text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300">
                           Merged {summary.done}
                         </span>
                       </div>
@@ -699,7 +694,7 @@ export default function BlackboardPanel({
                   </div>
 
                   <div className="grid min-h-[30rem] gap-3 xl:grid-cols-[minmax(320px,0.92fr)_minmax(0,1.4fr)]">
-                    <div className="glass-panel custom-scrollbar overflow-y-auto p-2.5">
+                    <div className="rounded-2xl border border-zinc-200/50 bg-white/40 custom-scrollbar overflow-y-auto p-2.5 dark:border-zinc-800/50 dark:bg-zinc-900/30">
                       <div className="mb-2 flex items-center justify-between gap-2 px-1">
                         <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
                           Board Queue
@@ -758,7 +753,7 @@ export default function BlackboardPanel({
                       </div>
                     </div>
 
-                    <div className="glass-panel p-3.5">
+                    <div className="rounded-2xl border border-zinc-200/50 bg-white/40 p-3.5 dark:border-zinc-800/50 dark:bg-zinc-900/30">
                       {focusedSubtask ? (
                         <div className="space-y-4">
                           <div className="flex items-start justify-between gap-3">
@@ -890,7 +885,7 @@ export default function BlackboardPanel({
                   </div>
                 </>
               ) : (
-                <div className="glass-panel p-4">
+                <div className="rounded-2xl border border-zinc-200/50 bg-white/40 p-4 dark:border-zinc-800/50 dark:bg-zinc-900/30">
                   <p className="text-[12px] font-medium text-zinc-700 dark:text-zinc-300">
                     Structured execution data is not available yet.
                   </p>
@@ -900,7 +895,7 @@ export default function BlackboardPanel({
                 </div>
               )
             ) : (
-              <div className="glass-panel overflow-hidden p-3.5">
+              <div className="rounded-2xl border border-zinc-200/50 bg-white/40 overflow-hidden p-3.5 dark:border-zinc-800/50 dark:bg-zinc-900/30">
                 {renderMarkdown(execMd)}
               </div>
             )}
@@ -915,7 +910,7 @@ export default function BlackboardPanel({
 
       {events.length > 0 && (
         <div
-          className="flex shrink-0 flex-col border-t border-zinc-200/50 bg-white/30 backdrop-blur-md dark:border-zinc-800/50 dark:bg-zinc-950/30"
+          className="flex shrink-0 flex-col border-t border-zinc-200/40 bg-white/20 backdrop-blur-sm dark:border-zinc-800/50 dark:bg-zinc-950/20"
           style={{ height: activityCollapsed ? 'auto' : `${activityHeight}px` }}
         >
           {!activityCollapsed && (

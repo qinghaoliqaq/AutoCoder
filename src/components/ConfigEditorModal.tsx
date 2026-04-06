@@ -4,15 +4,17 @@ import { ConfigDraft, AGENT_PROVIDERS } from '../types';
 import AccessModeToggle from './AccessModeToggle';
 import ToggleSwitch from './ToggleSwitch';
 import ProviderSelect from './ProviderSelect';
-import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, Keyboard, Zap } from 'lucide-react';
+import { useTheme, THEMES } from './ThemeProvider';
+import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, Keyboard, Zap, Palette } from 'lucide-react';
 
 // ── Settings tab definitions ─────────────────────────────────────────────────
 
-type SettingsTab = 'general' | 'agent' | 'shortcuts';
+type SettingsTab = 'general' | 'agent' | 'appearance' | 'shortcuts';
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: 'general', label: '通用', icon: <Settings2 className="h-4 w-4" /> },
   { id: 'agent', label: '智能体', icon: <Bot className="h-4 w-4" /> },
+  { id: 'appearance', label: '外观', icon: <Palette className="h-4 w-4" /> },
   { id: 'shortcuts', label: '快捷键', icon: <Keyboard className="h-4 w-4" /> },
 ];
 
@@ -67,7 +69,7 @@ export default function ConfigEditorModal({
       if (!saving) onClose();
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '3') {
+    if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '4') {
       e.preventDefault();
       const idx = parseInt(e.key) - 1;
       if (idx < TABS.length) setActiveTab(TABS[idx].id);
@@ -137,6 +139,7 @@ export default function ConfigEditorModal({
               <div className="p-5">
                 {activeTab === 'general' && <GeneralTab draft={draft} update={update} />}
                 {activeTab === 'agent' && <AgentTab draft={draft} update={update} />}
+                {activeTab === 'appearance' && <AppearanceTab />}
                 {activeTab === 'shortcuts' && <ShortcutsTab />}
 
                 {error && (
@@ -481,6 +484,129 @@ function AgentTab({
         </InfoBanner>
       )}
     </div>
+  );
+}
+
+// ── Tab: Appearance ─────────────────────────────────────────────────────────
+
+function AppearanceTab() {
+  const { themePreference, setTheme } = useTheme();
+  const lightThemes = THEMES.filter(t => t.mode === 'light');
+  const darkThemes = THEMES.filter(t => t.mode === 'dark');
+
+  return (
+    <div className="space-y-5">
+      <SectionHeading title="主题" description="选择一个颜色主题，或跟随系统偏好自动切换" />
+
+      {/* System toggle */}
+      <div className="flex items-center justify-between rounded-xl border border-zinc-200/60 bg-white/40 px-4 py-3 dark:border-zinc-800/60 dark:bg-zinc-900/30">
+        <div>
+          <div className="text-sm font-medium text-zinc-700 dark:text-zinc-200">跟随系统</div>
+          <div className="mt-0.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
+            根据操作系统外观自动在亮色和暗色主题之间切换
+          </div>
+        </div>
+        <ToggleSwitch
+          checked={themePreference === 'system'}
+          onChange={(checked) => setTheme(checked ? 'system' : 'default-light')}
+          accent="violet"
+          title="跟随系统主题"
+        />
+      </div>
+
+      {/* Light themes */}
+      <div>
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">亮色主题</div>
+        <div className="grid grid-cols-3 gap-2">
+          {lightThemes.map(theme => (
+            <ThemeCard
+              key={theme.id}
+              theme={theme}
+              active={themePreference === theme.id}
+              onSelect={() => setTheme(theme.id)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Dark themes */}
+      <div>
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">暗色主题</div>
+        <div className="grid grid-cols-3 gap-2">
+          {darkThemes.map(theme => (
+            <ThemeCard
+              key={theme.id}
+              theme={theme}
+              active={themePreference === theme.id}
+              onSelect={() => setTheme(theme.id)}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ThemeCard({
+  theme,
+  active,
+  onSelect,
+}: {
+  theme: { id: string; label: string; mode: string; colors: Record<string, string> };
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const bg = theme.colors['--bg-primary'];
+  const secondary = theme.colors['--bg-secondary'];
+  const tertiary = theme.colors['--bg-tertiary'];
+  const text = theme.colors['--text-primary'];
+  const accent = theme.colors['--accent'];
+
+  return (
+    <button
+      onClick={onSelect}
+      className={`group relative overflow-hidden rounded-xl border p-0.5 transition-all ${
+        active
+          ? 'border-violet-400 ring-2 ring-violet-500/20 dark:border-violet-500'
+          : 'border-zinc-200/80 hover:border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-600'
+      }`}
+    >
+      {/* Mini preview */}
+      <div
+        className="rounded-[10px] p-2"
+        style={{ backgroundColor: `rgb(${bg})` }}
+      >
+        {/* Title bar */}
+        <div className="flex items-center gap-1 mb-1.5">
+          <div className="flex gap-0.5">
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: `rgb(${accent})`, opacity: 0.7 }} />
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: `rgb(${text})`, opacity: 0.15 }} />
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: `rgb(${text})`, opacity: 0.15 }} />
+          </div>
+        </div>
+        {/* Content lines */}
+        <div className="flex gap-1">
+          <div className="w-6 rounded" style={{ backgroundColor: `rgb(${secondary})`, height: '20px' }} />
+          <div className="flex-1 space-y-1">
+            <div className="h-1.5 w-3/4 rounded-full" style={{ backgroundColor: `rgb(${text})`, opacity: 0.2 }} />
+            <div className="h-1.5 w-1/2 rounded-full" style={{ backgroundColor: `rgb(${accent})`, opacity: 0.35 }} />
+            <div className="h-1.5 w-2/3 rounded-full" style={{ backgroundColor: `rgb(${text})`, opacity: 0.12 }} />
+          </div>
+        </div>
+        {/* Bottom bar */}
+        <div className="mt-1.5 h-2.5 rounded" style={{ backgroundColor: `rgb(${tertiary})` }} />
+      </div>
+      <div className="px-1.5 py-1.5 text-center">
+        <span className={`text-[10px] font-medium ${active ? 'text-violet-600 dark:text-violet-400' : 'text-zinc-600 dark:text-zinc-400'}`}>
+          {theme.label}
+        </span>
+      </div>
+      {active && (
+        <div className="absolute right-1.5 top-1.5">
+          <CheckCircle2 className="h-3.5 w-3.5 text-violet-500" />
+        </div>
+      )}
+    </button>
   );
 }
 

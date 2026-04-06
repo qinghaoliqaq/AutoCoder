@@ -7,7 +7,7 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 // don't receive each other's skill-chunk / tool-log / director events.
 const appWindow = getCurrentWebviewWindow();
 import { AppMode, ChatMessage, ToolLog, ConfigStatus, ConfigDraft, MODES, SessionMeta, BlackboardEvent } from './types';
-import { ThemeProvider, useTheme } from './components/ThemeProvider';
+import { ThemeProvider, useTheme, THEMES } from './components/ThemeProvider';
 import ModeActivated from './components/ModeActivated';
 import ChatPanel from './components/ChatPanel';
 import InputBar from './components/InputBar';
@@ -19,15 +19,26 @@ import ConfigEditorModal from './components/ConfigEditorModal';
 import { VscColorMode, VscFiles, VscHistory, VscMultipleWindows, VscTerminal, VscChecklist, VscSettingsGear } from 'react-icons/vsc';
 
 function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  const { activeTheme, isDark, themePreference, setTheme } = useTheme();
+
+  const cycle = () => {
+    const ids = ['system', ...THEMES.map(t => t.id)];
+    const idx = ids.indexOf(themePreference);
+    setTheme(ids[(idx + 1) % ids.length]);
+  };
+
   return (
     <button
-      onClick={() => setTheme(theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark')}
+      onClick={cycle}
       className="text-xs text-zinc-600 hover:text-zinc-800 dark:text-zinc-300 dark:hover:text-zinc-100 transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg w-full h-full"
-      title={`Current theme: ${theme}`}
+      title={`Theme: ${themePreference === 'system' ? 'System' : activeTheme.label}`}
     >
-      {theme === 'dark' ? '☾' : theme === 'light' ? '☀' : <VscColorMode className="w-3.5 h-3.5 animate-[spin_4s_linear_infinite]" />}
-      <span className="hidden sm:inline font-medium capitalize">{theme}</span>
+      {themePreference === 'system'
+        ? <VscColorMode className="w-3.5 h-3.5 animate-[spin_4s_linear_infinite]" />
+        : isDark ? '☾' : '☀'}
+      <span className="hidden sm:inline font-medium">
+        {themePreference === 'system' ? 'System' : activeTheme.label}
+      </span>
     </button>
   );
 }

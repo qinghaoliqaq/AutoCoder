@@ -41,8 +41,8 @@ export default function HistoryPanel({
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b
-                      border-zinc-200/40 dark:border-zinc-700/40 flex-shrink-0 min-h-[52px]">
+      <div className="flex items-center justify-between px-5 py-3 border-b
+                      border-zinc-200/40 dark:border-zinc-800/40 bg-white/20 dark:bg-zinc-900/20 flex-shrink-0 min-h-[48px]">
         <div className="flex items-center gap-2.5">
           <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-800 dark:text-zinc-200 select-none">
             History

@@ -17,6 +17,28 @@ export default {
           light: 'rgb(250 250 249)', // zinc-50
           dark: 'rgb(9 9 11)',       // zinc-950
         },
+        // CSS variable-driven semantic tokens
+        surface: {
+          primary: 'rgb(var(--bg-primary) / <alpha-value>)',
+          secondary: 'rgb(var(--bg-secondary) / <alpha-value>)',
+          tertiary: 'rgb(var(--bg-tertiary) / <alpha-value>)',
+          elevated: 'rgb(var(--bg-elevated) / <alpha-value>)',
+          input: 'rgb(var(--bg-input) / <alpha-value>)',
+        },
+        content: {
+          primary: 'rgb(var(--text-primary) / <alpha-value>)',
+          secondary: 'rgb(var(--text-secondary) / <alpha-value>)',
+          tertiary: 'rgb(var(--text-tertiary) / <alpha-value>)',
+        },
+        edge: {
+          primary: 'rgb(var(--border-primary) / <alpha-value>)',
+          secondary: 'rgb(var(--border-secondary) / <alpha-value>)',
+        },
+        themed: {
+          accent: 'rgb(var(--accent) / <alpha-value>)',
+          'accent-soft': 'rgb(var(--accent-soft) / <alpha-value>)',
+          'accent-text': 'rgb(var(--accent-text) / <alpha-value>)',
+        },
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace'],
@@ -39,4 +61,3 @@ export default {
     require('@tailwindcss/typography'),
   ],
 }
-
