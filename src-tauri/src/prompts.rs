@@ -31,6 +31,8 @@ const DEFAULT_DEBUG_CODEX: &str = include_str!("../prompts/debug_codex.md");
 const DEFAULT_TEST_CLAUDE: &str = include_str!("../prompts/test_claude.md");
 const DEFAULT_COMPACT_SUMMARY: &str = include_str!("../prompts/compact_summary.md");
 const DEFAULT_QA_CLAUDE: &str = include_str!("../prompts/qa_claude.md");
+const DEFAULT_REVIEW_SECURITY: &str = include_str!("../prompts/review_security.md");
+const DEFAULT_REVIEW_SPECIALIST: &str = include_str!("../prompts/review_specialist.md");
 
 // ── Public struct ─────────────────────────────────────────────────────────────
 
@@ -56,6 +58,8 @@ pub struct Prompts {
     pub test_claude: String,
     pub compact_summary: String,
     pub qa_claude: String,
+    pub review_security: String,
+    pub review_specialist: String,
 }
 
 impl Prompts {
@@ -119,6 +123,16 @@ impl Prompts {
             test_claude: load("test_claude.md", &search_dirs, DEFAULT_TEST_CLAUDE),
             compact_summary: load("compact_summary.md", &search_dirs, DEFAULT_COMPACT_SUMMARY),
             qa_claude: load("qa_claude.md", &search_dirs, DEFAULT_QA_CLAUDE),
+            review_security: load(
+                "review_security.md",
+                &search_dirs,
+                DEFAULT_REVIEW_SECURITY,
+            ),
+            review_specialist: load(
+                "review_specialist.md",
+                &search_dirs,
+                DEFAULT_REVIEW_SPECIALIST,
+            ),
         }
     }
 
