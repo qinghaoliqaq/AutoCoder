@@ -1,10 +1,9 @@
 import { useState, useRef, KeyboardEvent } from 'react';
-import { AppMode, SystemStatus, ConfigStatus, MODES } from '../types';
+import { AppMode, ConfigStatus, MODES } from '../types';
 import AccessModeToggle from './AccessModeToggle';
 
 interface InputBarProps {
   mode: AppMode;
-  status: SystemStatus | null;
   configStatus: ConfigStatus | null;
   isRunning: boolean;
   isStopping: boolean;

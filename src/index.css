@@ -89,33 +89,7 @@
     @apply bg-white/25 dark:bg-zinc-800/50 backdrop-blur-xl border border-white/50 dark:border-zinc-700/50 shadow-[0_8px_20px_rgba(15,23,42,0.04)] hover:bg-white/40 dark:hover:bg-zinc-700/70 transition-all;
   }
 
-  /* Chat Bubbles - Floating & Elegant */
-  .chat-bubble {
-    @apply w-fit max-w-[84%] sm:max-w-[78%] rounded-[1.35rem] px-4 py-3 sm:px-5 sm:py-3.5 text-[13px] sm:text-[14px] leading-6 shadow-[0_10px_26px_rgba(15,23,42,0.06)] dark:shadow-[0_10px_26px_rgba(0,0,0,0.22)] transition-all backdrop-blur-xl;
-    animation: fade-up 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-  }
-
-  /* Role Colors */
-  .chat-bubble.claude {
-    @apply bg-orange-50/70 border border-orange-200/50 text-zinc-900 dark:bg-orange-500/10 dark:border-orange-500/20 dark:text-zinc-100;
-  }
-
-  .chat-bubble.codex {
-    @apply bg-emerald-50/70 border border-emerald-200/50 text-zinc-900 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-zinc-100;
-  }
-
-  .chat-bubble.director {
-    @apply bg-violet-50/70 border border-violet-200/50 text-zinc-900 dark:bg-violet-500/10 dark:border-violet-500/20 dark:text-zinc-100;
-  }
-
-  .chat-bubble.user {
-    @apply bg-white/70 border border-zinc-200/50 text-zinc-900 dark:bg-zinc-800/60 dark:border-zinc-700/50 dark:text-zinc-100 shadow-sm;
-  }
-
-  .chat-bubble > pre,
-  .chat-bubble > div {
-    @apply m-0;
-  }
+  /* Chat message prose — clean, Cursor-style */
 
   /* Micro Animations */
   .pulse-dot {
@@ -199,9 +173,7 @@
   }
 
   .chat-prose pre {
-    @apply my-2 overflow-x-auto rounded-xl border border-zinc-200/60
-           bg-zinc-50/90 px-3.5 py-3 font-mono text-[12px] leading-relaxed
-           dark:border-zinc-800/60 dark:bg-zinc-950/70;
+    @apply m-0 overflow-x-auto font-mono text-[12px] leading-relaxed;
   }
 
   .chat-prose a {

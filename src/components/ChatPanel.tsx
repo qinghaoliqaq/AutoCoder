@@ -1,40 +1,40 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatedMessageIcon, AnimatedFolderIcon, AnimatedSparklesIcon } from './icons/AnimatedIcons';
 import { ChatMessage, AgentRole } from '../types';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 
-const ROLE_CONFIG: Record<AgentRole, { label: string; letter: string; color: string; bg: string; accent: string }> = {
+// ── Role config ──────────────────────────────────────────────────────────────
+
+const ROLE_CONFIG: Record<AgentRole, { label: string; icon: string; color: string; borderColor: string }> = {
   claude: {
     label: 'Claude',
-    letter: 'C',
-    color: 'text-orange-600 dark:text-accent-claude',
-    bg: 'bg-orange-500/10 border-orange-500/20',
-    accent: 'bg-orange-500',
+    icon: 'C',
+    color: 'text-orange-600 dark:text-orange-400',
+    borderColor: 'border-orange-200 dark:border-orange-500/30',
   },
   codex: {
     label: 'Codex',
-    letter: 'X',
-    color: 'text-emerald-600 dark:text-accent-codex',
-    bg: 'bg-emerald-500/10 border-emerald-500/20',
-    accent: 'bg-emerald-500',
+    icon: 'X',
+    color: 'text-emerald-600 dark:text-emerald-400',
+    borderColor: 'border-emerald-200 dark:border-emerald-500/30',
   },
   director: {
     label: 'Director',
-    letter: 'D',
+    icon: 'D',
     color: 'text-violet-600 dark:text-violet-400',
-    bg: 'bg-violet-500/10 border-violet-500/20',
-    accent: 'bg-violet-500',
+    borderColor: 'border-violet-200 dark:border-violet-500/30',
   },
   user: {
     label: 'You',
-    letter: 'U',
-    color: 'text-zinc-700 dark:text-zinc-300',
-    bg: 'bg-zinc-500/10 border-zinc-500/20',
-    accent: 'bg-zinc-500',
+    icon: 'U',
+    color: 'text-zinc-600 dark:text-zinc-300',
+    borderColor: 'border-zinc-200 dark:border-zinc-700',
   },
 };
+
+// ── Report card (collapsible plan documents) ─────────────────────────────────
 
 function ReportCard({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -42,34 +42,31 @@ function ReportCard({ content }: { content: string }) {
   const preview = content.split('\n').slice(1, 6).join('\n').trim();
 
   return (
-    <div className="w-full overflow-hidden rounded-2xl border border-violet-200/70 bg-white/80 shadow-[0_10px_28px_rgba(0,0,0,0.05)] dark:border-violet-500/30 dark:bg-zinc-900/80 dark:shadow-[0_10px_28px_rgba(0,0,0,0.28)]">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-violet-200/80 bg-violet-50/90 px-4 py-2.5 dark:border-violet-500/20 dark:bg-violet-500/10">
+    <div className="overflow-hidden rounded-xl border border-violet-200/70 bg-white/80 shadow-sm dark:border-violet-500/20 dark:bg-zinc-900/80">
+      <div className="flex items-center justify-between border-b border-violet-200/60 bg-violet-50/60 px-3.5 py-2 dark:border-violet-500/15 dark:bg-violet-500/8">
         <div className="flex items-center gap-2">
-          <span>📄</span>
-          <span className="text-[11px] font-semibold tracking-[0.01em] text-violet-700 dark:text-violet-300">{title}</span>
+          <span className="text-[11px]">📄</span>
+          <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300">{title}</span>
         </div>
         <button
           onClick={() => setExpanded(v => !v)}
-          className="text-[11px] font-medium text-violet-600 hover:underline dark:text-violet-400"
+          className="text-[11px] font-medium text-violet-500 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300"
         >
           {expanded ? 'Collapse' : 'View Report'}
         </button>
       </div>
-
-      {/* Body */}
       {expanded ? (
         <pre className="custom-scrollbar m-0 max-h-[60vh] overflow-y-auto whitespace-pre-wrap bg-white p-4 font-mono text-[11px] leading-6 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
           {content}
         </pre>
       ) : (
-        <div className="px-4 py-3 bg-white dark:bg-zinc-900">
+        <div className="px-3.5 py-2.5 bg-white dark:bg-zinc-900">
           <pre className="m-0 line-clamp-3 whitespace-pre-wrap font-mono text-[11px] text-zinc-400 dark:text-zinc-500">
             {preview}
           </pre>
           <button
             onClick={() => setExpanded(true)}
-            className="mt-2 text-[11px] font-medium text-violet-500 hover:text-violet-700 dark:hover:text-violet-300"
+            className="mt-1.5 text-[11px] font-medium text-violet-500 hover:text-violet-700 dark:hover:text-violet-300"
           >
             Click to view full plan →
           </button>
@@ -79,31 +76,54 @@ function ReportCard({ content }: { content: string }) {
   );
 }
 
-interface MessageBubbleProps {
-  message: ChatMessage;
+// ── Code block with copy button ──────────────────────────────────────────────
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [text]);
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="absolute right-2 top-2 rounded-md border border-zinc-200/60 bg-white/80 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 opacity-0 transition-all hover:bg-zinc-100 group-hover:opacity-100 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-400 dark:hover:bg-zinc-700"
+    >
+      {copied ? '✓ Copied' : 'Copy'}
+    </button>
+  );
 }
+
+// ── Message component (Cursor-style) ─────────────────────────────────────────
 
 function normalizeBubbleContent(content: string) {
   return content.replace(/^(?:\r?\n)+/, '').replace(/(?:\r?\n)+$/, '');
 }
 
-function MessageBubble({ message }: MessageBubbleProps) {
+interface MessageProps {
+  message: ChatMessage;
+  isLast: boolean;
+}
+
+function Message({ message, isLast }: MessageProps) {
   const config = ROLE_CONFIG[message.role];
   const isUser = message.role === 'user';
   const displayContent = normalizeBubbleContent(message.content);
 
   return (
-    <div className={`flex gap-2.5 animate-slide-up ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-      {/* Avatar */}
-      <div className={`relative flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl border text-[10px] font-bold ${config.bg}`}>
-        <span className={config.color}>{config.letter}</span>
-        <span className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ${config.accent} ring-2 ring-white dark:ring-zinc-900`} />
-      </div>
-
-      <div className={`flex w-full max-w-[46rem] flex-col space-y-1 ${isUser ? 'items-end' : 'items-start'}`}>
-        <div className={`flex items-center gap-1.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-          <span className={`text-[11px] font-semibold tracking-[0.01em] ${config.color}`}>{config.label}</span>
-          <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+    <div className={`animate-slide-up ${!isLast ? 'border-b border-zinc-100 dark:border-zinc-800/60' : ''}`}>
+      <div className={`px-5 py-4 ${isUser ? 'bg-white/30 dark:bg-zinc-900/20' : ''}`}>
+        {/* Header: avatar + name + time */}
+        <div className="flex items-center gap-2.5 mb-2.5">
+          <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg border text-[10px] font-bold ${config.borderColor} bg-white/70 dark:bg-zinc-900/70`}>
+            <span className={config.color}>{config.icon}</span>
+          </div>
+          <span className={`text-[12px] font-semibold ${config.color}`}>{config.label}</span>
+          <span className="text-[10px] text-zinc-400 dark:text-zinc-600 tabular-nums">
             {new Date(message.timestamp).toLocaleTimeString('en-US', {
               hour: 'numeric',
               minute: '2-digit',
@@ -112,19 +132,39 @@ function MessageBubble({ message }: MessageBubbleProps) {
           </span>
         </div>
 
-        <div className={`chat-bubble ${message.role}`}>
+        {/* Content */}
+        <div className="pl-[34px]">
           {message.thinking ? (
-            <div className="flex items-center gap-2 text-zinc-500">
-              <span className="pulse-dot bg-zinc-400" />
-              <span className="pulse-dot bg-zinc-400" style={{ animationDelay: '0.3s' }} />
-              <span className="pulse-dot bg-zinc-400" style={{ animationDelay: '0.6s' }} />
-              <span className="ml-1 text-[11px] font-medium">Thinking...</span>
+            <div className="flex items-center gap-1.5 text-zinc-400">
+              <div className="flex gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 animate-pulse" />
+                <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 animate-pulse" style={{ animationDelay: '0.3s' }} />
+                <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 animate-pulse" style={{ animationDelay: '0.6s' }} />
+              </div>
+              <span className="text-[11px] font-medium">Thinking...</span>
             </div>
           ) : message.isReport ? (
             <ReportCard content={message.content} />
           ) : (
-            <div className="chat-prose custom-scrollbar m-0 overflow-x-auto break-words font-sans text-[13px] leading-[1.65] sm:text-[14px]">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+            <div className="chat-prose text-[13.5px] leading-[1.7] text-zinc-800 dark:text-zinc-200">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeSanitize]}
+                components={{
+                  pre: ({ children }) => {
+                    // Extract text from code children for copy button
+                    const codeText = extractText(children);
+                    return (
+                      <div className="group relative my-2.5">
+                        <pre className="overflow-x-auto rounded-xl border border-zinc-200/60 bg-zinc-50/90 px-3.5 py-3 font-mono text-[12px] leading-relaxed text-zinc-800 dark:border-zinc-800/60 dark:bg-zinc-950/70 dark:text-zinc-200">
+                          {children}
+                        </pre>
+                        <CopyButton text={codeText} />
+                      </div>
+                    );
+                  },
+                }}
+              >
                 {displayContent}
               </ReactMarkdown>
             </div>
@@ -134,6 +174,21 @@ function MessageBubble({ message }: MessageBubbleProps) {
     </div>
   );
 }
+
+/** Recursively extract text content from React children (for copy button). */
+function extractText(node: React.ReactNode): string {
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (!node) return '';
+  if (Array.isArray(node)) return node.map(extractText).join('');
+  if (typeof node === 'object' && node !== null && 'props' in node) {
+    const el = node as { props?: { children?: React.ReactNode } };
+    return extractText(el.props?.children);
+  }
+  return '';
+}
+
+// ── ChatPanel ────────────────────────────────────────────────────────────────
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -163,18 +218,13 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden text-zinc-800 dark:text-zinc-200">
-      {/* Messages */}
-      {/* Messages */}
-      <div className={`custom-scrollbar relative flex-1 w-full bg-transparent px-4 sm:px-7 ${messages.length === 0 ? 'overflow-hidden flex items-center justify-center' : 'overflow-y-auto pt-5 pb-36 space-y-5'}`}>
+      <div className={`custom-scrollbar relative flex-1 w-full bg-transparent ${messages.length === 0 ? 'overflow-hidden flex items-center justify-center' : 'overflow-y-auto pb-36'}`}>
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center w-full text-center relative z-10 -mt-16">
-            {/* True 3D Particle / Smoke System */}
+            {/* 3D Particle System */}
             <div className="absolute inset-0 -z-10 pointer-events-none flex justify-center items-center" style={{ perspective: '1000px' }}>
               <div className="relative w-full h-full" style={{ transformStyle: 'preserve-3d' }}>
-                {/* Center backlight to highlight the chat icon */}
                 <div className="absolute top-1/2 left-1/2 h-[260px] w-[260px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/35 filter blur-[54px] dark:bg-zinc-800/70" style={{ transform: 'translate3d(-50%, -50%, -100px)' }} />
-
-                {/* Dynamic 3D Particles generating a volumetric smoke field */}
                 {heroParticles.map((particle) => (
                   <div
                     key={particle.id}
@@ -182,7 +232,7 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
                     style={{
                       width: particle.size,
                       height: particle.size,
-                      // @ts-ignore - Custom properties for the keyframe animation
+                      // @ts-ignore
                       '--tx': `${particle.tx}px`,
                       '--ty': `${particle.ty}px`,
                       '--tz': `${particle.tz}px`,
@@ -245,9 +295,9 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
             </div>
           </div>
         ) : (
-          <div className="mx-auto w-full max-w-[54rem] space-y-6">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
+          <div className="mx-auto w-full max-w-[52rem]">
+            {messages.map((msg, idx) => (
+              <Message key={msg.id} message={msg} isLast={idx === messages.length - 1} />
             ))}
             <div ref={bottomRef} className="h-px" />
           </div>

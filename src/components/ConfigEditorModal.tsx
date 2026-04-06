@@ -1,18 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ConfigDraft, SystemStatus, AGENT_PROVIDERS } from '../types';
+import { invoke } from '@tauri-apps/api/core';
+import { ConfigDraft, AGENT_PROVIDERS } from '../types';
 import AccessModeToggle from './AccessModeToggle';
 import ToggleSwitch from './ToggleSwitch';
 import ProviderSelect from './ProviderSelect';
-import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, MonitorCheck, Keyboard } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, Keyboard, Zap } from 'lucide-react';
 
 // ── Settings tab definitions ─────────────────────────────────────────────────
 
-type SettingsTab = 'general' | 'agent' | 'environment' | 'shortcuts';
+type SettingsTab = 'general' | 'agent' | 'shortcuts';
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: 'general', label: '通用', icon: <Settings2 className="h-4 w-4" /> },
   { id: 'agent', label: '智能体', icon: <Bot className="h-4 w-4" /> },
-  { id: 'environment', label: '环境', icon: <MonitorCheck className="h-4 w-4" /> },
   { id: 'shortcuts', label: '快捷键', icon: <Keyboard className="h-4 w-4" /> },
 ];
 
@@ -20,14 +20,11 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 
 interface ConfigEditorModalProps {
   draft: ConfigDraft | null;
-  status: SystemStatus | null;
-  checking: boolean;
   saving: boolean;
   error: string | null;
   onClose: () => void;
   onChange: (draft: ConfigDraft) => void;
   onSave: () => void;
-  onRecheckEnvironment: () => void;
 }
 
 // ── Reusable field wrapper ───────────────────────────────────────────────────
@@ -51,14 +48,11 @@ const inputClass =
 
 export default function ConfigEditorModal({
   draft,
-  status,
-  checking,
   saving,
   error,
   onClose,
   onChange,
   onSave,
-  onRecheckEnvironment,
 }: ConfigEditorModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
 
@@ -67,16 +61,13 @@ export default function ConfigEditorModal({
     onChange({ ...draft, [key]: value });
   };
 
-  const claudeInstalled = status?.claude.installed ?? false;
-  const codexInstalled = status?.codex.installed ?? false;
-
-  // Keyboard: Esc to close, Cmd/Ctrl+1-4 to switch tabs
+  // Keyboard: Esc to close, Cmd/Ctrl+1-3 to switch tabs
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       if (!saving) onClose();
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '4') {
+    if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '3') {
       e.preventDefault();
       const idx = parseInt(e.key) - 1;
       if (idx < TABS.length) setActiveTab(TABS[idx].id);
@@ -95,7 +86,7 @@ export default function ConfigEditorModal({
     >
       <div
         className="mx-4 flex w-full max-w-3xl flex-col overflow-hidden glass-panel"
-        style={{ height: 'min(600px, 88vh)' }}
+        style={{ height: 'min(580px, 88vh)' }}
         onClick={(event) => event.stopPropagation()}
       >
         {/* ── Header ──────────────────────────────────────────────── */}
@@ -103,7 +94,7 @@ export default function ConfigEditorModal({
           <div>
             <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Settings</h2>
             <p className="mt-0.5 text-xs leading-5 text-zinc-500">
-              模型配置、执行权限和本地工具状态。保存后写入 <code className="text-[10px] rounded bg-zinc-100 px-1 py-0.5 dark:bg-zinc-800">config.toml</code>
+              模型配置与执行权限。保存后写入 <code className="text-[10px] rounded bg-zinc-100 px-1 py-0.5 dark:bg-zinc-800">config.toml</code>
             </p>
           </div>
           <button
@@ -146,17 +137,8 @@ export default function ConfigEditorModal({
               <div className="p-5">
                 {activeTab === 'general' && <GeneralTab draft={draft} update={update} />}
                 {activeTab === 'agent' && <AgentTab draft={draft} update={update} />}
-                {activeTab === 'environment' && (
-                  <EnvironmentTab
-                    claudeInstalled={claudeInstalled}
-                    codexInstalled={codexInstalled}
-                    checking={checking}
-                    onRecheck={onRecheckEnvironment}
-                  />
-                )}
                 {activeTab === 'shortcuts' && <ShortcutsTab />}
 
-                {/* Error banner — shown on any tab */}
                 {error && (
                   <div className="mt-4 rounded-xl border border-rose-200/70 bg-rose-50/80 px-4 py-3 text-xs leading-5 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200">
                     {error}
@@ -213,6 +195,28 @@ function GeneralTab({
   draft: ConfigDraft;
   update: <K extends keyof ConfigDraft>(key: K, value: ConfigDraft[K]) => void;
 }) {
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testMessage, setTestMessage] = useState('');
+
+  const handleTestConnection = async () => {
+    if (!draft.api_key || !draft.base_url || !draft.model) return;
+    setTestStatus('testing');
+    setTestMessage('');
+    try {
+      const result = await invoke<string>('test_api_connection', {
+        apiKey: draft.api_key,
+        baseUrl: draft.base_url,
+        model: draft.model,
+        apiFormat: draft.api_format,
+      });
+      setTestStatus('success');
+      setTestMessage(result);
+    } catch (err) {
+      setTestStatus('error');
+      setTestMessage(String(err));
+    }
+  };
+
   return (
     <div className="space-y-5">
       <SectionHeading title="Director 模型" description="配置对话指挥层（Director）使用的模型和接口" />
@@ -264,6 +268,34 @@ function GeneralTab({
         </div>
       </div>
 
+      {/* Connectivity Test */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleTestConnection}
+          disabled={testStatus === 'testing' || !draft.api_key || !draft.base_url || !draft.model}
+          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-violet-600 glass-button dark:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {testStatus === 'testing' ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Zap className="h-3.5 w-3.5" />
+          )}
+          {testStatus === 'testing' ? '测试中...' : '测试连通性'}
+        </button>
+
+        {testStatus === 'success' && (
+          <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="h-3.5 w-3.5" /> {testMessage}
+          </span>
+        )}
+        {testStatus === 'error' && (
+          <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+            <AlertTriangle className="h-3.5 w-3.5" /> {testMessage}
+          </span>
+        )}
+      </div>
+
       <div className="h-px bg-zinc-200/50 dark:bg-zinc-800/50" />
 
       <SectionHeading title="执行选项" description="控制并行度、权限和内置技能" />
@@ -304,11 +336,6 @@ function GeneralTab({
         />
       </div>
 
-      {/* Info banners */}
-      <InfoBanner variant="info">
-        Director 的 <code>openai</code> 走 <code>/chat/completions</code>，<code>anthropic</code> 走 <code>/messages</code>。
-      </InfoBanner>
-
       <InfoBanner variant={draft.execution_access_mode === 'full_access' ? 'warning' : 'success'}>
         {draft.execution_access_mode === 'full_access'
           ? 'Full Access 模式下 Claude / Codex 会跳过权限限制，自动执行更激进，但风险也更高。'
@@ -328,12 +355,39 @@ function AgentTab({
   update: <K extends keyof ConfigDraft>(key: K, value: ConfigDraft[K]) => void;
 }) {
   const providerLabel = AGENT_PROVIDERS.find(p => p.value === draft.agent_provider)?.label ?? draft.agent_provider;
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testMessage, setTestMessage] = useState('');
+
+  const handleTestConnection = async () => {
+    if (!draft.agent_provider || !draft.agent_api_key) return;
+    setTestStatus('testing');
+    setTestMessage('');
+
+    // Determine the actual base_url and model based on provider defaults
+    const model = draft.agent_model || 'claude-sonnet-4-6';
+    const baseUrl = draft.agent_base_url || 'https://api.anthropic.com/v1';
+    const format = draft.agent_provider === 'anthropic' ? 'anthropic' : 'openai';
+
+    try {
+      const result = await invoke<string>('test_api_connection', {
+        apiKey: draft.agent_api_key,
+        baseUrl,
+        model,
+        apiFormat: format,
+      });
+      setTestStatus('success');
+      setTestMessage(result);
+    } catch (err) {
+      setTestStatus('error');
+      setTestMessage(String(err));
+    }
+  };
 
   return (
     <div className="space-y-5">
       <SectionHeading
         title="智能体执行层"
-        description="配置后，技能（代码、调试、测试等）将通过 API 直接执行，无需安装 CLI。本地工具（Bash、编辑器等）完全免费运行。"
+        description="配置后，技能（代码、调试、测试等）将通过 API 直接执行。本地工具（Bash、编辑器等）完全免费运行。"
       />
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -378,73 +432,54 @@ function AgentTab({
         </FieldGroup>
       </div>
 
+      {/* Connectivity Test */}
+      {draft.agent_provider && draft.agent_api_key && (
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleTestConnection}
+            disabled={testStatus === 'testing'}
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-violet-600 glass-button dark:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {testStatus === 'testing' ? (
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Zap className="h-3.5 w-3.5" />
+            )}
+            {testStatus === 'testing' ? '测试中...' : '测试连通性'}
+          </button>
+
+          {testStatus === 'success' && (
+            <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="h-3.5 w-3.5" /> {testMessage}
+            </span>
+          )}
+          {testStatus === 'error' && (
+            <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+              <AlertTriangle className="h-3.5 w-3.5" /> {testMessage}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Status banners */}
       {draft.agent_provider && !draft.agent_api_key && (
         <InfoBanner variant="warning">
-          需要填写 API Key 才能启用 Agent 执行层。填写后技能将通过 API 直接调用。
+          需要填写 API Key 才能启用 Agent 执行层。
         </InfoBanner>
       )}
 
-      {draft.agent_provider && draft.agent_api_key && (
+      {draft.agent_provider && draft.agent_api_key && testStatus === 'idle' && (
         <InfoBanner variant="success">
-          已配置 — 技能将通过 {providerLabel} API 执行。
+          已配置 — 技能将通过 {providerLabel} API 执行。点击「测试连通性」验证配置是否正确。
         </InfoBanner>
       )}
 
       {!draft.agent_provider && (
         <InfoBanner variant="info">
-          未选择供应商时，技能将通过本地 CLI（Claude Code / Codex）执行。
+          选择供应商并填写 API Key 后即可启用智能体执行。
         </InfoBanner>
       )}
-    </div>
-  );
-}
-
-// ── Tab: Environment ─────────────────────────────────────────────────────────
-
-function EnvironmentTab({
-  claudeInstalled,
-  codexInstalled,
-  checking,
-  onRecheck,
-}: {
-  claudeInstalled: boolean;
-  codexInstalled: boolean;
-  checking: boolean;
-  onRecheck: () => void;
-}) {
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <SectionHeading title="本地工具检测" description="检测系统中已安装的 AI CLI 工具" />
-        <button
-          type="button"
-          onClick={onRecheck}
-          disabled={checking}
-          className="rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-600 glass-button dark:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {checking ? '检测中...' : '重新检测'}
-        </button>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <ToolCard
-          name="Claude Code"
-          description="Anthropic 官方 CLI 工具"
-          installed={claudeInstalled}
-          checking={checking}
-        />
-        <ToolCard
-          name="OpenAI Codex"
-          description="OpenAI 开源 CLI 代理"
-          installed={codexInstalled}
-          checking={checking}
-        />
-      </div>
-
-      <InfoBanner variant="info">
-        CLI 工具是可选的。如果已配置 Agent 执行层（智能体 Tab），技能将通过 API 直接执行而不依赖本地 CLI。
-      </InfoBanner>
     </div>
   );
 }
@@ -497,43 +532,6 @@ function SectionHeading({ title, description }: { title: string; description?: s
       {description && (
         <p className="mt-0.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">{description}</p>
       )}
-    </div>
-  );
-}
-
-function ToolCard({
-  name,
-  description,
-  installed,
-  checking,
-}: {
-  name: string;
-  description: string;
-  installed: boolean;
-  checking: boolean;
-}) {
-  return (
-    <div className="rounded-xl border border-zinc-200/60 bg-white/50 px-4 py-3.5 dark:border-zinc-800 dark:bg-zinc-950/40">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-zinc-800 dark:text-zinc-100">{name}</span>
-        {checking ? (
-          <LoaderCircle className="h-4 w-4 animate-spin text-amber-500" />
-        ) : installed ? (
-          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-        ) : (
-          <AlertTriangle className="h-4 w-4 text-rose-500" />
-        )}
-      </div>
-      <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">{description}</div>
-      <div className="mt-2 text-xs font-medium">
-        {checking ? (
-          <span className="text-amber-600 dark:text-amber-400">检测中...</span>
-        ) : installed ? (
-          <span className="text-emerald-600 dark:text-emerald-400">已安装</span>
-        ) : (
-          <span className="text-rose-600 dark:text-rose-400">未检测到</span>
-        )}
-      </div>
     </div>
   );
 }

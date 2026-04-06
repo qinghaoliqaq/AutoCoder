@@ -306,6 +306,87 @@ fn evidence_subtask_context(workspace: String, subtask_id: String) -> Option<Str
     evidence::build_subtask_context(&workspace, &subtask_id)
 }
 
+/// Test API connectivity by sending a minimal request to the configured endpoint.
+/// Returns Ok(model_response_info) on success or Err(error_message) on failure.
+#[tauri::command]
+async fn test_api_connection(
+    api_key: String,
+    base_url: String,
+    model: String,
+    api_format: String,
+) -> Result<String, String> {
+    use reqwest::Client;
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let is_anthropic = api_format == "anthropic";
+
+    if is_anthropic {
+        let url = format!("{}/messages", base_url.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 8,
+            "messages": [{"role": "user", "content": "Hi"}],
+        });
+        let resp = client
+            .post(&url)
+            .header("x-api-key", &api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("连接失败: {e}"))?;
+
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if status.is_success() {
+            Ok(format!("连接成功 (Anthropic {})", model))
+        } else if status.as_u16() == 401 {
+            Err("API Key 无效 (401 Unauthorized)".to_string())
+        } else {
+            Err(format!("API 返回 {status}: {}", truncate_error(&text)))
+        }
+    } else {
+        // OpenAI-compatible
+        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 8,
+            "messages": [{"role": "user", "content": "Hi"}],
+        });
+        let resp = client
+            .post(&url)
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("连接失败: {e}"))?;
+
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if status.is_success() {
+            Ok(format!("连接成功 (OpenAI-compatible {})", model))
+        } else if status.as_u16() == 401 {
+            Err("API Key 无效 (401 Unauthorized)".to_string())
+        } else {
+            Err(format!("API 返回 {status}: {}", truncate_error(&text)))
+        }
+    }
+}
+
+fn truncate_error(text: &str) -> String {
+    if text.len() > 200 {
+        format!("{}...", &text[..200])
+    } else {
+        text.to_string()
+    }
+}
+
 // ── Entry point ────────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -357,6 +438,7 @@ pub fn run() {
             memory_list,
             evidence_digest,
             evidence_subtask_context,
+            test_api_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

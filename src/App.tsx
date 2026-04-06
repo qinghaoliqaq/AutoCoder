@@ -6,7 +6,7 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 // Scope all event listeners to the current window so multiple windows
 // don't receive each other's skill-chunk / tool-log / director events.
 const appWindow = getCurrentWebviewWindow();
-import { AppMode, ChatMessage, ToolLog, SystemStatus, ConfigStatus, ConfigDraft, MODES, SessionMeta, BlackboardEvent } from './types';
+import { AppMode, ChatMessage, ToolLog, ConfigStatus, ConfigDraft, MODES, SessionMeta, BlackboardEvent } from './types';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import ModeActivated from './components/ModeActivated';
 import ChatPanel from './components/ChatPanel';
@@ -46,9 +46,7 @@ import { createSkillRunner } from './hooks/useSkillRunner';
 export default function App() {
   type SidebarTab = 'explorer' | 'logs' | 'history' | 'blackboard';
   const [currentMode, setCurrentMode] = useState<AppMode | null>(null);
-  const [status, setStatus] = useState<SystemStatus | null>(null);
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null);
-  const [checking, setChecking] = useState(true);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
@@ -188,20 +186,11 @@ export default function App() {
   // ── Init ──────────────────────────────────────────────────────────────────
 
   const runDetection = useCallback(async () => {
-    setChecking(true);
     try {
-      const [sysStatus, cfgStatus] = await Promise.all([
-        invoke<SystemStatus>('detect_tools'),
-        invoke<ConfigStatus>('get_config'),
-      ]);
-      setStatus(sysStatus);
+      const cfgStatus = await invoke<ConfigStatus>('get_config');
       setConfigStatus(cfgStatus);
     } catch (err) {
       console.error('Init error:', err);
-      setStatus({
-        claude: { installed: false, version: null, path: null },
-        codex: { installed: false, version: null, path: null }
-      });
       setConfigStatus({
         configured: false,
         base_url: '',
@@ -212,8 +201,6 @@ export default function App() {
         max_parallel_subtasks: 5,
         execution_access_mode: 'sandbox',
       });
-    } finally {
-      setChecking(false);
     }
   }, []);
 
@@ -691,7 +678,6 @@ export default function App() {
                 <div className="pointer-events-auto max-w-4xl w-full mx-auto">
                   <InputBar
                     mode={currentMode ?? 'chat'}
-                    status={status}
                   configStatus={configStatus}
                   isRunning={isRunning}
                   isStopping={isStopping}
@@ -710,8 +696,6 @@ export default function App() {
       {showConfigEditor && (
         <ConfigEditorModal
           draft={configDraft}
-          status={status}
-          checking={checking}
           saving={configSaving}
           error={configError}
           onClose={() => {
@@ -721,7 +705,6 @@ export default function App() {
           }}
           onChange={setConfigDraft}
           onSave={handleSaveConfig}
-          onRecheckEnvironment={runDetection}
         />
       )}
       {/* Project Context Editor Modal */}
