@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { FileNode } from '../types';
 import {
   SiTypescript, SiJavascript, SiReact, SiPython, SiRust, SiGo, SiOpenjdk,
@@ -94,10 +95,20 @@ interface FileTreePanelProps {
   onClose: () => void;
 }
 
+/** Tool-log inputs that indicate a file mutation happened. */
+function isMutatingTool(tool: string, input: string): boolean {
+  if (tool === 'bash') return true; // bash may create/modify files
+  if (tool === 'str_replace_based_edit_tool') {
+    return input.startsWith('create ') || input.startsWith('str_replace ') || input.startsWith('insert ');
+  }
+  return false;
+}
+
 export default function FileTreePanel({ workspacePath, onOpenProject, onClose }: FileTreePanelProps) {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async () => {
     if (!workspacePath) return;
@@ -113,10 +124,40 @@ export default function FileTreePanel({ workspacePath, onOpenProject, onClose }:
     }
   }, [workspacePath]);
 
+  // Initial load when workspace changes
   useEffect(() => {
     setTree([]);
     refresh();
   }, [refresh]);
+
+  // Auto-refresh: listen for tool-log events that indicate file mutations
+  useEffect(() => {
+    if (!workspacePath) return;
+    const appWindow = getCurrentWebviewWindow();
+    let unlisten: (() => void) | null = null;
+
+    const setup = async () => {
+      unlisten = await appWindow.listen<{ tool: string; input: string }>(
+        'tool-log',
+        (event) => {
+          const { tool, input } = event.payload;
+          if (!isMutatingTool(tool, input)) return;
+          // Debounce: wait 800ms after the last mutation before refreshing,
+          // so rapid consecutive tool calls don't spam workspace_tree.
+          if (debounceRef.current) clearTimeout(debounceRef.current);
+          debounceRef.current = setTimeout(() => {
+            refresh();
+          }, 800);
+        },
+      );
+    };
+    setup();
+
+    return () => {
+      unlisten?.();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [workspacePath, refresh]);
 
   const displayName = workspacePath ? workspacePath.split('/').pop() ?? workspacePath : null;
 
