@@ -2,7 +2,6 @@
 ///
 /// Provides `Blackboard::render_markdown()` and label functions used
 /// to format board/subtask state for the BLACKBOARD.md output.
-
 use super::blackboard::{Blackboard, BoardState, SubtaskKind, SubtaskState};
 use crate::planning_schema::SuggestedSkill;
 
@@ -130,6 +129,7 @@ fn suggested_skill_label(skill: &SuggestedSkill) -> &'static str {
     match skill {
         SuggestedSkill::FrontendDev => "frontend-dev",
         SuggestedSkill::FullstackDev => "fullstack-dev",
+        SuggestedSkill::UiDesignSystem => "ui-design-system",
     }
 }
 

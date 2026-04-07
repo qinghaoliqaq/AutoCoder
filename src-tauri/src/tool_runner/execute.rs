@@ -3,9 +3,9 @@
 /// All execution happens in-process (Rust), no external CLI needed.
 /// Includes partitioned orchestration: read-only tools run concurrently,
 /// write tools run serially.
-
 use super::tools;
 use serde_json::{json, Value};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use tokio_util::sync::CancellationToken;
 
@@ -271,7 +271,8 @@ fn tool_editor(input: &Value, workspace: &Path) -> Result<String, String> {
         "insert" => {
             let insert_line = input["insert_line"]
                 .as_u64()
-                .ok_or("editor insert: missing 'insert_line'")? as usize;
+                .ok_or("editor insert: missing 'insert_line'")?
+                as usize;
             let new_str = input["new_str"]
                 .as_str()
                 .ok_or("editor insert: missing 'new_str'")?;
@@ -286,7 +287,11 @@ fn tool_editor(input: &Value, workspace: &Path) -> Result<String, String> {
             let new_content = lines.join("\n") + "\n";
             std::fs::write(&path, &new_content)
                 .map_err(|e| format!("editor insert: write error: {e}"))?;
-            Ok(format!("Inserted at line {} in {}", insert_line, path.display()))
+            Ok(format!(
+                "Inserted at line {} in {}",
+                insert_line,
+                path.display()
+            ))
         }
         other => Err(format!("editor: unknown command '{other}'")),
     }
@@ -295,9 +300,7 @@ fn tool_editor(input: &Value, workspace: &Path) -> Result<String, String> {
 // ── grep ────────────────────────────────────────────────────────────────────
 
 fn tool_grep(input: &Value, workspace: &Path) -> Result<String, String> {
-    let pattern = input["pattern"]
-        .as_str()
-        .ok_or("grep: missing 'pattern'")?;
+    let pattern = input["pattern"].as_str().ok_or("grep: missing 'pattern'")?;
     let search_path = input["path"].as_str().ok_or("grep: missing 'path'")?;
     let include = input["include"].as_str().unwrap_or("");
     let resolved = resolve_path(search_path, workspace)?;
@@ -327,9 +330,7 @@ fn tool_grep(input: &Value, workspace: &Path) -> Result<String, String> {
 // ── glob ────────────────────────────────────────────────────────────────────
 
 fn tool_glob(input: &Value, workspace: &Path) -> Result<String, String> {
-    let pattern = input["pattern"]
-        .as_str()
-        .ok_or("glob: missing 'pattern'")?;
+    let pattern = input["pattern"].as_str().ok_or("glob: missing 'pattern'")?;
     let search_path = input["path"].as_str().ok_or("glob: missing 'path'")?;
     let resolved = resolve_path(search_path, workspace)?;
 
@@ -359,26 +360,66 @@ fn resolve_path(path_str: &str, workspace: &Path) -> Result<PathBuf, String> {
     } else {
         workspace.join(p)
     };
-    // Canonicalize what exists; for new files, canonicalize the parent.
-    let canonical = if resolved.exists() {
-        resolved.canonicalize().map_err(|e| format!("path error: {e}"))?
-    } else if let Some(parent) = resolved.parent() {
-        let canon_parent = if parent.exists() {
-            parent.canonicalize().map_err(|e| format!("path error: {e}"))?
-        } else {
-            parent.to_path_buf()
-        };
-        canon_parent.join(resolved.file_name().unwrap_or_default())
-    } else {
-        resolved.clone()
-    };
-    let ws_canonical = workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf());
+    let normalized = normalize_lexical_path(&resolved)?;
+    // Canonicalize the deepest existing ancestor so symlinks are resolved even
+    // when the final file or intermediate directories do not exist yet.
+    let canonical = canonicalize_with_virtual_tail(&normalized)?;
+    let ws_canonical = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
     if !canonical.starts_with(&ws_canonical) {
         return Err(format!(
             "path '{}' escapes workspace boundary '{}'",
             path_str,
             ws_canonical.display()
         ));
+    }
+    Ok(canonical)
+}
+
+fn normalize_lexical_path(path: &Path) -> Result<PathBuf, String> {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            std::path::Component::RootDir => normalized.push(component.as_os_str()),
+            std::path::Component::CurDir => {}
+            std::path::Component::Normal(segment) => normalized.push(segment),
+            std::path::Component::ParentDir => {
+                if !normalized.pop() {
+                    return Err(format!("path error: '{}' escapes root", path.display()));
+                }
+            }
+        }
+    }
+    Ok(normalized)
+}
+
+fn canonicalize_with_virtual_tail(path: &Path) -> Result<PathBuf, String> {
+    if path.exists() {
+        return path.canonicalize().map_err(|e| format!("path error: {e}"));
+    }
+
+    let mut ancestor = path;
+    let mut tail: Vec<OsString> = Vec::new();
+    while !ancestor.exists() {
+        let Some(name) = ancestor.file_name() else {
+            return Err(format!(
+                "path error: no existing ancestor for '{}'",
+                path.display()
+            ));
+        };
+        tail.push(name.to_os_string());
+        ancestor = ancestor
+            .parent()
+            .ok_or_else(|| format!("path error: no existing ancestor for '{}'", path.display()))?;
+    }
+
+    let mut canonical = ancestor
+        .canonicalize()
+        .map_err(|e| format!("path error: {e}"))?;
+    for segment in tail.iter().rev() {
+        canonical.push(segment);
     }
     Ok(canonical)
 }
@@ -424,5 +465,27 @@ fn truncate_result(result: &str) -> String {
         )
     } else {
         result.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_path;
+
+    #[test]
+    fn resolve_path_blocks_workspace_escape_for_new_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().canonicalize().unwrap();
+        let err = resolve_path("../outside/new.txt", &workspace).unwrap_err();
+        assert!(err.contains("escapes workspace boundary"));
+    }
+
+    #[test]
+    fn resolve_path_allows_normalized_relative_paths_inside_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().canonicalize().unwrap();
+        let resolved = resolve_path("src/../src/new.txt", &workspace).unwrap();
+        assert!(resolved.starts_with(&workspace));
+        assert_eq!(resolved.file_name().unwrap().to_string_lossy(), "new.txt");
     }
 }

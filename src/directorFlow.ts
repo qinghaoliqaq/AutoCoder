@@ -13,11 +13,17 @@ async function getEvidenceDigest(workspace: string | null): Promise<string> {
 }
 
 export function buildNextInputAfterReview(result: {
+  reviewFailed?: boolean;
+  reviewIssue?: string;
   securityFailed?: boolean;
   securityIssue?: string;
 }): string {
   if (result.securityFailed) {
     return `Review 安全审查发现严重安全问题，已生成 security.md 报告。\n\n安全问题摘要：${result.securityIssue}\n\n请立即调用 code 技能，按照 security.md 中记录的问题逐一修复，修复后在 security.md 中标记每项问题为已解决。`;
+  }
+
+  if (result.reviewFailed) {
+    return `Review 未通过。失败摘要：${result.reviewIssue}\n\n请立即调用 code 技能修复这些 review 问题，完成后重新执行 review，再继续 test。`;
   }
 
   return 'review 已完成：安全审查 ✓、代码清理 ✓。请立即调用 test 技能对项目进行完整集成测试（启动服务器 + curl 测试所有接口）。';

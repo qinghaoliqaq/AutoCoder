@@ -86,7 +86,12 @@ export interface SkillRunnerActions {
     issue?: string,
     contextOverride?: string | null,
   ) => Promise<ReviewPhaseResult>;
-  runReview: (task: string, wsPath: string | null) => Promise<{ securityFailed?: boolean; securityIssue?: string }>;
+  runReview: (task: string, wsPath: string | null) => Promise<{
+    reviewFailed?: boolean;
+    reviewIssue?: string;
+    securityFailed?: boolean;
+    securityIssue?: string;
+  }>;
   runTest: (task: string, wsPath: string | null) => Promise<boolean>;
   runQa: (task: string, wsPath: string | null) => Promise<QaResult>;
   runSkill: (mode: AppMode, task: string) => Promise<string | null>;
@@ -171,7 +176,12 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
   const runReview = async (
     task: string,
     wsPath: string | null,
-  ): Promise<{ securityFailed?: boolean; securityIssue?: string }> => {
+  ): Promise<{
+    reviewFailed?: boolean;
+    reviewIssue?: string;
+    securityFailed?: boolean;
+    securityIssue?: string;
+  }> => {
     setCurrentMode('review');
     const failures: string[] = [];
 
@@ -220,8 +230,13 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       addMessage('director', '**Review complete** — all 4 phases passed.');
     }
 
-    if (!sec.passed) {
-      return { securityFailed: true, securityIssue: sec.issue };
+    if (failures.length > 0) {
+      return {
+        reviewFailed: true,
+        reviewIssue: failures.join('; '),
+        securityFailed: !sec.passed,
+        securityIssue: !sec.passed ? sec.issue : undefined,
+      };
     }
 
     return {};
