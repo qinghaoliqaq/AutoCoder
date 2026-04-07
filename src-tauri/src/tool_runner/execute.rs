@@ -17,10 +17,12 @@ const MAX_RESULT_CHARS: usize = 50_000;
 // ── Partitioned orchestration ───────────────────────────────────────────────
 
 /// Execute tool calls with read-only batching (concurrent) and write (serial).
+/// When `read_only` is true, bash and editor write commands are rejected at runtime.
 pub async fn run_partitioned(
     tool_calls: &[(String, String, Value)],
     workspace: &Path,
     token: &CancellationToken,
+    read_only: bool,
 ) -> Result<Vec<Value>, String> {
     let mut batches: Vec<(bool, Vec<usize>)> = Vec::new();
     for (i, (_id, name, input)) in tool_calls.iter().enumerate() {
@@ -40,9 +42,17 @@ pub async fn run_partitioned(
         }
 
         if *is_readonly && indices.len() > 1 {
-            run_concurrent_batch(tool_calls, indices, workspace, &mut results).await?;
+            run_concurrent_batch(tool_calls, indices, workspace, read_only, &mut results).await?;
         } else {
-            run_serial_batch(tool_calls, indices, workspace, token, &mut results).await?;
+            run_serial_batch(
+                tool_calls,
+                indices,
+                workspace,
+                token,
+                read_only,
+                &mut results,
+            )
+            .await?;
         }
     }
 
@@ -53,6 +63,7 @@ async fn run_concurrent_batch(
     tool_calls: &[(String, String, Value)],
     indices: &[usize],
     workspace: &Path,
+    read_only: bool,
     results: &mut [Value],
 ) -> Result<(), String> {
     let mut handles = Vec::new();
@@ -63,7 +74,7 @@ async fn run_concurrent_batch(
         let input = input.clone();
         let ws = workspace.to_path_buf();
         handles.push(tokio::spawn(async move {
-            let result = dispatch(&name, &input, &ws).await;
+            let result = dispatch(&name, &input, &ws, read_only).await;
             (idx, id, name, result)
         }));
     }
@@ -86,6 +97,7 @@ async fn run_serial_batch(
     indices: &[usize],
     workspace: &Path,
     token: &CancellationToken,
+    read_only: bool,
     results: &mut [Value],
 ) -> Result<(), String> {
     for &idx in indices {
@@ -93,7 +105,7 @@ async fn run_serial_batch(
             return Err("cancelled".to_string());
         }
         let (id, name, input) = &tool_calls[idx];
-        let result = dispatch(name, input, workspace).await;
+        let result = dispatch(name, input, workspace, read_only).await;
         results[idx] = build_tool_result(id, name, result);
     }
     Ok(())
@@ -118,7 +130,30 @@ fn build_tool_result(id: &str, tool_name: &str, result: Result<String, String>) 
 
 // ── Tool dispatch ───────────────────────────────────────────────────────────
 
-async fn dispatch(name: &str, input: &Value, workspace: &Path) -> Result<String, String> {
+async fn dispatch(
+    name: &str,
+    input: &Value,
+    workspace: &Path,
+    read_only: bool,
+) -> Result<String, String> {
+    // Runtime enforcement: reject write tools in read-only mode.
+    // This is a defense-in-depth layer — even if schema filtering fails to
+    // exclude a tool, the dispatch layer blocks it.
+    if read_only {
+        match name {
+            "bash" => return Err("bash: blocked in read-only mode".to_string()),
+            "str_replace_based_edit_tool" => {
+                let cmd = input["command"].as_str().unwrap_or("");
+                if cmd != "view" {
+                    return Err(format!(
+                        "editor: '{cmd}' blocked in read-only mode (only 'view' allowed)"
+                    ));
+                }
+            }
+            _ => {} // grep, glob are always safe
+        }
+    }
+
     match name {
         "bash" => tool_bash(input, workspace).await,
         "str_replace_based_edit_tool" => tool_editor(input, workspace),

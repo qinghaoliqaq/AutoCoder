@@ -173,23 +173,54 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     wsPath: string | null,
   ): Promise<{ securityFailed?: boolean; securityIssue?: string }> => {
     setCurrentMode('review');
+    const failures: string[] = [];
 
-    addMessage('director', '📋 Review 1/4 — Plan Check');
-    await runPhase('review', 'plan_check', task, wsPath);
+    addMessage('director', '**Review 1/4** — Plan Check');
+    const planResult = await runPhase('review', 'plan_check', task, wsPath);
+    if (planResult.passed) {
+      addMessage('director', 'Plan Check passed — all planned features verified.');
+    } else {
+      failures.push(`Plan Check: ${planResult.issue}`);
+      addMessage('director', `Plan Check failed: ${planResult.issue}`);
+    }
 
-    addMessage('director', '🔐 Review 2/4 — Security Audit');
+    addMessage('director', '**Review 2/4** — Security Audit');
     const sec = await runPhase('review', 'security', task, wsPath);
+    if (sec.passed) {
+      addMessage('director', 'Security Audit passed — no critical issues found.');
+    } else {
+      failures.push(`Security: ${sec.issue}`);
+      addMessage('director', `Security Audit failed: ${sec.issue}`);
+    }
 
-    addMessage('director', '🔍 Review 3/4 — Specialist Review');
-    await runPhase('review', 'specialist_review', task, wsPath);
+    addMessage('director', '**Review 3/4** — Specialist Review');
+    const specResult = await runPhase('review', 'specialist_review', task, wsPath);
+    if (specResult.passed) {
+      addMessage('director', 'Specialist Review passed — all specialists approved.');
+    } else {
+      failures.push(`Specialist: ${specResult.issue}`);
+      addMessage('director', `Specialist Review failed: ${specResult.issue}`);
+    }
 
-    addMessage('director', '🧹 Review 4/4 — Code Cleanup');
-    await runPhase('review', 'cleanup', task, wsPath);
+    addMessage('director', '**Review 4/4** — Code Cleanup');
+    const cleanResult = await runPhase('review', 'cleanup', task, wsPath);
+    if (cleanResult.passed) {
+      addMessage('director', 'Code Cleanup passed.');
+    } else {
+      failures.push(`Cleanup: ${cleanResult.issue}`);
+      addMessage('director', `Code Cleanup failed: ${cleanResult.issue}`);
+    }
 
     setCurrentMode('chat');
 
+    // Summary
+    if (failures.length > 0) {
+      addMessage('director', `**Review complete** — ${failures.length} phase(s) failed:\n${failures.map(f => `- ${f}`).join('\n')}`);
+    } else {
+      addMessage('director', '**Review complete** — all 4 phases passed.');
+    }
+
     if (!sec.passed) {
-      addMessage('director', `⛔ Critical security issue: ${sec.issue}. Security report generated — please fix before testing.`);
       return { securityFailed: true, securityIssue: sec.issue };
     }
 

@@ -50,11 +50,7 @@ pub async fn run(
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
-    let workspace = cwd
-        .map(PathBuf::from)
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."));
-
+    let workspace = canonicalize_workspace(cwd)?;
     let tool_defs = tools::definitions(provider.wire);
 
     match provider.wire {
@@ -62,7 +58,7 @@ pub async fn run(
             anthropic::run_loop(
                 &client, &provider.base_url, &provider.api_key, &provider.model,
                 system_prompt, user_prompt, &tool_defs, &workspace,
-                window_label, app_handle, token,
+                window_label, app_handle, token, false,
             )
             .await
         }
@@ -70,7 +66,7 @@ pub async fn run(
             openai::run_loop(
                 &client, &provider.base_url, &provider.api_key, &provider.model,
                 system_prompt, user_prompt, &tool_defs, &workspace,
-                window_label, app_handle, token,
+                window_label, app_handle, token, false,
             )
             .await
         }
@@ -79,6 +75,7 @@ pub async fn run(
 
 /// Run a read-only tool-use agent loop (no bash, editor view-only).
 /// Used for diagnostic/analysis phases that must not mutate the workspace.
+/// Defense-in-depth: schema excludes write tools AND dispatch rejects them at runtime.
 pub async fn run_read_only(
     config: &AppConfig,
     system_prompt: &str,
@@ -95,11 +92,7 @@ pub async fn run_read_only(
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
-    let workspace = cwd
-        .map(PathBuf::from)
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."));
-
+    let workspace = canonicalize_workspace(cwd)?;
     let tool_defs = tools::read_only_definitions(provider.wire);
 
     match provider.wire {
@@ -107,7 +100,7 @@ pub async fn run_read_only(
             anthropic::run_loop(
                 &client, &provider.base_url, &provider.api_key, &provider.model,
                 system_prompt, user_prompt, &tool_defs, &workspace,
-                window_label, app_handle, token,
+                window_label, app_handle, token, true,
             )
             .await
         }
@@ -115,11 +108,25 @@ pub async fn run_read_only(
             openai::run_loop(
                 &client, &provider.base_url, &provider.api_key, &provider.model,
                 system_prompt, user_prompt, &tool_defs, &workspace,
-                window_label, app_handle, token,
+                window_label, app_handle, token, true,
             )
             .await
         }
     }
+}
+
+// ── Workspace canonicalization ──────────────────────────────────────────────
+
+/// Resolve and canonicalize the workspace path at the entry point.
+/// This ensures all downstream path-containment checks compare against
+/// a canonical base, preventing traversal via symlinks or `..` components.
+fn canonicalize_workspace(cwd: Option<&str>) -> Result<PathBuf, String> {
+    let raw = cwd
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+    raw.canonicalize()
+        .map_err(|e| format!("workspace path error: cannot canonicalize '{}': {e}", raw.display()))
 }
 
 // ── Emit helpers (shared by anthropic.rs and openai.rs) ─────────────────────
