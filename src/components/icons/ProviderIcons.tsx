@@ -1,5 +1,6 @@
 /// Re-exports all provider icons and provides a unified lookup component.
 /// SVG paths sourced from lobehub/lobe-icons (official brand logos).
+import React from 'react';
 
 export { default as AnthropicIcon } from './providers/Anthropic';
 export { default as OpenAIIcon } from './providers/OpenAI';
@@ -47,7 +48,7 @@ function UnconfiguredIcon({ className, size = 20 }: IconProps) {
   );
 }
 
-const ICON_MAP: Record<string, (props: IconProps) => JSX.Element> = {
+const ICON_MAP: Record<string, (props: IconProps) => React.ReactElement> = {
   '':            UnconfiguredIcon,
   'anthropic':   AnthropicIcon,
   'openai':      OpenAIIcon,

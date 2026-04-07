@@ -87,6 +87,30 @@ pub fn definitions(format: WireFormat) -> Vec<Value> {
     vec![bash, editor, grep_schema(), glob_schema()]
 }
 
+/// Build read-only tool definitions (no bash, editor limited to view).
+/// Used for diagnostic/analysis phases that must not mutate the workspace.
+pub fn read_only_definitions(format: WireFormat) -> Vec<Value> {
+    let view_only_editor = match format {
+        WireFormat::Anthropic => json!({
+            "type": "text_editor_20250728",
+            "name": "str_replace_based_edit_tool"
+        }),
+        WireFormat::OpenAI => json!({
+            "name": "str_replace_based_edit_tool",
+            "description": "Text editor for viewing files (read-only).\nCommands: view",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "enum": ["view"], "description": "Editor command (view only)" },
+                    "path":    { "type": "string", "description": "File path" }
+                },
+                "required": ["command", "path"]
+            }
+        }),
+    };
+    vec![view_only_editor, grep_schema(), glob_schema()]
+}
+
 /// Convert to OpenAI function-calling wire format.
 pub fn to_openai_functions(tools: &[Value]) -> Vec<Value> {
     tools

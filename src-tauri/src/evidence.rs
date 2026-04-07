@@ -97,6 +97,12 @@ pub(crate) struct EvidenceMetrics {
 
 /// Compute quantitative metrics from the evidence index and raw events.
 pub(crate) fn compute_evidence_metrics(workspace: &str) -> Option<EvidenceMetrics> {
+    // Only produce metrics when a real BLACKBOARD.json exists; otherwise
+    // empty workspaces would generate zero-value metrics that pollute QA prompts.
+    let board = read_blackboard(workspace).ok()?;
+    if board.is_none() {
+        return None;
+    }
     let _ = refresh_evidence_index(workspace);
     let index = read_evidence_index(workspace).ok()??;
     let events = read_events(workspace).ok()?;

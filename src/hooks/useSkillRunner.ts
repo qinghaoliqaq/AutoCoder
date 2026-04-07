@@ -174,10 +174,16 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
   ): Promise<{ securityFailed?: boolean; securityIssue?: string }> => {
     setCurrentMode('review');
 
-    addMessage('director', '🔐 Review 1/2 — Security Audit');
+    addMessage('director', '📋 Review 1/4 — Plan Check');
+    await runPhase('review', 'plan_check', task, wsPath);
+
+    addMessage('director', '🔐 Review 2/4 — Security Audit');
     const sec = await runPhase('review', 'security', task, wsPath);
 
-    addMessage('director', '🧹 Review 2/2 — Code Cleanup');
+    addMessage('director', '🔍 Review 3/4 — Specialist Review');
+    await runPhase('review', 'specialist_review', task, wsPath);
+
+    addMessage('director', '🧹 Review 4/4 — Code Cleanup');
     await runPhase('review', 'cleanup', task, wsPath);
 
     setCurrentMode('chat');

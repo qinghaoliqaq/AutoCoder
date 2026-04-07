@@ -68,11 +68,11 @@ async fn run_via_api(
         Prompts::render(&prompts.debug_claude, &[("issue", task)]),
     );
 
-    let diagnosis = tool_runner::run(
+    let diagnosis = tool_runner::run_read_only(
         config,
         "You are a senior developer performing root-cause analysis. \
          Read the relevant source files, trace the code path, and identify the bug. \
-         Do NOT modify any files — this is a read-only diagnosis phase.",
+         This is a read-only diagnosis phase — only view, grep, and glob tools are available.",
         &diagnose_prompt,
         workspace,
         window_label, app_handle, token.clone(),

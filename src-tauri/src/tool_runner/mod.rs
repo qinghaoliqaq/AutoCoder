@@ -77,6 +77,51 @@ pub async fn run(
     }
 }
 
+/// Run a read-only tool-use agent loop (no bash, editor view-only).
+/// Used for diagnostic/analysis phases that must not mutate the workspace.
+pub async fn run_read_only(
+    config: &AppConfig,
+    system_prompt: &str,
+    user_prompt: &str,
+    cwd: Option<&str>,
+    window_label: &str,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+) -> Result<String, String> {
+    let provider = ProviderConfig::from_app_config(config);
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let workspace = cwd
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let tool_defs = tools::read_only_definitions(provider.wire);
+
+    match provider.wire {
+        WireFormat::Anthropic => {
+            anthropic::run_loop(
+                &client, &provider.base_url, &provider.api_key, &provider.model,
+                system_prompt, user_prompt, &tool_defs, &workspace,
+                window_label, app_handle, token,
+            )
+            .await
+        }
+        WireFormat::OpenAI => {
+            openai::run_loop(
+                &client, &provider.base_url, &provider.api_key, &provider.model,
+                system_prompt, user_prompt, &tool_defs, &workspace,
+                window_label, app_handle, token,
+            )
+            .await
+        }
+    }
+}
+
 // ── Emit helpers (shared by anthropic.rs and openai.rs) ─────────────────────
 
 fn emit_chunk(

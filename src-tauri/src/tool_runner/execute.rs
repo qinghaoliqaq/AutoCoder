@@ -178,7 +178,7 @@ fn tool_editor(input: &Value, workspace: &Path) -> Result<String, String> {
     let path_str = input["path"]
         .as_str()
         .ok_or("editor: missing 'path' field")?;
-    let path = resolve_path(path_str, workspace);
+    let path = resolve_path(path_str, workspace)?;
 
     match command {
         "view" => {
@@ -265,7 +265,7 @@ fn tool_grep(input: &Value, workspace: &Path) -> Result<String, String> {
         .ok_or("grep: missing 'pattern'")?;
     let search_path = input["path"].as_str().ok_or("grep: missing 'path'")?;
     let include = input["include"].as_str().unwrap_or("");
-    let resolved = resolve_path(search_path, workspace);
+    let resolved = resolve_path(search_path, workspace)?;
 
     let mut cmd = std::process::Command::new("grep");
     cmd.args(["-rn", "--color=never", "-E", pattern])
@@ -296,7 +296,7 @@ fn tool_glob(input: &Value, workspace: &Path) -> Result<String, String> {
         .as_str()
         .ok_or("glob: missing 'pattern'")?;
     let search_path = input["path"].as_str().ok_or("glob: missing 'path'")?;
-    let resolved = resolve_path(search_path, workspace);
+    let resolved = resolve_path(search_path, workspace)?;
 
     let output = std::process::Command::new("find")
         .arg(resolved.to_string_lossy().as_ref())
@@ -317,13 +317,35 @@ fn tool_glob(input: &Value, workspace: &Path) -> Result<String, String> {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-fn resolve_path(path_str: &str, workspace: &Path) -> PathBuf {
+fn resolve_path(path_str: &str, workspace: &Path) -> Result<PathBuf, String> {
     let p = Path::new(path_str);
-    if p.is_absolute() {
+    let resolved = if p.is_absolute() {
         p.to_path_buf()
     } else {
         workspace.join(p)
+    };
+    // Canonicalize what exists; for new files, canonicalize the parent.
+    let canonical = if resolved.exists() {
+        resolved.canonicalize().map_err(|e| format!("path error: {e}"))?
+    } else if let Some(parent) = resolved.parent() {
+        let canon_parent = if parent.exists() {
+            parent.canonicalize().map_err(|e| format!("path error: {e}"))?
+        } else {
+            parent.to_path_buf()
+        };
+        canon_parent.join(resolved.file_name().unwrap_or_default())
+    } else {
+        resolved.clone()
+    };
+    let ws_canonical = workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf());
+    if !canonical.starts_with(&ws_canonical) {
+        return Err(format!(
+            "path '{}' escapes workspace boundary '{}'",
+            path_str,
+            ws_canonical.display()
+        ));
     }
+    Ok(canonical)
 }
 
 fn result_cache_dir() -> PathBuf {

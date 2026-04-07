@@ -445,7 +445,8 @@ async fn run_specialist_review(
                 }
             }
             Err(err) => {
-                // Specialist failure is non-fatal — log but continue
+                // Specialist failure counts as not-passed — log and fail
+                all_passed = false;
                 issues.push(format!("{name}: specialist error — {err}"));
             }
         }
