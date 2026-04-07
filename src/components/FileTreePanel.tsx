@@ -53,16 +53,16 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
         <button
           onClick={() => setOpen((v) => !v)}
           className="flex items-center gap-1.5 w-full text-left py-[3px] px-2 rounded-md outline-none
-                     hover:bg-zinc-100/80 dark:hover:bg-zinc-800/50 transition-all duration-150 group"
+                     hover:bg-surface-tertiary/50 transition-all duration-150 group"
           style={{ paddingLeft: `${indent + 6}px` }}
         >
-          <span className="text-zinc-400 dark:text-zinc-500 w-3 flex-shrink-0 flex items-center justify-center transition-all group-hover:text-zinc-600 dark:group-hover:text-zinc-300">
+          <span className="text-content-tertiary w-3 flex-shrink-0 flex items-center justify-center transition-all group-hover:text-content-secondary">
             {open ? <VscChevronDown className="w-3 h-3" /> : <VscChevronRight className="w-3 h-3" />}
           </span>
           <span className="text-amber-500 dark:text-amber-400/80 transition-transform duration-200 group-hover:scale-110 flex items-center justify-center">
             {open ? <VscFolderOpened className="w-[15px] h-[15px]" /> : <VscFolder className="w-[15px] h-[15px]" />}
           </span>
-          <span className="text-[12px] font-medium text-zinc-700 dark:text-zinc-300 truncate group-hover:text-zinc-900 dark:group-hover:text-zinc-100 transition-colors">
+          <span className="text-[12px] font-medium text-content-primary truncate group-hover:text-content-primary transition-colors">
             {node.name}
           </span>
         </button>
@@ -76,12 +76,12 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
   return (
     <div
       className="flex items-center gap-1.5 py-[3px] px-2 rounded-md group
-                 hover:bg-zinc-100/80 dark:hover:bg-zinc-800/50 transition-all duration-150 cursor-default"
+                 hover:bg-surface-tertiary/50 transition-all duration-150 cursor-default"
       style={{ paddingLeft: `${indent + 6 + 18}px` }}
       title={node.path}
     >
       <span className="flex items-center justify-center">{fileIcon(node.name)}</span>
-      <span className="text-[12px] text-zinc-600 dark:text-zinc-400 truncate group-hover:text-zinc-900 dark:group-hover:text-zinc-100 transition-colors">{node.name}</span>
+      <span className="text-[12px] text-content-secondary truncate group-hover:text-content-primary transition-colors">{node.name}</span>
     </div>
   );
 }
@@ -127,8 +127,9 @@ export default function FileTreePanel({ workspacePath, onOpenProject, onClose }:
       <div className="w-full h-full flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 flex-shrink-0
-                        border-b border-zinc-200/40 dark:border-zinc-800/40 bg-white/20 dark:bg-zinc-900/20 min-h-[48px]">
-          <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-800 dark:text-zinc-200 select-none">
+                        border-b border-edge-primary/40 min-h-[48px]"
+             style={{ backgroundColor: 'rgb(var(--bg-secondary) / 0.2)' }}>
+          <span className="text-[11px] font-bold uppercase tracking-widest text-content-primary select-none">
             Explorer
           </span>
           <div className="flex items-center gap-0.5 flex-shrink-0">
@@ -136,9 +137,8 @@ export default function FileTreePanel({ workspacePath, onOpenProject, onClose }:
               <button
                 onClick={refresh}
                 disabled={loading}
-                className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400
-                           transition-colors hover:bg-zinc-200/50 hover:text-zinc-600
-                           dark:hover:bg-zinc-800/50 dark:hover:text-zinc-300 disabled:opacity-40"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-content-tertiary
+                           transition-colors hover:bg-surface-tertiary/50 hover:text-content-primary disabled:opacity-40"
                 title="刷新文件树"
               >
                 <VscRefresh className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -146,18 +146,16 @@ export default function FileTreePanel({ workspacePath, onOpenProject, onClose }:
             )}
             <button
               onClick={onOpenProject}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400
-                         transition-colors hover:bg-zinc-200/50 hover:text-zinc-600
-                         dark:hover:bg-zinc-800/50 dark:hover:text-zinc-300"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-content-tertiary
+                         transition-colors hover:bg-surface-tertiary/50 hover:text-content-primary"
               title="切换工作区"
             >
               <VscFolderActive className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={onClose}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400
-                         transition-colors hover:bg-zinc-200/50 hover:text-zinc-600
-                         dark:hover:bg-zinc-800/50 dark:hover:text-zinc-300"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-content-tertiary
+                         transition-colors hover:bg-surface-tertiary/50 hover:text-content-primary"
               title="收起"
             >
               <VscLayoutSidebarLeftOff className="w-3.5 h-3.5" />
@@ -167,10 +165,9 @@ export default function FileTreePanel({ workspacePath, onOpenProject, onClose }:
 
         {/* Project name row */}
         {displayName && (
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-200/40 dark:border-zinc-800/40
-                        bg-zinc-50/60 dark:bg-zinc-900/30">
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-edge-primary/40 bg-surface-tertiary/30">
             <VscFolder className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-            <span className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300 truncate uppercase tracking-wide"
+            <span className="text-[11px] font-semibold text-content-secondary truncate uppercase tracking-wide"
               title={workspacePath ?? ''}>
               {displayName}
             </span>

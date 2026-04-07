@@ -25,6 +25,7 @@ pub async fn run_loop(
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
+    read_only: bool,
 ) -> Result<String, String> {
     let endpoint = format!("{}/chat/completions", base_url.trim_end_matches('/'));
     let oai_tools = tools::to_openai_functions(tool_defs);
@@ -124,7 +125,7 @@ pub async fn run_loop(
 
         // Execute tools and append results in OpenAI format
         let results =
-            execute::run_partitioned(&tool_calls, workspace, &token).await?;
+            execute::run_partitioned(&tool_calls, workspace, &token, read_only).await?;
         for result in &results {
             let tool_call_id = result["tool_use_id"].as_str().unwrap_or("");
             let content = result["content"].as_str().unwrap_or("");

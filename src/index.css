@@ -82,28 +82,43 @@
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-zinc-300 dark:bg-zinc-700 rounded-full;
+    background-color: rgb(var(--border-primary));
+    @apply rounded-full;
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    @apply bg-zinc-400 dark:bg-zinc-600;
+    background-color: rgb(var(--text-tertiary));
   }
 
-  /* Core Layout Components */
+  /* Core Layout Components — driven by theme CSS variables */
   .glass-panel {
-    @apply bg-white/30 dark:bg-zinc-900/40 backdrop-blur-2xl border border-white/60 dark:border-white/10 rounded-2xl shadow-[0_18px_48px_rgba(15,23,42,0.08)] dark:shadow-[0_18px_48px_rgba(0,0,0,0.28)];
+    background-color: rgb(var(--bg-secondary) / 0.6);
+    border: 1px solid rgb(var(--border-primary) / 0.5);
+    @apply backdrop-blur-2xl rounded-2xl;
+    box-shadow: 0 18px 48px rgb(var(--bg-primary) / 0.12);
   }
-  
+
   .glass-container {
-    @apply bg-white/20 dark:bg-zinc-950/60 backdrop-blur-2xl;
+    background-color: rgb(var(--bg-primary) / 0.7);
+    @apply backdrop-blur-2xl;
   }
-  
+
   .glass-header {
-    @apply bg-white/10 dark:bg-zinc-900/30 backdrop-blur-xl border-b border-zinc-200/40 dark:border-zinc-800/50 shadow-[0_8px_24px_rgba(15,23,42,0.04)];
+    background-color: rgb(var(--bg-secondary) / 0.3);
+    border-bottom: 1px solid rgb(var(--border-primary) / 0.4);
+    @apply backdrop-blur-xl;
+    box-shadow: 0 8px 24px rgb(var(--bg-primary) / 0.06);
   }
-  
+
   .glass-button {
-    @apply bg-white/25 dark:bg-zinc-800/50 backdrop-blur-xl border border-white/50 dark:border-zinc-700/50 shadow-[0_8px_20px_rgba(15,23,42,0.04)] hover:bg-white/40 dark:hover:bg-zinc-700/70 transition-all;
+    background-color: rgb(var(--bg-secondary) / 0.5);
+    border: 1px solid rgb(var(--border-primary) / 0.5);
+    @apply backdrop-blur-xl transition-all;
+    box-shadow: 0 8px 20px rgb(var(--bg-primary) / 0.06);
+  }
+
+  .glass-button:hover {
+    background-color: rgb(var(--bg-tertiary) / 0.7);
   }
 
   /* Chat message prose — clean, Cursor-style */
@@ -112,9 +127,9 @@
 
   /* Timeline dot with ring */
   .timeline-dot {
-    @apply relative flex h-4 w-4 items-center justify-center rounded-full
-           border-2 border-white bg-white shadow-sm
-           dark:border-zinc-900 dark:bg-zinc-900;
+    @apply relative flex h-4 w-4 items-center justify-center rounded-full shadow-sm;
+    border: 2px solid rgb(var(--bg-primary));
+    background-color: rgb(var(--bg-primary));
   }
 
   .timeline-dot::after {
@@ -129,8 +144,9 @@
 
   /* Inline code in chat */
   .chat-prose code:not(pre code) {
-    @apply rounded-md bg-zinc-100/80 px-1.5 py-0.5 font-mono text-[0.85em]
-           text-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-300;
+    @apply rounded-md px-1.5 py-0.5 font-mono text-[0.85em];
+    background-color: rgb(var(--bg-tertiary) / 0.8);
+    color: rgb(var(--text-primary));
   }
 
   .chat-prose pre {
@@ -138,20 +154,26 @@
   }
 
   .chat-prose a {
-    @apply text-violet-600 underline decoration-violet-300 underline-offset-2
-           transition-colors hover:text-violet-700
-           dark:text-violet-400 dark:decoration-violet-600 dark:hover:text-violet-300;
+    color: rgb(var(--accent-text));
+    @apply underline underline-offset-2 transition-colors;
+    text-decoration-color: rgb(var(--accent) / 0.4);
+  }
+
+  .chat-prose a:hover {
+    color: rgb(var(--accent));
   }
 
   .chat-prose p + p { @apply mt-2; }
   .chat-prose ul, .chat-prose ol { @apply my-1.5 pl-5; }
   .chat-prose li { @apply mb-0.5; }
   .chat-prose blockquote {
-    @apply my-2 border-l-2 border-violet-300 pl-3 text-zinc-600
-           dark:border-violet-600 dark:text-zinc-400;
+    @apply my-2 border-l-2 pl-3;
+    border-color: rgb(var(--accent) / 0.4);
+    color: rgb(var(--text-secondary));
   }
   .chat-prose h1, .chat-prose h2, .chat-prose h3 {
-    @apply mt-3 mb-1 font-semibold text-zinc-900 dark:text-zinc-100;
+    @apply mt-3 mb-1 font-semibold;
+    color: rgb(var(--text-primary));
   }
 }
 

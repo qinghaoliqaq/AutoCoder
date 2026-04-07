@@ -91,7 +91,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="absolute right-2 top-2 rounded-md border border-zinc-200/60 bg-white/80 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 opacity-0 transition-all hover:bg-zinc-100 group-hover:opacity-100 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-400 dark:hover:bg-zinc-700"
+      className="absolute right-2 top-2 rounded-md border border-edge-primary/60 bg-surface-elevated/80 px-1.5 py-0.5 text-[10px] font-medium text-content-secondary opacity-0 transition-all hover:bg-surface-tertiary group-hover:opacity-100"
     >
       {copied ? '✓ Copied' : 'Copy'}
     </button>
@@ -115,15 +115,15 @@ function Message({ message, isLast }: MessageProps) {
   const displayContent = normalizeBubbleContent(message.content);
 
   return (
-    <div className={`animate-slide-up ${!isLast ? 'border-b border-zinc-100 dark:border-zinc-800/60' : ''}`}>
-      <div className={`px-5 py-4 ${isUser ? 'bg-white/30 dark:bg-zinc-900/20' : ''}`}>
+    <div className={`animate-slide-up ${!isLast ? 'border-b border-edge-secondary' : ''}`}>
+      <div className={`px-5 py-4 ${isUser ? 'bg-surface-secondary/20' : ''}`}>
         {/* Header: avatar + name + time */}
         <div className="flex items-center gap-2.5 mb-2.5">
-          <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg border text-[10px] font-bold ${config.borderColor} bg-white/70 dark:bg-zinc-900/70`}>
+          <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg border text-[10px] font-bold ${config.borderColor} bg-surface-elevated/70`}>
             <span className={config.color}>{config.icon}</span>
           </div>
           <span className={`text-[12px] font-semibold ${config.color}`}>{config.label}</span>
-          <span className="text-[10px] text-zinc-400 dark:text-zinc-600 tabular-nums">
+          <span className="text-[10px] text-content-tertiary tabular-nums">
             {new Date(message.timestamp).toLocaleTimeString('en-US', {
               hour: 'numeric',
               minute: '2-digit',
@@ -135,18 +135,18 @@ function Message({ message, isLast }: MessageProps) {
         {/* Content */}
         <div className="pl-[34px]">
           {message.thinking ? (
-            <div className="flex items-center gap-1.5 text-zinc-400">
+            <div className="flex items-center gap-1.5 text-content-tertiary">
               <div className="flex gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 animate-pulse" />
-                <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 animate-pulse" style={{ animationDelay: '0.3s' }} />
-                <span className="h-1.5 w-1.5 rounded-full bg-zinc-400 animate-pulse" style={{ animationDelay: '0.6s' }} />
+                <span className="h-1.5 w-1.5 rounded-full bg-content-tertiary animate-pulse" />
+                <span className="h-1.5 w-1.5 rounded-full bg-content-tertiary animate-pulse" style={{ animationDelay: '0.3s' }} />
+                <span className="h-1.5 w-1.5 rounded-full bg-content-tertiary animate-pulse" style={{ animationDelay: '0.6s' }} />
               </div>
               <span className="text-[11px] font-medium">Thinking...</span>
             </div>
           ) : message.isReport ? (
             <ReportCard content={message.content} />
           ) : (
-            <div className="chat-prose text-[13.5px] leading-[1.7] text-zinc-800 dark:text-zinc-200">
+            <div className="chat-prose text-[13.5px] leading-[1.7] text-content-primary">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeSanitize]}
@@ -156,7 +156,7 @@ function Message({ message, isLast }: MessageProps) {
                     const codeText = extractText(children);
                     return (
                       <div className="group relative my-2.5">
-                        <pre className="overflow-x-auto rounded-xl border border-zinc-200/60 bg-zinc-50/90 px-3.5 py-3 font-mono text-[12px] leading-relaxed text-zinc-800 dark:border-zinc-800/60 dark:bg-zinc-950/70 dark:text-zinc-200">
+                        <pre className="overflow-x-auto rounded-xl border border-edge-primary/60 px-3.5 py-3 font-mono text-[12px] leading-relaxed text-content-primary" style={{ backgroundColor: 'rgb(var(--bg-tertiary) / 0.7)' }}>
                           {children}
                         </pre>
                         <CopyButton text={codeText} />
@@ -249,8 +249,8 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
               <AnimatedMessageIcon className="w-10 h-10 text-violet-500 drop-shadow-sm opacity-90" />
             </div>
 
-            <p className="text-zinc-800 dark:text-zinc-100 text-3xl font-bold mb-3 tracking-tight animate-text-reveal delay-100">What are we building?</p>
-            <p className="text-zinc-500 dark:text-zinc-400 text-[15px] max-w-md leading-relaxed mb-10 animate-text-reveal delay-200">
+            <p className="text-content-primary text-3xl font-bold mb-3 tracking-tight animate-text-reveal delay-100">What are we building?</p>
+            <p className="text-content-secondary text-[15px] max-w-md leading-relaxed mb-10 animate-text-reveal delay-200">
               Describe your idea and I'll orchestrate planning, coding, testing, and review — end to end.
             </p>
 

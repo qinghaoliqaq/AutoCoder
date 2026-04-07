@@ -54,11 +54,9 @@ function ToolLogEntry({ log, index }: { log: ToolLog; index: number }) {
 
   return (
     <div
-      className="group rounded-xl border border-zinc-200/50 bg-white/50 px-3 py-2.5
+      className="group rounded-xl border border-edge-primary/50 bg-surface-secondary/50 px-3 py-2.5
                  backdrop-blur-sm transition-all duration-200
-                 hover:border-zinc-300/60 hover:bg-white/70 hover:shadow-sm
-                 dark:border-zinc-800/50 dark:bg-zinc-900/40
-                 dark:hover:border-zinc-700/60 dark:hover:bg-zinc-900/60"
+                 hover:border-edge-primary/70 hover:bg-surface-secondary/70 hover:shadow-sm"
       style={{ animationDelay: `${Math.min(index * 30, 300)}ms` }}
     >
       <div className="flex items-start gap-2.5">
@@ -73,10 +71,10 @@ function ToolLogEntry({ log, index }: { log: ToolLog; index: number }) {
             <span className={`text-sm font-bold leading-none ${toolMeta.color}`}>
               {toolMeta.icon}
             </span>
-            <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">
+            <span className="text-[11px] font-semibold text-content-primary">
               {log.tool}
             </span>
-            <span className="ml-auto text-[10px] tabular-nums text-zinc-400 dark:text-zinc-600">
+            <span className="ml-auto text-[10px] tabular-nums text-content-tertiary">
               {formatTime(log.timestamp)}
             </span>
           </div>
@@ -85,7 +83,7 @@ function ToolLogEntry({ log, index }: { log: ToolLog; index: number }) {
           {log.input && (
             <div className="mt-1.5">
               <pre
-                className={`whitespace-pre-wrap break-all font-mono text-[10.5px] leading-[1.6] text-zinc-500 dark:text-zinc-500
+                className={`whitespace-pre-wrap break-all font-mono text-[10.5px] leading-[1.6] text-content-secondary
                            ${!expanded && isLong ? 'line-clamp-2' : ''}`}
               >
                 {log.input}
@@ -117,22 +115,22 @@ export default function ToolLogPanel({ logs, onClose }: Props) {
     <div className="flex flex-col h-full w-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b
-                      border-zinc-200/40 dark:border-zinc-800/40 bg-white/20 dark:bg-zinc-900/20 flex-shrink-0 min-h-[48px]">
+                      border-edge-primary/40 flex-shrink-0 min-h-[48px]"
+           style={{ backgroundColor: 'rgb(var(--bg-secondary) / 0.2)' }}>
         <div className="flex items-center gap-2.5">
-          <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-800 dark:text-zinc-200 select-none whitespace-nowrap">
+          <span className="text-[11px] font-bold uppercase tracking-widest text-content-primary select-none whitespace-nowrap">
             Tool Log
           </span>
           {logs.length > 0 && (
-            <span className="rounded-full bg-zinc-200/80 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800/80 dark:text-zinc-400">
+            <span className="rounded-full bg-surface-tertiary/80 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-content-secondary">
               {logs.length}
             </span>
           )}
         </div>
         <button
           onClick={onClose}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400
-                     transition-colors hover:bg-zinc-200/50 hover:text-zinc-600
-                     dark:hover:bg-zinc-800/50 dark:hover:text-zinc-300"
+          className="flex h-6 w-6 items-center justify-center rounded-md text-content-tertiary
+                     transition-colors hover:bg-surface-tertiary/50 hover:text-content-primary"
         >
           <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

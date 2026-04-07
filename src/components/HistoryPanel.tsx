@@ -42,13 +42,14 @@ export default function HistoryPanel({
     <div className="flex flex-col h-full w-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b
-                      border-zinc-200/40 dark:border-zinc-800/40 bg-white/20 dark:bg-zinc-900/20 flex-shrink-0 min-h-[48px]">
+                      border-edge-primary/40 flex-shrink-0 min-h-[48px]"
+           style={{ backgroundColor: 'rgb(var(--bg-secondary) / 0.2)' }}>
         <div className="flex items-center gap-2.5">
-          <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-800 dark:text-zinc-200 select-none">
+          <span className="text-[11px] font-bold uppercase tracking-widest text-content-primary select-none">
             History
           </span>
           {sessions.length > 0 && (
-            <span className="rounded-full bg-zinc-200/80 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800/80 dark:text-zinc-400">
+            <span className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums bg-surface-tertiary/80 text-content-secondary">
               {sessions.length}
             </span>
           )}
@@ -64,9 +65,8 @@ export default function HistoryPanel({
           </button>
           <button
             onClick={onClose}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400
-                       transition-colors hover:bg-zinc-200/50 hover:text-zinc-600
-                       dark:hover:bg-zinc-800/50 dark:hover:text-zinc-300"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-content-tertiary
+                       transition-colors hover:bg-surface-tertiary/50 hover:text-content-primary"
           >
             <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -94,7 +94,7 @@ export default function HistoryPanel({
             {grouped.map(group => (
               <div key={group.label}>
                 {/* Group label */}
-                <p className="px-2 pb-1.5 pt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400 dark:text-zinc-600 select-none">
+                <p className="px-2 pb-1.5 pt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-content-tertiary select-none">
                   {group.label}
                 </p>
 
@@ -105,27 +105,27 @@ export default function HistoryPanel({
                         onClick={() => onLoad(session.id)}
                         className={`w-full rounded-xl px-3 py-2.5 text-left transition-all duration-200 ${
                           session.id === currentSessionId
-                            ? 'border border-violet-200/60 bg-violet-50/70 shadow-sm dark:border-violet-500/20 dark:bg-violet-500/10'
-                            : 'border border-transparent hover:border-zinc-200/50 hover:bg-white/50 dark:hover:border-zinc-800/50 dark:hover:bg-zinc-900/40'
+                            ? 'border border-themed-accent/20 bg-themed-accent-soft/70 shadow-sm'
+                            : 'border border-transparent hover:border-edge-primary/50 hover:bg-surface-secondary/50'
                         }`}
                       >
                         <div className="flex items-start gap-2.5 pr-5">
                           <div className={`mt-1 flex h-2 w-2 shrink-0 rounded-full ${
                             session.id === currentSessionId
-                              ? 'bg-violet-500 shadow-[0_0_6px_rgba(139,92,246,0.5)]'
-                              : 'bg-zinc-300 dark:bg-zinc-700'
+                              ? 'bg-themed-accent shadow-[0_0_6px_rgb(var(--accent)/0.5)]'
+                              : 'bg-edge-primary'
                           }`} />
                           <div className="min-w-0 flex-1">
                             <p className={`truncate text-[12px] font-medium leading-snug ${
                               session.id === currentSessionId
-                                ? 'text-violet-700 dark:text-violet-300'
-                                : 'text-zinc-700 dark:text-zinc-300'
+                                ? 'text-themed-accent-text'
+                                : 'text-content-primary'
                             }`}>
                               {session.title || 'New Session'}
                             </p>
-                            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-zinc-400 dark:text-zinc-600">
+                            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-content-tertiary">
                               <span className="tabular-nums">{session.message_count} msgs</span>
-                              <span className="text-zinc-300 dark:text-zinc-700">|</span>
+                              <span className="text-edge-primary">|</span>
                               <span>{relativeTime(session.updated_at)}</span>
                             </div>
                           </div>

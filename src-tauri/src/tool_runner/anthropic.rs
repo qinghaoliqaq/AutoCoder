@@ -22,6 +22,7 @@ pub async fn run_loop(
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
+    read_only: bool,
 ) -> Result<String, String> {
     let endpoint = format!("{}/messages", base_url.trim_end_matches('/'));
     let mut messages: Vec<Value> = vec![json!({ "role": "user", "content": user_prompt })];
@@ -114,7 +115,7 @@ pub async fn run_loop(
         }
 
         let tool_results =
-            execute::run_partitioned(&tool_calls, workspace, &token).await?;
+            execute::run_partitioned(&tool_calls, workspace, &token, read_only).await?;
         messages.push(json!({ "role": "user", "content": tool_results }));
     }
 

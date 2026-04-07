@@ -173,23 +173,54 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     wsPath: string | null,
   ): Promise<{ securityFailed?: boolean; securityIssue?: string }> => {
     setCurrentMode('review');
+    const failures: string[] = [];
 
-    addMessage('director', '[Review 1/4] Plan Check');
-    await runPhase('review', 'plan_check', task, wsPath);
+    addMessage('director', '**Review 1/4** — Plan Check');
+    const planResult = await runPhase('review', 'plan_check', task, wsPath);
+    if (planResult.passed) {
+      addMessage('director', 'Plan Check passed — all planned features verified.');
+    } else {
+      failures.push(`Plan Check: ${planResult.issue}`);
+      addMessage('director', `Plan Check failed: ${planResult.issue}`);
+    }
 
-    addMessage('director', '[Review 2/4] Security Audit');
+    addMessage('director', '**Review 2/4** — Security Audit');
     const sec = await runPhase('review', 'security', task, wsPath);
+    if (sec.passed) {
+      addMessage('director', 'Security Audit passed — no critical issues found.');
+    } else {
+      failures.push(`Security: ${sec.issue}`);
+      addMessage('director', `Security Audit failed: ${sec.issue}`);
+    }
 
-    addMessage('director', '[Review 3/4] Specialist Review');
-    await runPhase('review', 'specialist_review', task, wsPath);
+    addMessage('director', '**Review 3/4** — Specialist Review');
+    const specResult = await runPhase('review', 'specialist_review', task, wsPath);
+    if (specResult.passed) {
+      addMessage('director', 'Specialist Review passed — all specialists approved.');
+    } else {
+      failures.push(`Specialist: ${specResult.issue}`);
+      addMessage('director', `Specialist Review failed: ${specResult.issue}`);
+    }
 
-    addMessage('director', '[Review 4/4] Code Cleanup');
-    await runPhase('review', 'cleanup', task, wsPath);
+    addMessage('director', '**Review 4/4** — Code Cleanup');
+    const cleanResult = await runPhase('review', 'cleanup', task, wsPath);
+    if (cleanResult.passed) {
+      addMessage('director', 'Code Cleanup passed.');
+    } else {
+      failures.push(`Cleanup: ${cleanResult.issue}`);
+      addMessage('director', `Code Cleanup failed: ${cleanResult.issue}`);
+    }
 
     setCurrentMode('chat');
 
+    // Summary
+    if (failures.length > 0) {
+      addMessage('director', `**Review complete** — ${failures.length} phase(s) failed:\n${failures.map(f => `- ${f}`).join('\n')}`);
+    } else {
+      addMessage('director', '**Review complete** — all 4 phases passed.');
+    }
+
     if (!sec.passed) {
-      addMessage('director', `**Critical security issue:** ${sec.issue}. Security report generated — please fix before testing.`);
       return { securityFailed: true, securityIssue: sec.issue };
     }
 
@@ -214,21 +245,21 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     const phase = (p: string, issue?: string) =>
       runPhase('test', p, task, wsPath, issue, testContext);
 
-    addMessage('director', '[Test 1/4] Generating test plan (Claude + Codex 并行根据 PLAN.md 商讨测试方案...)');
+    addMessage('director', '**Test 1/4** — Generating test plan (Claude + Codex 并行根据 PLAN.md 商讨测试方案...)');
     await phase('gen_test_plan');
 
-    addMessage('director', '[Test 2/4] Frontend Testing (浏览器自动化测试 UI...)');
+    addMessage('director', '**Test 2/4** — Frontend Testing (浏览器自动化测试 UI...)');
     const frontendResult = await phase('frontend_test');
     if (!frontendResult.passed) {
-      addMessage('director', `⚠️ 前端测试发现问题：${frontendResult.issue}，已写入 bugs.md，继续后端测试...`);
+      addMessage('director', `前端测试发现问题：${frontendResult.issue}，已写入 bugs.md，继续后端测试...`);
     }
 
-    addMessage('director', '[Test 3/4] Integration Testing (启动服务器 + curl 全量接口测试...)');
+    addMessage('director', '**Test 3/4** — Integration Testing (启动服务器 + curl 全量接口测试...)');
     let testResult = await phase('integration_test');
 
     if (!testResult.passed) {
       const bugsNote = `bugs.md 已在工作目录中记录所有失败用例，请逐条修复。失败摘要：${testResult.issue}`;
-      addMessage('director', `⚠️ 测试失败，已生成 bugs.md。正在让 Claude 逐条修复...`);
+      addMessage('director', '测试失败，已生成 bugs.md。正在让 Claude 逐条修复...');
       const fix = await phase('fix', bugsNote);
 
       if (fix.passed) {
@@ -251,7 +282,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       }
     }
 
-    addMessage('director', '[Test 4/4] Generating Project Completion Report...');
+    addMessage('director', '**Test 4/4** — Generating Project Completion Report...');
     await phase('document');
 
     setCurrentMode('chat');
@@ -327,7 +358,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
   const runSkill = async (mode: AppMode, task: string): Promise<string | null> => {
     let wsPath: string | null = workspaceRef.current;
     if (mode !== 'plan' && !wsPath) {
-      addMessage('director', '⚠️ 没有工作目录。请先运行 plan 技能建立项目目录，再执行 code / review / test。');
+      addMessage('director', '没有工作目录。请先运行 plan 技能建立项目目录，再执行 code / review / test。');
       return null;
     }
 
