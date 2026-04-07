@@ -30,7 +30,7 @@ function ThemeToggle() {
   return (
     <button
       onClick={cycle}
-      className="text-xs text-zinc-600 hover:text-zinc-800 dark:text-zinc-300 dark:hover:text-zinc-100 transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg w-full h-full"
+      className="text-xs text-content-secondary hover:text-content-primary transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg w-full h-full"
       title={`Theme: ${themePreference === 'system' ? 'System' : activeTheme.label}`}
     >
       {themePreference === 'system'
@@ -510,7 +510,7 @@ export default function App() {
         <div className="absolute top-[20%] right-[20%] w-[30%] h-[30%] rounded-full bg-rose-400/20 dark:bg-rose-600/20 blur-[100px] animate-blob animation-delay-4000" />
       </div>
 
-      <div className="flex flex-col h-screen w-screen overflow-hidden bg-transparent font-sans animate-app-entrance relative z-10 text-zinc-800 dark:text-zinc-100">
+      <div className="flex flex-col h-screen w-screen overflow-hidden bg-transparent font-sans animate-app-entrance relative z-10 text-content-primary">
 
         {/* Top bar / Custom Window Titlebar */}
         <header
@@ -538,9 +538,8 @@ export default function App() {
           <div className="flex items-center gap-1.5 relative z-50 pointer-events-auto shrink-0">
             <button
               onClick={handleOpenConfigEditor}
-              className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] text-zinc-500 transition-all
-                         hover:bg-zinc-200/50 hover:text-zinc-700
-                         dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
+              className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] text-content-secondary transition-all
+                         hover:bg-surface-tertiary/50 hover:text-content-primary"
               title="Settings"
             >
               <VscSettingsGear className="h-3.5 w-3.5" />
@@ -549,10 +548,10 @@ export default function App() {
             <button
               onClick={() => { setContextDraft(projectContext ?? ''); setShowContextEditor(true); }}
               className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-all
-                         hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50
+                         hover:bg-surface-tertiary/50
                          ${projectContext
-                  ? 'text-violet-600 dark:text-violet-400'
-                  : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'}`}
+                  ? 'text-themed-accent-text'
+                  : 'text-content-secondary hover:text-content-primary'}`}
               title="Project Context"
             >
               <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -566,15 +565,14 @@ export default function App() {
             </button>
             <button
               onClick={handleNewWindow}
-              className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] text-zinc-500 transition-all
-                         hover:bg-zinc-200/50 hover:text-zinc-700
-                         dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
+              className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] text-content-secondary transition-all
+                         hover:bg-surface-tertiary/50 hover:text-content-primary"
               title="New Window"
             >
               <VscMultipleWindows className="w-3.5 h-3.5" />
             </button>
-            <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800" />
-            <div className="rounded-lg transition-all hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50">
+            <div className="h-4 w-px bg-edge-primary" />
+            <div className="rounded-lg transition-all hover:bg-surface-tertiary/50">
               <ThemeToggle />
             </div>
           </div>
@@ -584,7 +582,7 @@ export default function App() {
         <div className="flex-1 flex min-h-0 bg-transparent overflow-hidden relative">
 
           {/* Activity Bar */}
-          <div className="w-12 h-full flex flex-col items-center py-3 gap-1 glass-container border-r border-zinc-200/50 dark:border-zinc-800/50 z-30 flex-shrink-0">
+          <div className="w-12 h-full flex flex-col items-center py-3 gap-1 glass-container border-r border-edge-primary/50 z-30 flex-shrink-0">
             {[
               { tab: 'explorer' as const, icon: <VscFiles className="w-[18px] h-[18px]" />, title: 'Explorer', badge: false },
               { tab: 'logs' as const, icon: <VscTerminal className="w-[18px] h-[18px]" />, title: 'Tool Logs', badge: toolLogs.length > 0 && activeSidebarTab !== 'logs' },
@@ -595,8 +593,8 @@ export default function App() {
                 onClick={() => toggleSidebarTab(tab)}
                 className={`relative flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-200 ${
                   activeSidebarTab === tab
-                    ? 'bg-white text-violet-600 shadow-sm ring-1 ring-zinc-200/60 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50'
-                    : 'text-zinc-400 hover:bg-zinc-200/40 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-300'
+                    ? 'bg-surface-elevated text-themed-accent-text shadow-sm ring-1 ring-edge-primary/60'
+                    : 'text-content-tertiary hover:bg-surface-tertiary/40 hover:text-content-primary'
                 }`}
                 title={title}
               >
@@ -607,14 +605,14 @@ export default function App() {
               </button>
             ))}
 
-            <div className="my-1 h-px w-5 bg-zinc-200/60 dark:bg-zinc-800/60" />
+            <div className="my-1 h-px w-5 bg-edge-primary/60" />
 
             <button
               onClick={toggleBlackboardWorkspace}
               className={`relative flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-200 ${
                 activeSidebarTab === 'blackboard'
-                  ? 'bg-white text-violet-600 shadow-sm ring-1 ring-zinc-200/60 dark:bg-zinc-800 dark:text-violet-400 dark:ring-zinc-700/50'
-                  : 'text-zinc-400 hover:bg-zinc-200/40 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-300'
+                  ? 'bg-surface-elevated text-themed-accent-text shadow-sm ring-1 ring-edge-primary/60'
+                  : 'text-content-tertiary hover:bg-surface-tertiary/40 hover:text-content-primary'
               }`}
               title="Blackboard"
             >
@@ -627,7 +625,7 @@ export default function App() {
 
           {/* Docked Sidebar Container */}
           <div
-            className={`h-full border-r border-zinc-200/50 dark:border-zinc-800/50 glass-container flex-shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] z-20 ${activeSidebarTab !== null && !blackboardFullscreen
+            className={`h-full border-r border-edge-primary/50 glass-container flex-shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] z-20 ${activeSidebarTab !== null && !blackboardFullscreen
                 ? 'opacity-100'
                 : 'opacity-0 border-none'
               }`}
@@ -682,10 +680,8 @@ export default function App() {
           ) : (
             <div className="flex flex-1 min-h-0 min-w-0 basis-0 flex-col overflow-hidden relative z-10 bg-transparent shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.05)] dark:shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.4)]">
               <ChatPanel messages={messages} onOpenProject={handleOpenProject} workspace={workspace} />
-              <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6
-                              bg-gradient-to-t from-background-light via-background-light/80 to-transparent
-                              dark:from-background-dark dark:via-background-dark/80
-                              pointer-events-none z-10 flex flex-col justify-end">
+              <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 pointer-events-none z-10 flex flex-col justify-end"
+                   style={{ background: `linear-gradient(to top, rgb(var(--bg-primary)), rgb(var(--bg-primary) / 0.8), transparent)` }}>
                 <div className="pointer-events-auto max-w-4xl w-full mx-auto">
                   <InputBar
                     mode={currentMode ?? 'chat'}
