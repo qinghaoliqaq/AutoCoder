@@ -108,63 +108,7 @@
 
   /* Chat message prose — clean, Cursor-style */
 
-  /* Micro Animations */
-  .pulse-dot {
-    @apply w-2 h-2 rounded-full;
-    animation: pulse-glow 1.5s ease-in-out infinite;
-  }
 
-  /* Glassmorphism background utilities */
-  .animation-delay-2000 {
-    animation-delay: 2s;
-  }
-
-  .animation-delay-4000 {
-    animation-delay: 4s;
-  }
-
-  /* Progress bar */
-  .progress-bar {
-    @apply h-1.5 rounded-full overflow-hidden bg-zinc-200/60 dark:bg-zinc-800/60;
-  }
-
-  .progress-bar__fill {
-    @apply h-full rounded-full transition-all duration-700 ease-out;
-    background: linear-gradient(90deg, #7c3aed, #a78bfa, #7c3aed);
-    background-size: 200% 100%;
-    animation: progress-shimmer 2s ease-in-out infinite;
-  }
-
-  /* Stat card with animated number */
-  .stat-card {
-    @apply rounded-2xl border px-4 py-3 transition-all duration-300;
-  }
-
-  .stat-card:hover {
-    @apply -translate-y-0.5 shadow-lg;
-  }
-
-  .stat-card__value {
-    @apply text-2xl font-bold tabular-nums tracking-tight;
-  }
-
-  .stat-card__label {
-    @apply text-[10px] font-semibold uppercase tracking-[0.1em];
-  }
-
-  /* Enhanced glass card with subtle gradient border */
-  .glass-card {
-    @apply rounded-2xl border border-white/50 bg-white/40 px-4 py-3.5
-           shadow-[0_8px_24px_rgba(15,23,42,0.04)] backdrop-blur-xl
-           transition-all duration-300
-           dark:border-white/10 dark:bg-zinc-900/40
-           dark:shadow-[0_8px_24px_rgba(0,0,0,0.2)];
-  }
-
-  .glass-card:hover {
-    @apply border-white/60 bg-white/55 shadow-[0_12px_32px_rgba(15,23,42,0.06)]
-           dark:border-white/15 dark:bg-zinc-900/50 dark:shadow-[0_12px_32px_rgba(0,0,0,0.28)];
-  }
 
   /* Timeline dot with ring */
   .timeline-dot {
@@ -209,11 +153,6 @@
   .chat-prose h1, .chat-prose h2, .chat-prose h3 {
     @apply mt-3 mb-1 font-semibold text-zinc-900 dark:text-zinc-100;
   }
-}
-
-@keyframes progress-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
 }
 
 @keyframes smoke {
@@ -301,20 +240,6 @@
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes pulse-glow {
-
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-
-  50% {
-    opacity: 0.5;
-    transform: scale(0.85);
   }
 }
 

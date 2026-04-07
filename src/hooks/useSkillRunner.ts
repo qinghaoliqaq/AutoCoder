@@ -139,7 +139,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       setMessages(prev => [...prev, {
         id: makeId(),
         role: 'director',
-        content: `📌 ${event.payload.summary}`,
+        content: event.payload.summary,
         timestamp: Date.now(),
       }]);
     });
@@ -174,22 +174,22 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
   ): Promise<{ securityFailed?: boolean; securityIssue?: string }> => {
     setCurrentMode('review');
 
-    addMessage('director', '📋 Review 1/4 — Plan Check');
+    addMessage('director', '[Review 1/4] Plan Check');
     await runPhase('review', 'plan_check', task, wsPath);
 
-    addMessage('director', '🔐 Review 2/4 — Security Audit');
+    addMessage('director', '[Review 2/4] Security Audit');
     const sec = await runPhase('review', 'security', task, wsPath);
 
-    addMessage('director', '🔍 Review 3/4 — Specialist Review');
+    addMessage('director', '[Review 3/4] Specialist Review');
     await runPhase('review', 'specialist_review', task, wsPath);
 
-    addMessage('director', '🧹 Review 4/4 — Code Cleanup');
+    addMessage('director', '[Review 4/4] Code Cleanup');
     await runPhase('review', 'cleanup', task, wsPath);
 
     setCurrentMode('chat');
 
     if (!sec.passed) {
-      addMessage('director', `⛔ Critical security issue: ${sec.issue}. Security report generated — please fix before testing.`);
+      addMessage('director', `**Critical security issue:** ${sec.issue}. Security report generated — please fix before testing.`);
       return { securityFailed: true, securityIssue: sec.issue };
     }
 
@@ -214,16 +214,16 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     const phase = (p: string, issue?: string) =>
       runPhase('test', p, task, wsPath, issue, testContext);
 
-    addMessage('director', '📝 Test 1/4 — Generating test plan (Claude + Codex 并行根据 PLAN.md 商讨测试方案...)');
+    addMessage('director', '[Test 1/4] Generating test plan (Claude + Codex 并行根据 PLAN.md 商讨测试方案...)');
     await phase('gen_test_plan');
 
-    addMessage('director', '🌐 Test 2/4 — Frontend Testing (浏览器自动化测试 UI...)');
+    addMessage('director', '[Test 2/4] Frontend Testing (浏览器自动化测试 UI...)');
     const frontendResult = await phase('frontend_test');
     if (!frontendResult.passed) {
       addMessage('director', `⚠️ 前端测试发现问题：${frontendResult.issue}，已写入 bugs.md，继续后端测试...`);
     }
 
-    addMessage('director', '🧪 Test 3/4 — Integration Testing (启动服务器 + curl 全量接口测试...)');
+    addMessage('director', '[Test 3/4] Integration Testing (启动服务器 + curl 全量接口测试...)');
     let testResult = await phase('integration_test');
 
     if (!testResult.passed) {
@@ -232,26 +232,26 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       const fix = await phase('fix', bugsNote);
 
       if (fix.passed) {
-        addMessage('director', '🔄 Claude 完成修复，重新运行测试...');
+        addMessage('director', 'Claude 完成修复，重新运行测试...');
         testResult = await phase('integration_test');
       }
 
       if (!testResult.passed) {
-        addMessage('director', '📡 升级到 Codex 处理剩余问题...');
+        addMessage('director', '升级到 Codex 处理剩余问题...');
         const codexFix = await phase('codex_fix', `bugs.md 中仍有未解决项。摘要：${testResult.issue}`);
 
         if (codexFix.passed) {
-          addMessage('director', '🔄 Codex 完成修复，运行最终测试...');
+          addMessage('director', 'Codex 完成修复，运行最终测试...');
           testResult = await phase('integration_test');
         }
 
         if (!testResult.passed) {
-          addMessage('director', `📋 自动修复已穷尽，bugs.md 中仍有未解决项。任务暂停，请人工介入。`);
+          addMessage('director', '自动修复已穷尽，bugs.md 中仍有未解决项。任务暂停，请人工介入。');
         }
       }
     }
 
-    addMessage('director', '📄 Test 4/4 — Generating Project Completion Report...');
+    addMessage('director', '[Test 4/4] Generating Project Completion Report...');
     await phase('document');
 
     setCurrentMode('chat');
@@ -367,7 +367,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       setMessages(prev => [...prev, {
         id: makeId(),
         role: 'director',
-        content: `📌 ${event.payload.summary}`,
+        content: event.payload.summary,
         timestamp: Date.now(),
       }]);
     });
@@ -390,7 +390,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     } catch (err) {
       const skillErr = parseSkillError(err);
       if (skillErr.kind !== 'cancelled') {
-        addMessage('director', `⛔ ${mode} 技能执行失败：${skillErr.message}`);
+        addMessage('director', `**${mode} 技能执行失败：**${skillErr.message}`);
         notifySkillError(skillErr, mode);
       }
       throw err;

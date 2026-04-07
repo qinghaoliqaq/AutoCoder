@@ -256,7 +256,7 @@ export default function App() {
 
     addMessage(
       'director',
-      `⏸ 任务已暂停\n\n**原因**：${reason}\n\n等你确认后，告诉我"已经恢复了"，我会重新执行 ${last ? `\`${last.skill}\`` : '上一个'} 技能。`
+      `**任务已暂停**\n\n**原因**：${reason}\n\n等你确认后，告诉我"已经恢复了"，我会重新执行 ${last ? `\`${last.skill}\`` : '上一个'} 技能。`
     );
   };
 
@@ -506,8 +506,8 @@ export default function App() {
       {/* Global Background Layer with glowing orbs for Glassmorphism effect */}
       <div className="fixed inset-0 z-0 bg-background-light dark:bg-background-dark pointer-events-none overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-violet-400/20 dark:bg-violet-600/20 blur-[100px] animate-blob" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-blue-400/20 dark:bg-blue-600/20 blur-[100px] animate-blob animation-delay-2000" />
-        <div className="absolute top-[20%] right-[20%] w-[30%] h-[30%] rounded-full bg-rose-400/20 dark:bg-rose-600/20 blur-[100px] animate-blob animation-delay-4000" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-blue-400/20 dark:bg-blue-600/20 blur-[100px] animate-blob" style={{ animationDelay: '2s' }} />
+        <div className="absolute top-[20%] right-[20%] w-[30%] h-[30%] rounded-full bg-rose-400/20 dark:bg-rose-600/20 blur-[100px] animate-blob" style={{ animationDelay: '4s' }} />
       </div>
 
       <div className="flex flex-col h-screen w-screen overflow-hidden bg-transparent font-sans animate-app-entrance relative z-10 text-zinc-800 dark:text-zinc-100">

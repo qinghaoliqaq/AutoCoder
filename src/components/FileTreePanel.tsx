@@ -126,18 +126,19 @@ export default function FileTreePanel({ workspacePath, onOpenProject, onClose }:
     >
       <div className="w-full h-full flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 flex-shrink-0
-                        border-b border-zinc-200/40 dark:border-zinc-700/40 min-h-[52px]">
+        <div className="flex items-center justify-between px-5 py-3 flex-shrink-0
+                        border-b border-zinc-200/40 dark:border-zinc-800/40 bg-white/20 dark:bg-zinc-900/20 min-h-[48px]">
           <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-800 dark:text-zinc-200 select-none">
-            EXPLORER
+            Explorer
           </span>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-0.5 flex-shrink-0">
             {workspacePath && (
               <button
                 onClick={refresh}
                 disabled={loading}
-                className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200
-                           hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50 transition-colors disabled:opacity-40"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400
+                           transition-colors hover:bg-zinc-200/50 hover:text-zinc-600
+                           dark:hover:bg-zinc-800/50 dark:hover:text-zinc-300 disabled:opacity-40"
                 title="刷新文件树"
               >
                 <VscRefresh className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -145,16 +146,18 @@ export default function FileTreePanel({ workspacePath, onOpenProject, onClose }:
             )}
             <button
               onClick={onOpenProject}
-              className="p-1.5 rounded-md text-zinc-400 hover:text-violet-600 dark:text-zinc-500 dark:hover:text-violet-400
-                         hover:bg-violet-100 dark:hover:bg-violet-500/20 transition-colors"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400
+                         transition-colors hover:bg-zinc-200/50 hover:text-zinc-600
+                         dark:hover:bg-zinc-800/50 dark:hover:text-zinc-300"
               title="切换工作区"
             >
               <VscFolderActive className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-md text-zinc-400 hover:text-rose-600 dark:text-zinc-500 dark:hover:text-rose-400
-                         hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-colors"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400
+                         transition-colors hover:bg-zinc-200/50 hover:text-zinc-600
+                         dark:hover:bg-zinc-800/50 dark:hover:text-zinc-300"
               title="收起"
             >
               <VscLayoutSidebarLeftOff className="w-3.5 h-3.5" />
@@ -164,8 +167,8 @@ export default function FileTreePanel({ workspacePath, onOpenProject, onClose }:
 
         {/* Project name row */}
         {displayName && (
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800
-                        bg-zinc-100/60 dark:bg-zinc-800/40">
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-200/40 dark:border-zinc-800/40
+                        bg-zinc-50/60 dark:bg-zinc-900/30">
             <VscFolder className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
             <span className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300 truncate uppercase tracking-wide"
               title={workspacePath ?? ''}>

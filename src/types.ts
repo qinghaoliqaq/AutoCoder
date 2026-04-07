@@ -140,7 +140,7 @@ export const MODES: ModeConfig[] = [
   {
     id: 'plan',
     label: 'Plan',
-    icon: '🗺',
+    icon: '◈',
     leader: 'director',
     description: 'Claude & Codex 协作制定技术方案',
     color: 'text-violet-400',
@@ -158,7 +158,7 @@ export const MODES: ModeConfig[] = [
   {
     id: 'debug',
     label: 'Debug',
-    icon: '🔍',
+    icon: '⊙',
     leader: 'codex',
     description: 'Codex 主导问题定位',
     color: 'text-accent-codex',
@@ -167,7 +167,7 @@ export const MODES: ModeConfig[] = [
   {
     id: 'test',
     label: 'Test',
-    icon: '✅',
+    icon: '△',
     leader: 'claude',
     description: 'Claude 主导测试设计',
     color: 'text-emerald-400',
@@ -176,7 +176,7 @@ export const MODES: ModeConfig[] = [
   {
     id: 'review',
     label: 'Review',
-    icon: '🔎',
+    icon: '⛊',
     leader: 'claude',
     description: '全局安全审计与代码清理',
     color: 'text-rose-400',
@@ -185,7 +185,7 @@ export const MODES: ModeConfig[] = [
   {
     id: 'qa',
     label: 'QA',
-    icon: '🏁',
+    icon: '✓',
     leader: 'claude',
     description: '基于测试证据做功能级验收裁决',
     color: 'text-amber-400',

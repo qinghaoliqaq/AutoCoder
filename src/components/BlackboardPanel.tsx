@@ -458,7 +458,7 @@ export default function BlackboardPanel({
         {!workspacePath ? (
           <div className="flex h-full flex-col items-center justify-center px-4 text-center">
             <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800">
-              <span className="text-xl">📋</span>
+              <VscChecklist className="h-6 w-6 text-zinc-400 dark:text-zinc-600" />
             </div>
             <p className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">No Workspace Active</p>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -547,14 +547,14 @@ export default function BlackboardPanel({
                   {summary.total > 0 && (
                     <div className="rounded-xl border border-zinc-200/50 bg-white/50 px-4 py-3 dark:border-zinc-800/50 dark:bg-zinc-900/30">
                       <div className="mb-2 flex items-center justify-between">
-                        <span className="stat-card__label text-zinc-500">Overall Progress</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">Overall Progress</span>
                         <span className="text-[12px] font-bold tabular-nums text-violet-600 dark:text-violet-400">
                           {Math.round((summary.done / summary.total) * 100)}%
                         </span>
                       </div>
-                      <div className="progress-bar">
+                      <div className="h-1.5 rounded-full overflow-hidden bg-zinc-200/60 dark:bg-zinc-800/60">
                         <div
-                          className="progress-bar__fill"
+                          className="h-full rounded-full bg-violet-500 transition-all duration-700 ease-out"
                           style={{ width: `${Math.round((summary.done / summary.total) * 100)}%` }}
                         />
                       </div>
