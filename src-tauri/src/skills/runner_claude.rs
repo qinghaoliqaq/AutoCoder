@@ -286,6 +286,8 @@ fn handle_assistant_message(
     is_first_chunk: &mut bool,
     subtask_id: Option<&str>,
 ) -> LineAction {
+    // Each `assistant` event is a distinct message — start a new bubble.
+    *is_first_chunk = true;
     if let Some(arr) = v["message"]["content"].as_array() {
         for item in arr {
             if item["type"] == "text" {
