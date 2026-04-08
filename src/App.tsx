@@ -102,9 +102,12 @@ export default function App() {
   const blackboardEventsRef = useRef(blackboardEvents);
   blackboardEventsRef.current = blackboardEvents;
 
-  // Auto-show tool logs when new logs arrive
+  // Auto-show tool logs the first time a log arrives.  Only triggers once
+  // (0 → 1 transition) so the user can freely close the sidebar afterwards.
+  const hasAutoShownLogsRef = useRef(false);
   useEffect(() => {
-    if (toolLogs.length > 0 && activeSidebarTab === null) {
+    if (toolLogs.length > 0 && !hasAutoShownLogsRef.current && activeSidebarTab === null) {
+      hasAutoShownLogsRef.current = true;
       setActiveSidebarTab('logs');
     }
   }, [toolLogs.length, activeSidebarTab]);
