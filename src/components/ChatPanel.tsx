@@ -237,7 +237,7 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
             </div>
 
             <div className="mb-8 flex h-20 w-20 items-center justify-center rounded-[2rem] border border-edge-primary/40 backdrop-blur-xl transition-transform duration-300 hover:scale-[1.03] animate-text-reveal" style={{ backgroundColor: 'rgb(var(--bg-elevated) / 0.5)', boxShadow: '0 8px 32px rgb(var(--bg-primary) / 0.12)' }}>
-              <AnimatedMessageIcon className="w-10 h-10 text-violet-500 drop-shadow-sm opacity-90" />
+              <AnimatedMessageIcon className="w-10 h-10 drop-shadow-sm opacity-90" />
             </div>
 
             <p className="text-content-primary text-3xl font-bold mb-3 tracking-tight animate-text-reveal delay-100">What are we building?</p>
@@ -255,7 +255,7 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
                 <div className="absolute inset-0 rounded-[1.65rem] bg-[radial-gradient(circle_at_top_left,rgba(125,211,252,0.18),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.12),transparent_36%)] opacity-90 pointer-events-none" />
                 <div className="relative z-10 flex h-full flex-col">
                   <div className="flex h-9 w-9 items-center justify-center rounded-[1rem] border border-edge-primary/60 bg-surface-elevated/80 shadow-sm transition-transform duration-300 group-hover:scale-105">
-                    <AnimatedFolderIcon className="h-5 w-5 text-sky-500" />
+                    <AnimatedFolderIcon className="h-5 w-5" />
                   </div>
                   <div className="mt-5">
                     <p className="text-[1.28rem] font-semibold tracking-[-0.03em] text-content-primary">
@@ -275,7 +275,7 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
                 <div className="absolute inset-0 rounded-[1.65rem] bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.16),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(249,115,22,0.1),transparent_36%)] opacity-90 pointer-events-none" />
                 <div className="relative z-10 flex h-full flex-col opacity-90">
                   <div className="flex h-9 w-9 items-center justify-center rounded-[1rem] border border-edge-primary/60 bg-surface-elevated/80 shadow-sm">
-                    <AnimatedSparklesIcon className="h-5 w-5 text-amber-500" />
+                    <AnimatedSparklesIcon className="h-5 w-5" />
                   </div>
                   <div className="mt-5">
                     <p className="text-[1.28rem] font-semibold tracking-[-0.03em] text-content-primary">

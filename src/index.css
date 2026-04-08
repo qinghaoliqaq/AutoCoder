@@ -287,19 +287,6 @@
   height: 100%;
 }
 
-.hero-icon__halo {
-  position: absolute;
-  inset: -15%;
-  border-radius: 9999px;
-  background: radial-gradient(circle, rgb(var(--accent) / 0.25), rgb(var(--accent) / 0) 70%);
-  animation: haloBreath 3s ease-in-out infinite;
-}
-
-@keyframes haloBreath {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50% { opacity: 0.8; transform: scale(1.1); }
-}
-
 .hero-icon__glyph {
   position: relative;
   z-index: 1;
@@ -320,32 +307,6 @@
   animation: heroSparklePulse 3.2s ease-in-out infinite;
 }
 
-.hero-icon__dots {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 2;
-  display: inline-flex;
-  gap: 2px;
-  transform: translate(-50%, -10%);
-}
-
-.hero-icon__dots span {
-  width: 3.5px;
-  height: 3.5px;
-  border-radius: 9999px;
-  background: currentColor;
-  opacity: 0.3;
-  animation: heroTypingDot 1.5s ease-in-out infinite;
-}
-
-.hero-icon__dots span:nth-child(2) {
-  animation-delay: 0.18s;
-}
-
-.hero-icon__dots span:nth-child(3) {
-  animation-delay: 0.36s;
-}
 
 @keyframes heroMessageFloat {
   0%,
@@ -355,20 +316,6 @@
 
   50% {
     transform: translateY(-4px) scale(1.08);
-  }
-}
-
-@keyframes heroTypingDot {
-  0%,
-  70%,
-  100% {
-    opacity: 0.2;
-    transform: translateY(0);
-  }
-
-  35% {
-    opacity: 1;
-    transform: translateY(-3px);
   }
 }
 
