@@ -28,7 +28,7 @@ Only use minute 0 or 30 when the user names that exact time and clearly means it
 
 ## Session-only
 
-Jobs live only in this Claude session — nothing is written to disk, and the job is gone when Claude exits.
+Jobs live only in the current session — nothing is written to disk, and the job is gone when the session ends.
 
 ## Runtime behavior
 

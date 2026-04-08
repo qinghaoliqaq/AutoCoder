@@ -1,9 +1,9 @@
 /// Tool usage prompt — injected into the system prompt so the model
 /// understands when and how to use this tool.
 pub const PROMPT: &str = r#"
-Get or set Claude Code configuration settings.
+Get or set AutoCoder configuration settings.
 
-View or change Claude Code settings. Use when the user requests configuration changes, asks about current settings, or when adjusting a setting would benefit them.
+View or change AutoCoder settings. Use when the user requests configuration changes, asks about current settings, or when adjusting a setting would benefit them.
 
 ## Usage
 - **Get current value:** Omit the "value" parameter
