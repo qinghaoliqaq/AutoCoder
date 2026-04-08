@@ -72,7 +72,7 @@ async fn run_inner(
     read_only: bool,
 ) -> Result<String, String> {
     let provider = if read_only {
-        ProviderConfig::from_app_config_review(config)
+        ProviderConfig::from_app_config_second(config)
     } else {
         ProviderConfig::from_app_config(config)
     };

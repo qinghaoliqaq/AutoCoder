@@ -93,10 +93,10 @@ pub struct AgentConfig {
     /// Model to use for skill execution (e.g. "claude-sonnet-4-6").
     #[serde(default = "default_agent_model")]
     pub model:    String,
-    /// Model to use for read-only / review phases (the "Codex" identity).
-    /// Falls back to `model` if empty.
+    /// Model for the second agent identity (Codex): review, diagnosis,
+    /// testing, and evaluation phases.  Falls back to `model` if empty.
     #[serde(default)]
-    pub review_model: String,
+    pub second_model: String,
     /// Provider: "anthropic" (default), "bedrock", "vertex", "foundry".
     #[serde(default = "default_provider")]
     pub provider: String,
@@ -144,7 +144,7 @@ pub struct ConfigDraft {
     #[serde(default)]
     pub agent_model: String,
     #[serde(default)]
-    pub agent_review_model: String,
+    pub agent_second_model: String,
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ impl Default for AgentConfig {
             api_key:  String::new(),
             base_url: String::new(),
             model:    default_agent_model(),
-            review_model: String::new(),
+            second_model: String::new(),
             provider: default_provider(),
         }
     }
@@ -273,8 +273,8 @@ impl AppConfig {
         if let Ok(v) = std::env::var("AGENT_MODEL") {
             cfg.agent.model = v;
         }
-        if let Ok(v) = std::env::var("AGENT_REVIEW_MODEL") {
-            cfg.agent.review_model = v;
+        if let Ok(v) = std::env::var("AGENT_SECOND_MODEL") {
+            cfg.agent.second_model = v;
         }
         if let Ok(v) = std::env::var("AGENT_PROVIDER") {
             cfg.agent.provider = v;
@@ -335,7 +335,7 @@ impl AppConfig {
             agent_api_key: self.agent.api_key.clone(),
             agent_base_url: self.agent.base_url.clone(),
             agent_model: self.agent.model.clone(),
-            agent_review_model: self.agent.review_model.clone(),
+            agent_second_model: self.agent.second_model.clone(),
         }
     }
 
@@ -372,7 +372,7 @@ impl AppConfig {
                 } else {
                     draft.agent_model.trim().to_string()
                 },
-                review_model: draft.agent_review_model.trim().to_string(),
+                second_model: draft.agent_second_model.trim().to_string(),
                 provider: if draft.agent_provider.trim().is_empty() {
                     default_provider()
                 } else {

@@ -412,7 +412,7 @@ function AgentTab({
           />
         </FieldGroup>
 
-        <FieldGroup label="Model" hint="执行身份（Claude）">
+        <FieldGroup label="Model" hint="主身份 (Claude)：编码 / 方案起草">
           <input
             type="text"
             value={draft.agent_model}
@@ -423,12 +423,12 @@ function AgentTab({
           />
         </FieldGroup>
 
-        <FieldGroup label="Review Model" hint="审阅身份（Codex），留空同上">
+        <FieldGroup label="Second Model" hint="副身份 (Codex)：审阅 / 诊断 / 测试">
           <input
             type="text"
-            value={draft.agent_review_model}
-            onChange={(e) => update('agent_review_model', e.target.value)}
-            placeholder="留空则使用执行身份模型"
+            value={draft.agent_second_model}
+            onChange={(e) => update('agent_second_model', e.target.value)}
+            placeholder="留空则使用主身份模型"
             disabled={!draft.agent_provider}
             className={`${inputClass} disabled:opacity-50 disabled:cursor-not-allowed`}
           />
