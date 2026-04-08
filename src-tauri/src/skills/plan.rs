@@ -1,16 +1,21 @@
 use super::{
     emit_skill_event,
     plan_board::{PlanBoard, PlanBoardMode, PLAN_BOARD_MD},
-    record_skill_evidence, runners,
+    record_skill_evidence,
 };
 /// Plan skill — shared-blackboard orchestration for both scratch planning and
 /// document-review planning.
+///
+/// All agent invocations go through the tool_runner API module — no CLI
+/// dependencies on claude or codex binaries.
 use crate::{
+    config::AppConfig,
     planning_schema::{
         parse_plan_acceptance, parse_plan_graph, validate_acceptance_matches_graph,
         validate_plan_quality, PLAN_ACCEPTANCE_JSON, PLAN_GRAPH_JSON,
     },
     prompts::Prompts,
+    tool_runner,
 };
 use dirs;
 use tauri::{Emitter, EventTarget};
@@ -20,6 +25,7 @@ pub(super) async fn run(
     task: &str,
     _workspace: Option<&str>,
     context: Option<&str>,
+    config: &AppConfig,
     prompts: &Prompts,
     window_label: &str,
     app_handle: &tauri::AppHandle,
@@ -27,7 +33,9 @@ pub(super) async fn run(
 ) -> Result<(), String> {
     let fallback_name = task_to_dirname(task);
     let naming_prompt = Prompts::render(&prompts.plan_name, &[("task", task)]);
-    let (base_name, naming_fallback_reason) = match runners::claude_read_only_quiet(
+    let (base_name, naming_fallback_reason) = match tool_runner::run_read_only(
+        config,
+        "You are a project naming assistant. Output only a short, valid directory name.",
         &naming_prompt,
         None,
         window_label,
@@ -89,6 +97,7 @@ pub(super) async fn run(
             &plan_graph_path_str,
             &plan_acceptance_path_str,
             &ws_str,
+            config,
             prompts,
             window_label,
             app_handle,
@@ -102,6 +111,7 @@ pub(super) async fn run(
             &plan_graph_path_str,
             &plan_acceptance_path_str,
             &ws_str,
+            config,
             prompts,
             window_label,
             app_handle,
@@ -111,7 +121,7 @@ pub(super) async fn run(
     }
 
     let plan_doc =
-        validate_or_repair_plan_artifacts(task, &ws_path, window_label, app_handle, token).await?;
+        validate_or_repair_plan_artifacts(task, &ws_path, config, window_label, app_handle, token).await?;
 
     record_skill_evidence(
         Some(&ws_str),
@@ -145,11 +155,18 @@ async fn run_scratch_mode(
     plan_graph_path: &str,
     plan_acceptance_path: &str,
     ws_dir: &str,
+    config: &AppConfig,
     prompts: &Prompts,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<String, String> {
+    let sys_write = "You are a senior software architect creating a project plan. \
+                     Use the editor and bash tools to read and write plan files.";
+    let sys_review = "You are an independent reviewer evaluating a project plan. \
+                      Read the plan blackboard and provide your assessment. \
+                      This is a read-only review — only view, grep, and glob tools are available.";
+
     let mut board = PlanBoard::new(task, PlanBoardMode::Scratch, false);
     board.persist(ws_dir)?;
     emit_skill_event(
@@ -163,22 +180,22 @@ async fn run_scratch_mode(
         &prompts.plan_claude,
         &[("task", task), ("plan_board_path", PLAN_BOARD_MD)],
     );
-    let proposals = runners::claude(&r1, Some(ws_dir), window_label, app_handle, token.clone())
+    let proposals = tool_runner::run(config, sys_write, &r1, Some(ws_dir), window_label, app_handle, token.clone())
         .await
-        .map_err(|err| stage_error("scratch_round_1_claude", "claude", Some(ws_dir), &r1, err))?;
+        .map_err(|err| stage_error("scratch_round_1_claude", "api", Some(ws_dir), &r1, err))?;
     board.set_round_1(proposals);
     board.persist(ws_dir)?;
     emit_skill_event(
         app_handle,
         window_label,
         "round_1",
-        "Claude recorded proposal candidates on the shared plan blackboard.".to_string(),
+        "Agent recorded proposal candidates on the shared plan blackboard.".to_string(),
     )?;
     record_skill_evidence(
         Some(ws_dir),
         "plan_round_1",
-        "Claude recorded proposal candidates on the shared plan blackboard.",
-        "claude",
+        "Agent recorded proposal candidates on the shared plan blackboard.",
+        "agent",
         vec![PLAN_BOARD_MD.to_string()],
     );
 
@@ -187,12 +204,12 @@ async fn run_scratch_mode(
         &[("task", task), ("plan_board_path", PLAN_BOARD_MD)],
     );
     let evaluation =
-        runners::codex_read_only(&r2, Some(ws_dir), window_label, app_handle, token.clone())
+        tool_runner::run_read_only(config, sys_review, &r2, Some(ws_dir), window_label, app_handle, token.clone())
             .await
             .map_err(|err| {
                 stage_error(
-                    "scratch_round_2_codex",
-                    "codex_read_only",
+                    "scratch_round_2_review",
+                    "api_read_only",
                     Some(ws_dir),
                     &r2,
                     err,
@@ -204,13 +221,13 @@ async fn run_scratch_mode(
         app_handle,
         window_label,
         "round_2",
-        "Codex evaluated the proposals by reading the shared plan blackboard.".to_string(),
+        "Reviewer evaluated the proposals by reading the shared plan blackboard.".to_string(),
     )?;
     record_skill_evidence(
         Some(ws_dir),
         "plan_round_2",
-        "Codex evaluated the proposals by reading the shared plan blackboard.",
-        "codex",
+        "Reviewer evaluated the proposals by reading the shared plan blackboard.",
+        "reviewer",
         vec![PLAN_BOARD_MD.to_string()],
     );
 
@@ -219,10 +236,10 @@ async fn run_scratch_mode(
         &[("task", task), ("plan_board_path", PLAN_BOARD_MD)],
     );
     let claude_rebuttal =
-        runners::claude(&r3, Some(ws_dir), window_label, app_handle, token.clone())
+        tool_runner::run(config, sys_write, &r3, Some(ws_dir), window_label, app_handle, token.clone())
             .await
             .map_err(|err| {
-                stage_error("scratch_round_3_claude", "claude", Some(ws_dir), &r3, err)
+                stage_error("scratch_round_3_claude", "api", Some(ws_dir), &r3, err)
             })?;
     board.set_round_3(claude_rebuttal);
     board.persist(ws_dir)?;
@@ -230,13 +247,13 @@ async fn run_scratch_mode(
         app_handle,
         window_label,
         "round_3",
-        "Claude updated the shared plan blackboard with rebuttals and refinements.".to_string(),
+        "Agent updated the shared plan blackboard with rebuttals and refinements.".to_string(),
     )?;
     record_skill_evidence(
         Some(ws_dir),
         "plan_round_3",
-        "Claude updated the shared plan blackboard with rebuttals and refinements.",
-        "claude",
+        "Agent updated the shared plan blackboard with rebuttals and refinements.",
+        "agent",
         vec![PLAN_BOARD_MD.to_string()],
     );
 
@@ -245,12 +262,12 @@ async fn run_scratch_mode(
         &[("task", task), ("plan_board_path", PLAN_BOARD_MD)],
     );
     let verdict =
-        runners::codex_read_only(&r4, Some(ws_dir), window_label, app_handle, token.clone())
+        tool_runner::run_read_only(config, sys_review, &r4, Some(ws_dir), window_label, app_handle, token.clone())
             .await
             .map_err(|err| {
                 stage_error(
-                    "scratch_round_4_codex",
-                    "codex_read_only",
+                    "scratch_round_4_review",
+                    "api_read_only",
                     Some(ws_dir),
                     &r4,
                     err,
@@ -262,13 +279,13 @@ async fn run_scratch_mode(
         app_handle,
         window_label,
         "round_4",
-        "Codex wrote the final planning verdict to the shared plan blackboard.".to_string(),
+        "Reviewer wrote the final planning verdict to the shared plan blackboard.".to_string(),
     )?;
     record_skill_evidence(
         Some(ws_dir),
         "plan_round_4",
-        "Codex wrote the final planning verdict to the shared plan blackboard.",
-        "codex",
+        "Reviewer wrote the final planning verdict to the shared plan blackboard.",
+        "reviewer",
         vec![PLAN_BOARD_MD.to_string()],
     );
 
@@ -282,9 +299,9 @@ async fn run_scratch_mode(
             ("plan_board_path", PLAN_BOARD_MD),
         ],
     );
-    runners::claude(&r5, Some(ws_dir), window_label, app_handle, token.clone())
+    tool_runner::run(config, sys_write, &r5, Some(ws_dir), window_label, app_handle, token.clone())
         .await
-        .map_err(|err| stage_error("scratch_synthesis_claude", "claude", Some(ws_dir), &r5, err))
+        .map_err(|err| stage_error("scratch_synthesis", "api", Some(ws_dir), &r5, err))
 }
 
 async fn run_review_mode(
@@ -294,11 +311,18 @@ async fn run_review_mode(
     plan_graph_path: &str,
     plan_acceptance_path: &str,
     ws_dir: &str,
+    config: &AppConfig,
     prompts: &Prompts,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<String, String> {
+    let sys_write = "You are a senior software architect reviewing a document and creating a plan. \
+                     Use the editor and bash tools to read and write plan files.";
+    let sys_review = "You are an independent reviewer evaluating a document review plan. \
+                      Read the plan blackboard and provide your assessment. \
+                      This is a read-only review — only view, grep, and glob tools are available.";
+
     let mut board = PlanBoard::new(task, PlanBoardMode::Review, true);
     board.persist(ws_dir)?;
     emit_skill_event(
@@ -317,10 +341,10 @@ async fn run_review_mode(
         ],
     );
     let claude_analysis =
-        runners::claude(&r1, Some(ws_dir), window_label, app_handle, token.clone())
+        tool_runner::run(config, sys_write, &r1, Some(ws_dir), window_label, app_handle, token.clone())
             .await
             .map_err(|err| {
-                stage_error("review_round_1_claude", "claude", Some(ws_dir), &r1, err)
+                stage_error("review_round_1", "api", Some(ws_dir), &r1, err)
             })?;
     board.set_round_1(claude_analysis);
     board.persist(ws_dir)?;
@@ -328,13 +352,13 @@ async fn run_review_mode(
         app_handle,
         window_label,
         "round_1",
-        "Claude wrote the initial document analysis onto the shared plan blackboard.".to_string(),
+        "Agent wrote the initial document analysis onto the shared plan blackboard.".to_string(),
     )?;
     record_skill_evidence(
         Some(ws_dir),
         "plan_review_round_1",
-        "Claude wrote the initial document analysis onto the shared plan blackboard.",
-        "claude",
+        "Agent wrote the initial document analysis onto the shared plan blackboard.",
+        "agent",
         vec![PLAN_BOARD_MD.to_string()],
     );
 
@@ -346,31 +370,31 @@ async fn run_review_mode(
             ("plan_board_path", PLAN_BOARD_MD),
         ],
     );
-    let codex_analysis =
-        runners::codex_read_only(&r2, Some(ws_dir), window_label, app_handle, token.clone())
+    let review_analysis =
+        tool_runner::run_read_only(config, sys_review, &r2, Some(ws_dir), window_label, app_handle, token.clone())
             .await
             .map_err(|err| {
                 stage_error(
-                    "review_round_2_codex",
-                    "codex_read_only",
+                    "review_round_2",
+                    "api_read_only",
                     Some(ws_dir),
                     &r2,
                     err,
                 )
             })?;
-    board.set_round_2(codex_analysis);
+    board.set_round_2(review_analysis);
     board.persist(ws_dir)?;
     emit_skill_event(
         app_handle,
         window_label,
         "round_2",
-        "Codex added its review perspective via the shared plan blackboard.".to_string(),
+        "Reviewer added its review perspective via the shared plan blackboard.".to_string(),
     )?;
     record_skill_evidence(
         Some(ws_dir),
         "plan_review_round_2",
-        "Codex added its review perspective via the shared plan blackboard.",
-        "codex",
+        "Reviewer added its review perspective via the shared plan blackboard.",
+        "reviewer",
         vec![PLAN_BOARD_MD.to_string()],
     );
 
@@ -382,22 +406,22 @@ async fn run_review_mode(
             ("plan_board_path", PLAN_BOARD_MD),
         ],
     );
-    let change_list = runners::claude(&r3, Some(ws_dir), window_label, app_handle, token.clone())
+    let change_list = tool_runner::run(config, sys_write, &r3, Some(ws_dir), window_label, app_handle, token.clone())
         .await
-        .map_err(|err| stage_error("review_round_3_claude", "claude", Some(ws_dir), &r3, err))?;
+        .map_err(|err| stage_error("review_round_3", "api", Some(ws_dir), &r3, err))?;
     board.set_round_3(change_list);
     board.persist(ws_dir)?;
     emit_skill_event(
         app_handle,
         window_label,
         "round_3",
-        "Claude consolidated the change list on the shared plan blackboard.".to_string(),
+        "Agent consolidated the change list on the shared plan blackboard.".to_string(),
     )?;
     record_skill_evidence(
         Some(ws_dir),
         "plan_review_round_3",
-        "Claude consolidated the change list on the shared plan blackboard.",
-        "claude",
+        "Agent consolidated the change list on the shared plan blackboard.",
+        "agent",
         vec![PLAN_BOARD_MD.to_string()],
     );
 
@@ -410,12 +434,12 @@ async fn run_review_mode(
         ],
     );
     let final_changes =
-        runners::codex_read_only(&r4, Some(ws_dir), window_label, app_handle, token.clone())
+        tool_runner::run_read_only(config, sys_review, &r4, Some(ws_dir), window_label, app_handle, token.clone())
             .await
             .map_err(|err| {
                 stage_error(
-                    "review_round_4_codex",
-                    "codex_read_only",
+                    "review_round_4",
+                    "api_read_only",
                     Some(ws_dir),
                     &r4,
                     err,
@@ -427,13 +451,13 @@ async fn run_review_mode(
         app_handle,
         window_label,
         "round_4",
-        "Codex finalized the approved changes on the shared plan blackboard.".to_string(),
+        "Reviewer finalized the approved changes on the shared plan blackboard.".to_string(),
     )?;
     record_skill_evidence(
         Some(ws_dir),
         "plan_review_round_4",
-        "Codex finalized the approved changes on the shared plan blackboard.",
-        "codex",
+        "Reviewer finalized the approved changes on the shared plan blackboard.",
+        "reviewer",
         vec![PLAN_BOARD_MD.to_string()],
     );
 
@@ -448,14 +472,15 @@ async fn run_review_mode(
             ("plan_board_path", PLAN_BOARD_MD),
         ],
     );
-    runners::claude(&r5, Some(ws_dir), window_label, app_handle, token.clone())
+    tool_runner::run(config, sys_write, &r5, Some(ws_dir), window_label, app_handle, token.clone())
         .await
-        .map_err(|err| stage_error("review_synthesis_claude", "claude", Some(ws_dir), &r5, err))
+        .map_err(|err| stage_error("review_synthesis", "api", Some(ws_dir), &r5, err))
 }
 
 async fn validate_or_repair_plan_artifacts(
     task: &str,
     workspace: &std::path::Path,
+    config: &AppConfig,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
@@ -468,7 +493,7 @@ async fn validate_or_repair_plan_artifacts(
                 window_label,
                 "structured_plan_repair",
                 format!(
-                    "PLAN.md was written, but the structured planning artifacts were invalid. Claude is repairing {} and {}.",
+                    "PLAN.md was written, but the structured planning artifacts were invalid. Agent is repairing {} and {}.",
                     PLAN_GRAPH_JSON, PLAN_ACCEPTANCE_JSON
                 ),
             )?;
@@ -493,7 +518,10 @@ async fn validate_or_repair_plan_artifacts(
                  At the very end, output exactly one line and nothing else:\n\
                  PLAN_ARTIFACTS_FIXED"
             );
-            runners::claude(
+            tool_runner::run(
+                config,
+                "You are repairing structured plan artifacts to match PLAN.md. \
+                 Use the editor to fix JSON files.",
                 &repair_prompt,
                 Some(workspace.to_string_lossy().as_ref()),
                 window_label,
@@ -503,8 +531,8 @@ async fn validate_or_repair_plan_artifacts(
             .await
             .map_err(|err| {
                 stage_error(
-                    "structured_plan_repair_claude",
-                    "claude",
+                    "structured_plan_repair",
+                    "api",
                     Some(workspace.to_string_lossy().as_ref()),
                     &repair_prompt,
                     err,

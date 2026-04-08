@@ -1,8 +1,10 @@
-use super::{runners, QaResult, ToolLog};
+use super::{QaResult, ToolLog};
 use crate::{
+    config::AppConfig,
     evidence::{self, read_evidence_index, EvidenceEvent, EVIDENCE_INDEX_JSON},
     planning_schema::{read_plan_acceptance_lenient, PLAN_ACCEPTANCE_JSON},
     prompts::Prompts,
+    tool_runner,
 };
 use chrono::Utc;
 use tauri::{Emitter, EventTarget};
@@ -13,6 +15,7 @@ pub(super) async fn run(
     issue: Option<&str>,
     workspace: Option<&str>,
     context: Option<&str>,
+    config: &AppConfig,
     prompts: &Prompts,
     window_label: &str,
     app_handle: &tauri::AppHandle,
@@ -61,8 +64,18 @@ pub(super) async fn run(
         ),
     );
 
-    let output =
-        runners::claude_read_only(&prompt, workspace, window_label, app_handle, token).await?;
+    let output = tool_runner::run_read_only(
+        config,
+        "You are a senior QA engineer performing acceptance testing. \
+         Read source files, check tests, review evidence, and assess project quality. \
+         This is a read-only review — only view, grep, and glob tools are available.",
+        &prompt,
+        workspace,
+        window_label,
+        app_handle,
+        token,
+    )
+    .await?;
     let health_score = workspace
         .and_then(|ws| evidence::compute_evidence_metrics(ws))
         .map(|m| m.health_score)

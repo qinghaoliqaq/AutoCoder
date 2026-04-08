@@ -11,9 +11,11 @@
 /// has been moved to the test skill (test_skill.rs / run_phase).
 ///
 /// Each phase emits "review-phase-result" when it finishes.
-use super::{runners, ReviewPhaseResult};
+use super::ReviewPhaseResult;
+use crate::config::AppConfig;
 use crate::evidence::{self, EvidenceEvent};
 use crate::prompts::Prompts;
+use crate::tool_runner;
 use chrono::Utc;
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
@@ -24,12 +26,18 @@ pub(super) async fn run_phase(
     issue: Option<&str>,
     workspace: Option<&str>,
     context: Option<&str>,
+    config: &AppConfig,
     prompts: Option<&Prompts>,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<(), String> {
     let _ = issue; // unused in static phases
+    let sys_write = "You are a senior developer performing code review. \
+                     Use the editor and bash tools to read and modify files.";
+    let sys_review = "You are an independent code reviewer. \
+                      Read and analyze the codebase. \
+                      This is a read-only review — only view, grep, and glob tools are available.";
 
     let (passed, found_issue) = match phase {
         // ── Plan completion check ─────────────────────────────────────────────
@@ -81,16 +89,20 @@ pub(super) async fn run_phase(
             let claude_prompt = super::inject_context(context, claude_prompt);
             let codex_prompt = super::inject_context(context, codex_prompt);
 
-            // Run both agents in parallel
+            // Run both agents in parallel (primary + secondary provider)
             let (claude_result, codex_result) = tokio::join!(
-                runners::claude(
+                tool_runner::run(
+                    config,
+                    sys_write,
                     &claude_prompt,
                     workspace,
                     window_label,
                     app_handle,
                     token.clone()
                 ),
-                runners::codex_read_only(
+                tool_runner::run_read_only(
+                    config,
+                    sys_review,
                     &codex_prompt,
                     workspace,
                     window_label,
@@ -140,8 +152,10 @@ pub(super) async fn run_phase(
             let codex_prompt = super::inject_context(context, codex_prompt);
 
             let (claude_result, codex_result) = tokio::join!(
-                runners::claude(&prompt, workspace, window_label, app_handle, token.clone()),
-                runners::codex_read_only(
+                tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone()),
+                tool_runner::run_read_only(
+                    config,
+                    sys_review,
                     &codex_prompt,
                     workspace,
                     window_label,
@@ -169,6 +183,7 @@ pub(super) async fn run_phase(
                 task,
                 workspace,
                 context,
+                config,
                 prompts,
                 window_label,
                 app_handle,
@@ -230,7 +245,7 @@ pub(super) async fn run_phase(
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(
-                &runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
+                &tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
                     .await?,
             )
         }
@@ -289,7 +304,7 @@ pub(super) async fn run_phase(
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(
-                &runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
+                &tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
                     .await?,
             )
         }
@@ -397,6 +412,7 @@ async fn run_specialist_review(
     task: &str,
     workspace: Option<&str>,
     context: Option<&str>,
+    config: &AppConfig,
     prompts: Option<&Prompts>,
     window_label: &str,
     app_handle: &tauri::AppHandle,
@@ -426,15 +442,26 @@ async fn run_specialist_review(
         })
         .collect();
 
-    // Run all specialists in parallel using Codex (read-only, fast)
+    // Run all specialists in parallel via API (read-only)
     let mut join_set = tokio::task::JoinSet::new();
     for (name, prompt) in specialist_prompts {
         let ws = workspace.map(ToOwned::to_owned);
         let wl = window_label.to_string();
         let ah = app_handle.clone();
         let tk = token.clone();
+        let cfg = config.clone();
         join_set.spawn(async move {
-            let result = runners::codex_read_only_quiet(&prompt, ws.as_deref(), &wl, &ah, tk).await;
+            let result = tool_runner::run_read_only(
+                &cfg,
+                &format!("You are a {name} specialist reviewing code. \
+                          Read and analyze the codebase. \
+                          This is a read-only review — only view, grep, and glob tools are available."),
+                &prompt,
+                ws.as_deref(),
+                &wl,
+                &ah,
+                tk,
+            ).await;
             (name, result)
         });
     }

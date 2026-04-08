@@ -25,6 +25,7 @@ pub async fn run_loop(
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
     read_only: bool,
+    subtask_id: Option<&str>,
 ) -> Result<String, String> {
     let endpoint = format!("{}/chat/completions", base_url.trim_end_matches('/'));
     let oai_tools = tools::to_openai_functions(tool_defs);
@@ -92,7 +93,7 @@ pub async fn run_loop(
         if let Some(text) = message["content"].as_str() {
             if !text.is_empty() {
                 full_text.push_str(text);
-                emit_chunk(app_handle, window_label, text, &mut is_first_chunk);
+                emit_chunk(app_handle, window_label, text, &mut is_first_chunk, subtask_id);
             }
         }
 

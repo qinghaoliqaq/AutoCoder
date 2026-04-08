@@ -1,68 +1,18 @@
-use super::{emit_skill_event, record_skill_evidence, runners};
+use super::{emit_skill_event, record_skill_evidence};
 /// Debug skill — two-phase investigation and fix.
 ///
-/// Phase 1 (Diagnose): Claude analyses the codebase read-only to identify the
+/// Phase 1 (Diagnose): Agent analyses the codebase read-only to identify the
 ///   root cause and describe the minimal fix.
-/// Phase 2 (Fix): Claude applies the fix based on the diagnosis.
+/// Phase 2 (Fix): Agent applies the fix based on the diagnosis.
 ///
-/// When the Anthropic API is configured (via [agent] or [director] with
-/// api_format = "anthropic"), both phases run through the tool_use agent loop
-/// (direct API calls, no CLI needed). Otherwise falls back to the legacy CLI
-/// runner mode (claude + codex).
+/// All execution goes through the tool_use agent loop (direct API calls,
+/// no CLI needed).
 use crate::config::AppConfig;
 use crate::prompts::Prompts;
 use crate::tool_runner;
 use tokio_util::sync::CancellationToken;
 
 pub(super) async fn run(
-    task: &str,
-    workspace: Option<&str>,
-    context: Option<&str>,
-    config: &AppConfig,
-    prompts: &Prompts,
-    window_label: &str,
-    app_handle: &tauri::AppHandle,
-    token: CancellationToken,
-) -> Result<(), String> {
-    if can_use_tool_runner(config) {
-        run_via_api(
-            task,
-            workspace,
-            context,
-            config,
-            prompts,
-            window_label,
-            app_handle,
-            token,
-        )
-        .await
-    } else {
-        run_via_cli(
-            task,
-            workspace,
-            context,
-            prompts,
-            window_label,
-            app_handle,
-            token,
-        )
-        .await
-    }
-}
-
-/// Check if we can use the direct API tool_use loop.
-fn can_use_tool_runner(config: &AppConfig) -> bool {
-    // Option 1: [agent] section configured
-    if config.agent.is_configured() {
-        return true;
-    }
-    // Option 2: [director] is configured with Anthropic format
-    config.is_configured() && config.director.api_format == crate::config::ApiFormat::Anthropic
-}
-
-// ── API tool_use path (no CLI needed) ────────────────────────────────────────
-
-async fn run_via_api(
     task: &str,
     workspace: Option<&str>,
     context: Option<&str>,
@@ -79,7 +29,7 @@ async fn run_via_api(
         app_handle,
         window_label,
         "diagnosing",
-        "Claude is analysing the codebase to diagnose the issue.".to_string(),
+        "Agent is analysing the codebase to diagnose the issue.".to_string(),
     )?;
     record_skill_evidence(
         workspace,
@@ -111,13 +61,13 @@ async fn run_via_api(
         app_handle,
         window_label,
         "diagnosed",
-        "Claude completed root-cause analysis. Now applying the fix.".to_string(),
+        "Agent completed root-cause analysis. Now applying the fix.".to_string(),
     )?;
     record_skill_evidence(
         workspace,
         "debug_diagnosed",
-        "Claude completed root-cause analysis.",
-        "claude",
+        "Agent completed root-cause analysis.",
+        "agent",
         debug_artifacts(),
     );
 
@@ -126,7 +76,7 @@ async fn run_via_api(
         app_handle,
         window_label,
         "fixing",
-        "Claude is applying the fix based on the diagnosis.".to_string(),
+        "Agent is applying the fix based on the diagnosis.".to_string(),
     )?;
 
     let fix_prompt = super::inject_context(
@@ -162,43 +112,9 @@ async fn run_via_api(
         workspace,
         "debug_completed",
         "Debug skill finished — diagnosis and fix applied.",
-        "claude",
+        "agent",
         debug_artifacts(),
     );
 
-    Ok(())
-}
-
-// ── Legacy CLI fallback ──────────────────────────────────────────────────────
-
-async fn run_via_cli(
-    task: &str,
-    workspace: Option<&str>,
-    context: Option<&str>,
-    prompts: &Prompts,
-    window_label: &str,
-    app_handle: &tauri::AppHandle,
-    token: CancellationToken,
-) -> Result<(), String> {
-    let debug_artifacts = vec![".ai-dev-hub/bugs.md".to_string(), ".ai-dev-hub/change.log".to_string()];
-    record_skill_evidence(
-        workspace,
-        "debug_started",
-        &format!("Debug (CLI) started for issue: {task}"),
-        "system",
-        debug_artifacts.clone(),
-    );
-    let prompt = super::inject_context(
-        context,
-        Prompts::render(&prompts.debug_codex, &[("issue", task)]),
-    );
-    runners::codex(&prompt, workspace, window_label, app_handle, token).await?;
-    record_skill_evidence(
-        workspace,
-        "debug_completed",
-        "Debug (CLI) completed.",
-        "codex",
-        debug_artifacts,
-    );
     Ok(())
 }

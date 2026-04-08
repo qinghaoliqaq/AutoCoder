@@ -51,6 +51,7 @@ pub async fn run(
         app_handle,
         token,
         false,
+        None,
     )
     .await
 }
@@ -76,6 +77,58 @@ pub async fn run_read_only(
         app_handle,
         token,
         true,
+        None,
+    )
+    .await
+}
+
+/// Run a tool-use agent loop with subtask tagging.
+/// Emitted `skill-chunk` events carry the given `subtask_id`.
+pub async fn run_subtask(
+    config: &AppConfig,
+    system_prompt: &str,
+    user_prompt: &str,
+    cwd: Option<&str>,
+    window_label: &str,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+    subtask_id: &str,
+) -> Result<String, String> {
+    run_inner(
+        config,
+        system_prompt,
+        user_prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        false,
+        Some(subtask_id),
+    )
+    .await
+}
+
+/// Run a read-only tool-use agent loop with subtask tagging.
+pub async fn run_read_only_subtask(
+    config: &AppConfig,
+    system_prompt: &str,
+    user_prompt: &str,
+    cwd: Option<&str>,
+    window_label: &str,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+    subtask_id: &str,
+) -> Result<String, String> {
+    run_inner(
+        config,
+        system_prompt,
+        user_prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        true,
+        Some(subtask_id),
     )
     .await
 }
@@ -89,6 +142,7 @@ async fn run_inner(
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
     read_only: bool,
+    subtask_id: Option<&str>,
 ) -> Result<String, String> {
     let provider = if read_only {
         ProviderConfig::from_app_config_second(config)
@@ -123,6 +177,7 @@ async fn run_inner(
                 app_handle,
                 token,
                 read_only,
+                subtask_id,
             )
             .await
         }
@@ -140,6 +195,7 @@ async fn run_inner(
                 app_handle,
                 token,
                 read_only,
+                subtask_id,
             )
             .await
         }
@@ -171,6 +227,7 @@ fn emit_chunk(
     window_label: &str,
     text: &str,
     is_first_chunk: &mut bool,
+    subtask_id: Option<&str>,
 ) {
     let reset = *is_first_chunk;
     *is_first_chunk = false;
@@ -181,7 +238,7 @@ fn emit_chunk(
             agent: "claude".to_string(),
             text: text.to_string(),
             reset,
-            subtask_id: None,
+            subtask_id: subtask_id.map(ToString::to_string),
         },
     );
 }

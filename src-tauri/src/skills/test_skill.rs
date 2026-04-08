@@ -1,19 +1,24 @@
-use super::{runners, ReviewPhaseResult, ToolLog};
+use super::{ReviewPhaseResult, ToolLog};
 /// Test skill — full integration test pipeline.
 ///
 /// Phases (orchestrated by the frontend runTest()):
-///   gen_test_plan    — Claude + Codex parallel, read PLAN.md, produce test.md
-///   frontend_test    — Claude drives browser/playwright to test the UI
+///   gen_test_plan    — primary + secondary agent parallel, read PLAN.md, produce test.md
+///   frontend_test    — Agent drives browser/playwright to test the UI
 ///   integration_test — env setup, server start on a free port (47000-47099), curl suite (A-G)
-///   fix              — Claude reads bugs.md and applies fixes, marks items [x]
-///   codex_fix        — Codex escalation reading bugs.md if Claude's fix failed
-///   document         — Claude generates the Chinese project completion report
+///   fix              — Agent reads bugs.md and applies fixes, marks items [x]
+///   codex_fix        — Escalation agent reading bugs.md if first fix failed
+///   document         — Agent generates the Chinese project completion report
+///
+/// All agent invocations go through the tool_runner API module — no CLI
+/// dependencies on claude or codex binaries.
 ///
 /// Each phase emits "review-phase-result" when it finishes.
 /// The "document" phase additionally emits "completion-report" with the full markdown.
 use crate::{
+    config::AppConfig,
     evidence::{self, EvidenceEvent},
     planning_schema::{read_plan_acceptance_lenient, PLAN_ACCEPTANCE_JSON},
+    tool_runner,
 };
 use chrono::Utc;
 use tauri::{Emitter, EventTarget};
@@ -31,10 +36,16 @@ pub(super) async fn run_phase(
     issue: Option<&str>,
     workspace: Option<&str>,
     context: Option<&str>,
+    config: &AppConfig,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<(), String> {
+    let sys_write = "You are a senior QA engineer. \
+                     Use the editor and bash tools to read/write files and run tests.";
+    let sys_review = "You are an independent test reviewer. \
+                      Read and analyze the codebase. \
+                      This is a read-only review — only view, grep, and glob tools are available.";
     let runtime = prepare_runtime_paths(window_label, workspace)?;
     let (acceptance, acceptance_warning) = workspace
         .map(read_plan_acceptance_lenient)
@@ -106,16 +117,20 @@ pub(super) async fn run_phase(
             let claude_prompt = super::inject_context(context, claude_prompt);
             let codex_prompt = super::inject_context(context, codex_prompt);
 
-            // Run both in parallel
+            // Run both in parallel (primary + secondary provider)
             let (claude_res, codex_res) = tokio::join!(
-                runners::claude(
+                tool_runner::run(
+                    config,
+                    sys_write,
                     &claude_prompt,
                     workspace,
                     window_label,
                     app_handle,
                     token.clone()
                 ),
-                runners::codex_read_only(
+                tool_runner::run_read_only(
+                    config,
+                    sys_review,
                     &codex_prompt,
                     workspace,
                     window_label,
@@ -138,7 +153,9 @@ pub(super) async fn run_phase(
             );
             let merge_prompt = super::inject_context(context, merge_prompt);
             parse_result(
-                &runners::claude(
+                &tool_runner::run(
+                    config,
+                    sys_write,
                     &merge_prompt,
                     workspace,
                     window_label,
@@ -218,7 +235,7 @@ pub(super) async fn run_phase(
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(
-                &runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
+                &tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
                     .await?,
             )
         }
@@ -363,12 +380,12 @@ pub(super) async fn run_phase(
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(
-                &runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
+                &tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
                     .await?,
             )
         }
 
-        // ── Runtime fix (Claude) — reads full bugs.md ────────────────────────
+        // ── Runtime fix — reads full bugs.md ─────────────────────────────────
         "fix" => {
             let issue_desc = issue.unwrap_or("test failure");
             let prompt = format!(
@@ -393,12 +410,12 @@ pub(super) async fn run_phase(
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(
-                &runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
+                &tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
                     .await?,
             )
         }
 
-        // ── Runtime fix escalation (Codex) — reads full bugs.md ──────────────
+        // ── Escalation fix — reads full bugs.md ─────────────────────────────
         "codex_fix" => {
             let issue_desc = issue.unwrap_or("test failure");
             let prompt = format!(
@@ -413,7 +430,7 @@ pub(super) async fn run_phase(
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(
-                &runners::codex(&prompt, workspace, window_label, app_handle, token.clone())
+                &tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
                     .await?,
             )
         }
@@ -475,10 +492,10 @@ pub(super) async fn run_phase(
                  After writing the complete file, output exactly: [RESULT:PASS]"
             );
 
-            // Run Claude — it writes the report to disk, text output is just [RESULT:PASS]
+            // Run agent — it writes the report to disk, text output is just [RESULT:PASS]
             let prompt = super::inject_context(context, prompt);
             let result_line =
-                runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
+                tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
                     .await?;
 
             // Read the file Claude wrote; fall back to empty if somehow not written

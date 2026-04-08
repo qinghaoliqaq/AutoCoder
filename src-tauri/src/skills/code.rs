@@ -26,7 +26,6 @@ use super::{
         snapshot_workspace, sync_coordination_files, workspace_changes, IsolatedWorkspace,
     },
     merge_engine::merge_isolated_workspace,
-    runners,
     vendored::{load as load_vendored_skill, select_for_subtask},
 };
 use crate::{
@@ -34,6 +33,7 @@ use crate::{
     evidence,
     planning_schema::{read_plan_acceptance_lenient, SubtaskAcceptance},
     prompts::Prompts,
+    tool_runner,
     verifier,
 };
 use std::collections::{HashMap, HashSet};
@@ -670,7 +670,11 @@ async fn run_implementation_phase(
         claude_prompt
     };
 
-    let claude_output = runners::claude_quiet_subtask(
+    let claude_output = tool_runner::run_subtask(
+        ctx.config,
+        "You are a senior developer implementing a subtask. \
+         Use the editor and bash tools to write code. \
+         Follow the plan and acceptance criteria precisely.",
         &claude_prompt,
         Some(isolated.root.to_string_lossy().as_ref()),
         ctx.window_label,
@@ -968,7 +972,11 @@ async fn run_review_and_merge_phase(
             verifier_warnings,
         ),
     );
-    let review_output = runners::codex_read_only_quiet_subtask(
+    let review_output = tool_runner::run_read_only_subtask(
+        ctx.config,
+        "You are a code reviewer checking a subtask implementation. \
+         Read and verify the code against acceptance criteria. \
+         This is a read-only review — only view, grep, and glob tools are available.",
         &review_prompt,
         Some(isolated.root.to_string_lossy().as_ref()),
         ctx.window_label,

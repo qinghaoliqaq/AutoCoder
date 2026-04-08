@@ -9,6 +9,10 @@ export interface ToolInfo {
 }
 
 export interface SystemStatus {
+  api_configured: boolean;
+  api_provider: string;
+  api_model: string;
+  // Legacy fields — kept for backward compatibility, always report not installed.
   claude: ToolInfo;
   codex: ToolInfo;
 }
