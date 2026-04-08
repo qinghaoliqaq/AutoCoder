@@ -169,16 +169,16 @@ impl Blackboard {
                 };
             }
             // Reset Failed subtasks so they can be retried when the user
-            // restarts the code skill.  The attempt counter and review
-            // findings are preserved so the next run benefits from prior
-            // context.
+            // restarts the code skill.  Clear stale review findings because
+            // the isolated workspace is gone — keeping them would cause
+            // build_fix_prompt to tell Claude to "fix existing code" in a
+            // fresh empty workspace.  The attempted_fixes history is kept so
+            // Claude knows what approaches already failed.
             if matches!(card.status, SubtaskState::Failed) {
                 card.attempts = 0;
-                card.status = if card.review_findings.is_empty() {
-                    SubtaskState::Pending
-                } else {
-                    SubtaskState::NeedsFix
-                };
+                card.review_findings.clear();
+                card.merge_conflict = None;
+                card.status = SubtaskState::Pending;
             }
         }
 

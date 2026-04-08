@@ -112,6 +112,10 @@ pub(super) async fn run(
     let mut launched_ids = HashSet::new();
     let mut active_subtasks = HashMap::<String, ActiveSubtaskMeta>::new();
 
+    // Track subtask failures without cancelling other workers.  Only a
+    // JoinSet panic (worker crash) is treated as truly fatal.
+    let mut failed_subtask_ids: Vec<String> = Vec::new();
+
     let fatal_error = loop {
         spawn_ready_subtasks(
             &mut join_set,
@@ -142,6 +146,27 @@ pub(super) async fn run(
             {
                 break None;
             }
+            // Some subtasks are not done — check why.
+            let failed: Vec<_> = board
+                .subtasks
+                .iter()
+                .filter(|card| matches!(card.status, super::blackboard::SubtaskState::Failed))
+                .map(|card| card.id.clone())
+                .collect();
+            if !failed.is_empty() {
+                let done_count = board
+                    .subtasks
+                    .iter()
+                    .filter(|card| matches!(card.status, super::blackboard::SubtaskState::Done))
+                    .count();
+                break Some(format!(
+                    "Subtask(s) {} failed after exhausting retries. {}/{} subtasks completed successfully. \
+                     Tell me to continue and I will retry the failed ones.",
+                    failed.join(", "),
+                    done_count,
+                    total,
+                ));
+            }
             let blocked = board
                 .subtasks
                 .iter()
@@ -171,16 +196,32 @@ pub(super) async fn run(
         active_subtasks.remove(&subtask_id);
 
         if let Err(err) = result {
-            token.cancel();
-            break Some(err);
+            // Single subtask failure — log it but let other subtasks continue.
+            // The subtask is already marked Failed on the board by run_subtask.
+            tracing::warn!(
+                subtask = %subtask_id,
+                "Subtask exhausted retries: {err}"
+            );
+            let _ = emit_blackboard(
+                workspace,
+                app_handle,
+                window_label,
+                Some(subtask_id.clone()),
+                "subtask_failed",
+                format!("Subtask {} failed: {err}. Other subtasks continue.", subtask_id),
+            );
+            failed_subtask_ids.push(subtask_id);
+            // Do NOT cancel — let remaining subtasks finish.
         }
     };
 
+    // Drain any remaining workers (should only happen on JoinSet panic).
     while let Some(joined) = join_set.join_next().await {
         if fatal_error.is_none() {
-            let (_subtask_id, result) =
-                joined.map_err(|err| format!("Parallel subtask worker crashed: {err}"))?;
-            result?;
+            if let Ok((id, Err(err))) = joined {
+                tracing::warn!(subtask = %id, "Late subtask failure: {err}");
+                failed_subtask_ids.push(id);
+            }
         }
     }
 
@@ -191,15 +232,18 @@ pub(super) async fn run(
     let mut board = shared_board.lock().await;
     board.complete_if_finished();
     board.persist(workspace)?;
-    emit_blackboard(
-        workspace,
-        app_handle,
-        window_label,
-        None,
-        "completed",
-        "All planned subtasks passed inline review and were merged from isolated workspaces."
-            .to_string(),
-    )?;
+
+    if failed_subtask_ids.is_empty() {
+        emit_blackboard(
+            workspace,
+            app_handle,
+            window_label,
+            None,
+            "completed",
+            "All planned subtasks passed inline review and were merged from isolated workspaces."
+                .to_string(),
+        )?;
+    }
     Ok(())
 }
 
