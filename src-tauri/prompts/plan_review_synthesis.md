@@ -104,6 +104,10 @@ Additional structured artifact requirements:
 - Allowed `category` values: `frontend`, `backend`, `fullstack`, `infra`, `docs`
 - Allowed `suggested_skill` values: `frontend-dev`, `fullstack-dev`, or `null`
 - `depends_on` must only reference real subtask ids and must not form cycles
-- **Maximize parallelism**: only add a `depends_on` entry when there is a genuine technical dependency (e.g. a feature needs a database table created by another subtask). Do NOT make every subtask depend on an infra/setup task unless it truly cannot start without it. Independent features, screens, and API endpoints should have empty `depends_on` so they can run concurrently
-- Set `can_run_in_parallel` to `false` only for tasks that mutate shared project scaffolding (e.g. initial project init). Most feature and screen subtasks should be `true`
+- **Maximize parallelism** — every subtask runs in its own **isolated copy** of the workspace, so file conflicts are impossible. The merge engine handles combining results afterwards. Therefore:
+  - Only add `depends_on` when there is a **runtime** dependency (e.g. the subtask imports a module created by another subtask, or runs a migration that requires a schema from another subtask)
+  - Independent features, screens, API endpoints, config files, and utilities should have **empty `depends_on`** so they can run concurrently
+  - Database schema + seed can run in parallel with UI work — they don't share files
+- Set `can_run_in_parallel` to `false` **only** for the very first project initialization task (creates package.json / Cargo.toml). All other subtasks should be `true` — the merge engine serializes writes to the main workspace, so concurrent execution is always safe
+- Aim for at least 4–5 subtasks to be immediately runnable after the init task completes
 - Output valid JSON only, no comments
