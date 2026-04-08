@@ -35,8 +35,8 @@ function FieldGroup({ label, hint, children }: { label: string; hint?: string; c
   return (
     <label className="flex flex-col gap-1.5">
       <div className="flex items-baseline gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">{label}</span>
-        {hint && <span className="text-[10px] font-normal normal-case text-zinc-400">{hint}</span>}
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-content-tertiary">{label}</span>
+        {hint && <span className="text-[10px] font-normal normal-case text-content-tertiary/70">{hint}</span>}
       </div>
       {children}
     </label>
@@ -83,7 +83,7 @@ export default function ConfigEditorModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-white/20 backdrop-blur-xl dark:bg-zinc-950/60"
+      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-xl bg-surface-primary/30"
       onClick={onClose}
     >
       <div
@@ -92,16 +92,16 @@ export default function ConfigEditorModal({
         onClick={(event) => event.stopPropagation()}
       >
         {/* ── Header ──────────────────────────────────────────────── */}
-        <div className="flex items-start justify-between gap-4 border-b border-zinc-200/40 bg-white/10 px-5 py-4 dark:border-zinc-800/50 dark:bg-zinc-900/25">
+        <div className="flex items-start justify-between gap-4 border-b border-edge-primary/30 bg-surface-secondary/10 px-5 py-4">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Settings</h2>
+            <h2 className="text-sm font-semibold text-content-primary">Settings</h2>
             <p className="mt-0.5 text-xs leading-5 text-zinc-500">
-              模型配置与执行权限。保存后写入 <code className="text-[10px] rounded bg-zinc-100 px-1 py-0.5 dark:bg-zinc-800">config.toml</code>
+              模型配置与执行权限。保存后写入 <code className="text-[10px] rounded bg-surface-tertiary px-1 py-0.5">config.toml</code>
             </p>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+            className="rounded-lg p-1 text-content-tertiary transition-colors hover:bg-surface-tertiary hover:text-content-secondary"
             title="关闭 (Esc)"
           >
             <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -113,20 +113,20 @@ export default function ConfigEditorModal({
         {/* ── Body: sidebar tabs + content ─────────────────────────── */}
         <div className="flex flex-1 min-h-0">
           {/* Tab sidebar */}
-          <nav className="w-40 flex-shrink-0 border-r border-zinc-200/40 bg-white/5 py-2 dark:border-zinc-800/50 dark:bg-zinc-900/15">
+          <nav className="w-40 flex-shrink-0 border-r border-edge-primary/30 bg-surface-secondary/5 py-2">
             {TABS.map(({ id, label, icon }, idx) => (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
                 className={`group flex w-full items-center gap-2.5 px-4 py-2 text-left text-[12px] font-medium transition-colors ${
                   activeTab === id
-                    ? 'bg-violet-50/70 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300'
-                    : 'text-zinc-500 hover:bg-zinc-100/50 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-200'
+                    ? 'bg-themed-accent-soft/70 text-themed-accent-text'
+                    : 'text-content-tertiary hover:bg-surface-tertiary/50 hover:text-content-primary'
                 }`}
               >
                 {icon}
                 <span className="flex-1">{label}</span>
-                <kbd className="hidden group-hover:inline-block rounded border border-zinc-200/60 bg-zinc-100/60 px-1 py-0.5 font-mono text-[9px] text-zinc-400 dark:border-zinc-700 dark:bg-zinc-800">
+                <kbd className="hidden group-hover:inline-block rounded border border-edge-primary/60 bg-surface-tertiary/60 px-1 py-0.5 font-mono text-[9px] text-content-tertiary">
                   {'\u2318'}{idx + 1}
                 </kbd>
               </button>
@@ -143,14 +143,14 @@ export default function ConfigEditorModal({
                 {activeTab === 'shortcuts' && <ShortcutsTab />}
 
                 {error && (
-                  <div className="mt-4 rounded-xl border border-rose-200/70 bg-rose-50/80 px-4 py-3 text-xs leading-5 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200">
+                  <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs leading-5 text-rose-600">
                     {error}
                   </div>
                 )}
               </div>
             ) : error ? (
               <div className="p-5">
-                <div className="rounded-xl border border-rose-200/70 bg-rose-50/80 px-4 py-3 text-xs leading-5 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200">
+                <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs leading-5 text-rose-600">
                   {error}
                 </div>
               </div>
@@ -164,14 +164,14 @@ export default function ConfigEditorModal({
         </div>
 
         {/* ── Footer ──────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between gap-3 border-t border-zinc-200/40 bg-white/10 px-5 py-3 dark:border-zinc-800/50 dark:bg-zinc-900/25">
+        <div className="flex items-center justify-between gap-3 border-t border-edge-primary/30 bg-surface-secondary/10 px-5 py-3">
           <div className="text-[11px] text-zinc-400">
             保存后新对话将使用最新配置
           </div>
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="rounded-lg px-4 py-1.5 text-xs font-medium text-zinc-600 glass-button dark:text-zinc-300"
+              className="rounded-lg px-4 py-1.5 text-xs font-medium text-content-secondary glass-button"
             >
               取消
             </button>
@@ -277,7 +277,7 @@ function GeneralTab({
           type="button"
           onClick={handleTestConnection}
           disabled={testStatus === 'testing' || !draft.api_key || !draft.base_url || !draft.model}
-          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-violet-600 glass-button dark:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-themed-accent-text glass-button disabled:cursor-not-allowed disabled:opacity-50"
         >
           {testStatus === 'testing' ? (
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
@@ -288,18 +288,18 @@ function GeneralTab({
         </button>
 
         {testStatus === 'success' && (
-          <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+          <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600">
             <CheckCircle2 className="h-3.5 w-3.5" /> {testMessage}
           </span>
         )}
         {testStatus === 'error' && (
-          <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+          <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600">
             <AlertTriangle className="h-3.5 w-3.5" /> {testMessage}
           </span>
         )}
       </div>
 
-      <div className="h-px bg-zinc-200/50 dark:bg-zinc-800/50" />
+      <div className="h-px bg-edge-primary/40" />
 
       <SectionHeading title="执行选项" description="控制并行度、权限和内置技能" />
 
@@ -324,10 +324,10 @@ function GeneralTab({
       </div>
 
       {/* Vendored Skills */}
-      <div className="flex items-center justify-between rounded-xl border border-zinc-200/60 bg-white/40 px-4 py-3 dark:border-zinc-800/60 dark:bg-zinc-900/30">
+      <div className="flex items-center justify-between rounded-xl border border-edge-primary/40 bg-surface-elevated/40 px-4 py-3">
         <div>
-          <div className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Vendored Skills</div>
-          <div className="mt-0.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
+          <div className="text-sm font-medium text-content-primary">Vendored Skills</div>
+          <div className="mt-0.5 text-[11px] leading-4 text-content-tertiary">
             自动为子任务注入仓库内置的 packaged skills
           </div>
         </div>
@@ -423,17 +423,6 @@ function AgentTab({
           />
         </FieldGroup>
 
-        <FieldGroup label="Second Model" hint="副身份 (Codex)：审阅 / 诊断 / 测试">
-          <input
-            type="text"
-            value={draft.agent_second_model}
-            onChange={(e) => update('agent_second_model', e.target.value)}
-            placeholder="留空则使用主身份模型"
-            disabled={!draft.agent_provider}
-            className={`${inputClass} disabled:opacity-50 disabled:cursor-not-allowed`}
-          />
-        </FieldGroup>
-
         <div className="sm:col-span-2">
           <FieldGroup label="Base URL" hint="留空用默认">
             <input
@@ -454,7 +443,7 @@ function AgentTab({
           type="button"
           onClick={handleTestConnection}
           disabled={testStatus === 'testing' || !draft.agent_provider || !draft.agent_api_key}
-          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-violet-600 glass-button dark:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-themed-accent-text glass-button disabled:cursor-not-allowed disabled:opacity-50"
         >
           {testStatus === 'testing' ? (
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
@@ -465,15 +454,62 @@ function AgentTab({
         </button>
 
         {testStatus === 'success' && (
-          <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+          <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600">
             <CheckCircle2 className="h-3.5 w-3.5" /> {testMessage}
           </span>
         )}
         {testStatus === 'error' && (
-          <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+          <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600">
             <AlertTriangle className="h-3.5 w-3.5" /> {testMessage}
           </span>
         )}
+      </div>
+
+      <div className="h-px bg-edge-primary/40" />
+
+      {/* ── Second Identity (Codex) ─────────────────────────────── */}
+      <SectionHeading
+        title="副身份 (Codex)"
+        description="审阅、诊断、测试、评估阶段使用的模型。留空则复用主身份配置。"
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FieldGroup label="供应商" hint="留空跟随主身份">
+          <ProviderSelect
+            value={draft.agent_second_provider}
+            onChange={(value) => update('agent_second_provider', value)}
+          />
+        </FieldGroup>
+
+        <FieldGroup label="API Key" hint="留空跟随主身份">
+          <input
+            type="password"
+            value={draft.agent_second_api_key}
+            onChange={(e) => update('agent_second_api_key', e.target.value)}
+            placeholder="留空则使用主身份 Key"
+            className={inputClass}
+          />
+        </FieldGroup>
+
+        <FieldGroup label="Model" hint="留空跟随主身份">
+          <input
+            type="text"
+            value={draft.agent_second_model}
+            onChange={(e) => update('agent_second_model', e.target.value)}
+            placeholder="留空则使用主身份模型"
+            className={inputClass}
+          />
+        </FieldGroup>
+
+        <FieldGroup label="Base URL" hint="留空跟随主身份">
+          <input
+            type="text"
+            value={draft.agent_second_base_url}
+            onChange={(e) => update('agent_second_base_url', e.target.value)}
+            placeholder="留空则使用主身份端点"
+            className={inputClass}
+          />
+        </FieldGroup>
       </div>
 
       {/* Status banners */}
@@ -510,10 +546,10 @@ function AppearanceTab() {
       <SectionHeading title="主题" description="选择一个颜色主题，或跟随系统偏好自动切换" />
 
       {/* System toggle */}
-      <div className="flex items-center justify-between rounded-xl border border-zinc-200/60 bg-white/40 px-4 py-3 dark:border-zinc-800/60 dark:bg-zinc-900/30">
+      <div className="flex items-center justify-between rounded-xl border border-edge-primary/40 bg-surface-elevated/40 px-4 py-3">
         <div>
-          <div className="text-sm font-medium text-zinc-700 dark:text-zinc-200">跟随系统</div>
-          <div className="mt-0.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
+          <div className="text-sm font-medium text-content-primary">跟随系统</div>
+          <div className="mt-0.5 text-[11px] leading-4 text-content-tertiary">
             根据操作系统外观自动在亮色和暗色主题之间切换
           </div>
         </div>
@@ -527,7 +563,7 @@ function AppearanceTab() {
 
       {/* Light themes */}
       <div>
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">亮色主题</div>
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-content-tertiary">亮色主题</div>
         <div className="grid grid-cols-3 gap-2">
           {lightThemes.map(theme => (
             <ThemeCard
@@ -542,7 +578,7 @@ function AppearanceTab() {
 
       {/* Dark themes */}
       <div>
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">暗色主题</div>
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-content-tertiary">暗色主题</div>
         <div className="grid grid-cols-3 gap-2">
           {darkThemes.map(theme => (
             <ThemeCard
@@ -578,8 +614,8 @@ function ThemeCard({
       onClick={onSelect}
       className={`group relative overflow-hidden rounded-xl border p-0.5 transition-all ${
         active
-          ? 'border-violet-400 ring-2 ring-violet-500/20 dark:border-violet-500'
-          : 'border-zinc-200/80 hover:border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-600'
+          ? 'border-themed-accent ring-2 ring-themed-accent/20'
+          : 'border-edge-primary/80 hover:border-edge-primary'
       }`}
     >
       {/* Mini preview */}
@@ -608,7 +644,7 @@ function ThemeCard({
         <div className="mt-1.5 h-2.5 rounded" style={{ backgroundColor: `rgb(${tertiary})` }} />
       </div>
       <div className="px-1.5 py-1.5 text-center">
-        <span className={`text-[10px] font-medium ${active ? 'text-violet-600 dark:text-violet-400' : 'text-zinc-600 dark:text-zinc-400'}`}>
+        <span className={`text-[10px] font-medium ${active ? 'text-themed-accent-text' : 'text-content-secondary'}`}>
           {theme.label}
         </span>
       </div>
@@ -634,20 +670,20 @@ function ShortcutsTab() {
     <div className="space-y-5">
       <SectionHeading title="键盘快捷键" description="常用操作快捷键一览" />
 
-      <div className="rounded-xl border border-zinc-200/60 bg-white/40 overflow-hidden dark:border-zinc-800/60 dark:bg-zinc-900/30">
+      <div className="rounded-xl border border-edge-primary/40 bg-surface-elevated/40 overflow-hidden">
         {shortcuts.map(({ keys, action }, i) => (
           <div
             key={keys}
             className={`flex items-center justify-between px-4 py-3 ${
-              i !== shortcuts.length - 1 ? 'border-b border-zinc-200/40 dark:border-zinc-800/40' : ''
+              i !== shortcuts.length - 1 ? 'border-b border-edge-primary/30' : ''
             }`}
           >
-            <span className="text-sm text-zinc-700 dark:text-zinc-300">{action}</span>
+            <span className="text-sm text-content-secondary">{action}</span>
             <div className="flex items-center gap-1">
               {keys.split(' + ').map((key) => (
                 <kbd
                   key={key}
-                  className="rounded-md border border-zinc-200/80 bg-zinc-100/80 px-2 py-0.5 font-mono text-[11px] text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+                  className="rounded-md border border-edge-primary/60 bg-surface-tertiary/80 px-2 py-0.5 font-mono text-[11px] text-content-secondary"
                 >
                   {key}
                 </kbd>
@@ -665,9 +701,9 @@ function ShortcutsTab() {
 function SectionHeading({ title, description }: { title: string; description?: string }) {
   return (
     <div>
-      <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">{title}</h3>
+      <h3 className="text-[13px] font-semibold text-content-primary">{title}</h3>
       {description && (
-        <p className="mt-0.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">{description}</p>
+        <p className="mt-0.5 text-[11px] leading-4 text-content-tertiary">{description}</p>
       )}
     </div>
   );
@@ -681,9 +717,9 @@ function InfoBanner({
   children: React.ReactNode;
 }) {
   const styles = {
-    info: 'border-sky-200/70 bg-sky-50/70 text-sky-800 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-200',
-    warning: 'border-amber-200/70 bg-amber-50/70 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200',
-    success: 'border-emerald-200/70 bg-emerald-50/70 text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200',
+    info: 'border-sky-500/20 bg-sky-500/10 text-sky-600',
+    warning: 'border-amber-500/20 bg-amber-500/10 text-amber-600',
+    success: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600',
   };
 
   return (

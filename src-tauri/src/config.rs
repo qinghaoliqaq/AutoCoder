@@ -93,13 +93,22 @@ pub struct AgentConfig {
     /// Model to use for skill execution (e.g. "claude-sonnet-4-6").
     #[serde(default = "default_agent_model")]
     pub model:    String,
-    /// Model for the second agent identity (Codex): review, diagnosis,
-    /// testing, and evaluation phases.  Falls back to `model` if empty.
-    #[serde(default)]
-    pub second_model: String,
     /// Provider: "anthropic" (default), "bedrock", "vertex", "foundry".
     #[serde(default = "default_provider")]
     pub provider: String,
+    // ── Second identity (Codex) ──────────────────────────────────────
+    /// Provider for the second identity.  Falls back to primary `provider`.
+    #[serde(default)]
+    pub second_provider: String,
+    /// API key for the second identity.  Falls back to primary `api_key`.
+    #[serde(default)]
+    pub second_api_key: String,
+    /// Base URL for the second identity.  Falls back to primary `base_url`.
+    #[serde(default)]
+    pub second_base_url: String,
+    /// Model for the second identity.  Falls back to primary `model`.
+    #[serde(default)]
+    pub second_model: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,6 +153,12 @@ pub struct ConfigDraft {
     #[serde(default)]
     pub agent_model: String,
     #[serde(default)]
+    pub agent_second_provider: String,
+    #[serde(default)]
+    pub agent_second_api_key: String,
+    #[serde(default)]
+    pub agent_second_base_url: String,
+    #[serde(default)]
     pub agent_second_model: String,
 }
 
@@ -167,8 +182,11 @@ impl Default for AgentConfig {
             api_key:  String::new(),
             base_url: String::new(),
             model:    default_agent_model(),
-            second_model: String::new(),
             provider: default_provider(),
+            second_provider: String::new(),
+            second_api_key: String::new(),
+            second_base_url: String::new(),
+            second_model: String::new(),
         }
     }
 }
@@ -273,11 +291,21 @@ impl AppConfig {
         if let Ok(v) = std::env::var("AGENT_MODEL") {
             cfg.agent.model = v;
         }
-        if let Ok(v) = std::env::var("AGENT_SECOND_MODEL") {
-            cfg.agent.second_model = v;
-        }
         if let Ok(v) = std::env::var("AGENT_PROVIDER") {
             cfg.agent.provider = v;
+        }
+        // Second identity overrides
+        if let Ok(v) = std::env::var("AGENT_SECOND_PROVIDER") {
+            cfg.agent.second_provider = v;
+        }
+        if let Ok(v) = std::env::var("AGENT_SECOND_API_KEY") {
+            cfg.agent.second_api_key = v;
+        }
+        if let Ok(v) = std::env::var("AGENT_SECOND_BASE_URL") {
+            cfg.agent.second_base_url = v;
+        }
+        if let Ok(v) = std::env::var("AGENT_SECOND_MODEL") {
+            cfg.agent.second_model = v;
         }
 
         if let Ok(v) = std::env::var("AI_DEV_HUB_VENDORED_SKILLS") {
@@ -335,6 +363,9 @@ impl AppConfig {
             agent_api_key: self.agent.api_key.clone(),
             agent_base_url: self.agent.base_url.clone(),
             agent_model: self.agent.model.clone(),
+            agent_second_provider: self.agent.second_provider.clone(),
+            agent_second_api_key: self.agent.second_api_key.clone(),
+            agent_second_base_url: self.agent.second_base_url.clone(),
             agent_second_model: self.agent.second_model.clone(),
         }
     }
@@ -372,12 +403,15 @@ impl AppConfig {
                 } else {
                     draft.agent_model.trim().to_string()
                 },
-                second_model: draft.agent_second_model.trim().to_string(),
                 provider: if draft.agent_provider.trim().is_empty() {
                     default_provider()
                 } else {
                     draft.agent_provider.trim().to_lowercase()
                 },
+                second_provider: draft.agent_second_provider.trim().to_lowercase(),
+                second_api_key: draft.agent_second_api_key.trim().to_string(),
+                second_base_url: draft.agent_second_base_url.trim().to_string(),
+                second_model: draft.agent_second_model.trim().to_string(),
             },
         };
 

@@ -37,31 +37,48 @@ impl ProviderConfig {
         Self::resolve(config, true)
     }
 
-    fn resolve(config: &crate::config::AppConfig, use_second_model: bool) -> Self {
+    fn resolve(config: &crate::config::AppConfig, use_second: bool) -> Self {
         let agent = &config.agent;
 
         if agent.is_configured() {
-            let info = provider_defaults(&agent.provider);
-            let base_url = if agent.base_url.is_empty() {
-                info.default_base_url.to_string()
+            // Determine effective provider/key/url/model for this identity.
+            // Second identity fields fall back to primary when empty.
+            let eff_provider = if use_second && !agent.second_provider.is_empty() {
+                &agent.second_provider
             } else {
-                agent.base_url.clone()
+                &agent.provider
             };
-            // For review phases, prefer second_model; fall back to model.
-            let model_source = if use_second_model && !agent.second_model.is_empty() {
+            let eff_api_key = if use_second && !agent.second_api_key.is_empty() {
+                &agent.second_api_key
+            } else {
+                &agent.api_key
+            };
+            let eff_base_url_raw = if use_second && !agent.second_base_url.is_empty() {
+                &agent.second_base_url
+            } else {
+                &agent.base_url
+            };
+            let eff_model_raw = if use_second && !agent.second_model.is_empty() {
                 &agent.second_model
             } else {
                 &agent.model
             };
-            let model = if model_source.is_empty() {
+
+            let info = provider_defaults(eff_provider);
+            let base_url = if eff_base_url_raw.is_empty() {
+                info.default_base_url.to_string()
+            } else {
+                eff_base_url_raw.clone()
+            };
+            let model = if eff_model_raw.is_empty() {
                 info.default_model.to_string()
             } else {
-                model_source.clone()
+                eff_model_raw.clone()
             };
             Self {
-                name: agent.provider.to_lowercase(),
+                name: eff_provider.to_lowercase(),
                 base_url,
-                api_key: agent.api_key.clone(),
+                api_key: eff_api_key.clone(),
                 model,
                 wire: info.wire,
             }

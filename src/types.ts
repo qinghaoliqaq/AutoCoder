@@ -38,6 +38,9 @@ export interface ConfigDraft {
   agent_api_key: string;
   agent_base_url: string;
   agent_model: string;
+  agent_second_provider: string;
+  agent_second_api_key: string;
+  agent_second_base_url: string;
   agent_second_model: string;
 }
 
