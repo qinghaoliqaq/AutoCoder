@@ -38,6 +38,10 @@ impl Tool for TaskGetTool {
          checking its current state."
     }
 
+    fn prompt(&self) -> Option<&'static str> {
+        Some(prompt::PROMPT)
+    }
+
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",
