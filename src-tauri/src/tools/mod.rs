@@ -163,6 +163,14 @@ pub trait Tool: Send + Sync {
     /// Execute the tool with the given input and context.
     async fn execute(&self, input: Value, ctx: &ToolContext<'_>) -> ToolResult;
 
+    /// Detailed usage prompt for the system prompt. Tells the model when to use
+    /// this tool, best practices, and what to avoid. This is injected into the
+    /// system prompt so the model understands how to use each tool properly.
+    /// Returns None if no special prompt is needed (description is sufficient).
+    fn prompt(&self) -> Option<&'static str> {
+        None
+    }
+
     /// If this tool maps to an Anthropic built-in type (e.g. bash_20250124),
     /// return the type string. Otherwise None = custom tool.
     fn anthropic_builtin_type(&self) -> Option<&'static str> {
@@ -211,6 +219,25 @@ impl ToolRegistry {
     /// Number of registered tools.
     pub fn len(&self) -> usize {
         self.tools.len()
+    }
+
+    /// Build a combined tool-usage instruction section for injection into the
+    /// system prompt. Each tool's `prompt()` is included under a heading with
+    /// the tool name so the model knows exactly when/how to use each tool.
+    pub fn tool_prompts(&self) -> String {
+        let mut sections = Vec::new();
+        for tool in &self.tools {
+            if let Some(prompt) = tool.prompt() {
+                sections.push(format!("## {}\n\n{}", tool.name(), prompt));
+            }
+        }
+        if sections.is_empty() {
+            return String::new();
+        }
+        format!(
+            "# Tool Usage Instructions\n\n{}\n",
+            sections.join("\n\n---\n\n")
+        )
     }
 
     /// Generate tool definitions for the given wire format.

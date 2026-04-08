@@ -162,6 +162,15 @@ async fn run_inner(
         registry.definitions(provider.wire)
     };
 
+    // Inject tool usage prompts into the system prompt so the model knows
+    // when/how to use each tool (same pattern as Claude Code's prompt.ts).
+    let tool_instructions = registry.tool_prompts();
+    let full_system_prompt = if tool_instructions.is_empty() {
+        system_prompt.to_string()
+    } else {
+        format!("{system_prompt}\n\n{tool_instructions}")
+    };
+
     match provider.wire {
         WireFormat::Anthropic => {
             anthropic::run_loop(
@@ -169,7 +178,7 @@ async fn run_inner(
                 &provider.base_url,
                 &provider.api_key,
                 &provider.model,
-                system_prompt,
+                &full_system_prompt,
                 user_prompt,
                 &tool_defs,
                 &workspace,
@@ -188,7 +197,7 @@ async fn run_inner(
                 &provider.base_url,
                 &provider.api_key,
                 &provider.model,
-                system_prompt,
+                &full_system_prompt,
                 user_prompt,
                 &tool_defs,
                 &workspace,
