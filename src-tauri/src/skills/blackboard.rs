@@ -168,6 +168,18 @@ impl Blackboard {
                     SubtaskState::NeedsFix
                 };
             }
+            // Reset Failed subtasks so they can be retried when the user
+            // restarts the code skill.  The attempt counter and review
+            // findings are preserved so the next run benefits from prior
+            // context.
+            if matches!(card.status, SubtaskState::Failed) {
+                card.attempts = 0;
+                card.status = if card.review_findings.is_empty() {
+                    SubtaskState::Pending
+                } else {
+                    SubtaskState::NeedsFix
+                };
+            }
         }
 
         self.state = if self
@@ -176,8 +188,6 @@ impl Blackboard {
             .all(|card| matches!(card.status, SubtaskState::Done))
         {
             BoardState::Completed
-        } else if matches!(self.state, BoardState::Failed) {
-            BoardState::Failed
         } else {
             BoardState::Pending
         };

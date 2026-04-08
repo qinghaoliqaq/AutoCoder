@@ -388,13 +388,31 @@ async fn run_subtask(
         total,
     };
 
+    // When a subtask fails review (Retry), we keep its isolated workspace so
+    // Claude can fix the existing code in-place instead of reimplementing from
+    // scratch.  Only transient errors (Err) get a fresh workspace.
+    let mut reuse_isolated: Option<IsolatedWorkspace> = None;
+
     loop {
         let attempt = mutate_board(&ctx.board, workspace, |board| {
             board.begin_attempt(&subtask_id)
         })
         .await?;
 
-        let isolated = create_isolated_workspace(workspace, &subtask_id, attempt)?;
+        let isolated = if let Some(prev) = reuse_isolated.take() {
+            // Reuse previous attempt's workspace — Claude will fix in-place.
+            // Re-sync coordination files so blackboard/plan are up to date.
+            tracing::info!(
+                subtask = %subtask_id,
+                attempt,
+                "Reusing previous isolated workspace for fix attempt"
+            );
+            sync_coordination_files(workspace, &prev.root)?;
+            prev
+        } else {
+            create_isolated_workspace(workspace, &subtask_id, attempt)?
+        };
+
         mutate_board(&ctx.board, workspace, |board| {
             board.set_isolated_workspace(&subtask_id, Some(isolated.root.display().to_string()))
         })
@@ -417,9 +435,16 @@ async fn run_subtask(
         } else {
             None
         };
-        let cleanup_err = cleanup_isolated_workspace(&isolated.root)
-            .and_then(|()| cleanup_isolated_workspace(&isolated.base_dir))
-            .err();
+
+        // Only clean up the workspace when we won't reuse it.
+        let should_reuse = matches!(attempt_result, Ok(AttemptResolution::Retry));
+        let cleanup_err = if should_reuse {
+            None
+        } else {
+            cleanup_isolated_workspace(&isolated.root)
+                .and_then(|()| cleanup_isolated_workspace(&isolated.base_dir))
+                .err()
+        };
 
         if let Some(err) = clear_board_err.or(finish_active_err).or(cleanup_err) {
             return match attempt_result {
@@ -430,14 +455,18 @@ async fn run_subtask(
 
         match attempt_result {
             Ok(AttemptResolution::Completed) => return Ok(()),
-            Ok(AttemptResolution::Retry) => continue,
+            Ok(AttemptResolution::Retry) => {
+                // Keep the workspace so Claude fixes existing code next attempt.
+                reuse_isolated = Some(isolated);
+                continue;
+            }
             Err(e) if attempt < MAX_SUBTASK_ATTEMPTS => {
                 // Transient error (Claude/Codex crash, network issue, etc.) —
-                // retry instead of killing the subtask immediately.
+                // retry with a fresh workspace.
                 tracing::warn!(
                     subtask = %subtask_id,
                     attempt,
-                    "Subtask attempt errored, will retry: {e}"
+                    "Subtask attempt errored, will retry fresh: {e}"
                 );
                 let _ = emit_blackboard(
                     workspace,
