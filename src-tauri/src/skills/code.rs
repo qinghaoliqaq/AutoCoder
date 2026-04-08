@@ -28,14 +28,9 @@ use super::{
     merge_engine::merge_isolated_workspace,
     vendored::{load as load_vendored_skill, select_for_subtask},
 };
-use crate::{
-    config::AppConfig,
-    evidence,
-    planning_schema::{read_plan_acceptance_lenient, SubtaskAcceptance},
-    prompts::Prompts,
-    tool_runner,
-    verifier,
-};
+use super::{evidence, planning_schema::SubtaskAcceptance, verifier};
+use super::planning_schema::read_plan_acceptance_lenient;
+use crate::{config::AppConfig, prompts::Prompts, tool_runner};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::{sync::Mutex, task::JoinSet};

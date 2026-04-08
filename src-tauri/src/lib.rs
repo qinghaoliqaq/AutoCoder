@@ -318,12 +318,12 @@ fn memory_list(workspace: Option<String>) -> Vec<String> {
 
 #[tauri::command]
 fn evidence_digest(workspace: String) -> Option<String> {
-    evidence::build_evidence_digest(&workspace)
+    skills::evidence::build_evidence_digest(&workspace)
 }
 
 #[tauri::command]
 fn evidence_subtask_context(workspace: String, subtask_id: String) -> Option<String> {
-    evidence::build_subtask_context(&workspace, &subtask_id)
+    skills::evidence::build_subtask_context(&workspace, &subtask_id)
 }
 
 /// Test API connectivity by sending a minimal request to the configured endpoint.

@@ -1,11 +1,7 @@
 use super::{QaResult, ToolLog};
-use crate::{
-    config::AppConfig,
-    evidence::{self, read_evidence_index, EvidenceEvent, EVIDENCE_INDEX_JSON},
-    planning_schema::{read_plan_acceptance_lenient, PLAN_ACCEPTANCE_JSON},
-    prompts::Prompts,
-    tool_runner,
-};
+use super::evidence::{self, read_evidence_index, EvidenceEvent, EVIDENCE_INDEX_JSON};
+use super::planning_schema::{read_plan_acceptance_lenient, PLAN_ACCEPTANCE_JSON};
+use crate::{config::AppConfig, prompts::Prompts, tool_runner};
 use chrono::Utc;
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;

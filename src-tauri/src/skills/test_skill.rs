@@ -14,12 +14,9 @@ use super::{ReviewPhaseResult, ToolLog};
 ///
 /// Each phase emits "review-phase-result" when it finishes.
 /// The "document" phase additionally emits "completion-report" with the full markdown.
-use crate::{
-    config::AppConfig,
-    evidence::{self, EvidenceEvent},
-    planning_schema::{read_plan_acceptance_lenient, PLAN_ACCEPTANCE_JSON},
-    tool_runner,
-};
+use super::evidence::{self, EvidenceEvent};
+use super::planning_schema::{read_plan_acceptance_lenient, PLAN_ACCEPTANCE_JSON};
+use crate::{config::AppConfig, tool_runner};
 use chrono::Utc;
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
