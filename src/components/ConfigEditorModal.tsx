@@ -83,9 +83,9 @@ export default function ConfigEditorModal({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-surface-primary">
-      {/* ── Top bar ──────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between border-b border-edge-primary/30 px-6 py-3">
-        <div className="flex items-center gap-3">
+      {/* ── Top bar (pl-24 avoids macOS traffic-light buttons) ──── */}
+      <div className="flex items-center justify-between border-b border-edge-primary/30 pl-24 pr-5 py-3">
+        <div className="flex items-center gap-2.5">
           <Settings2 className="h-4 w-4 text-content-tertiary" />
           <h1 className="text-sm font-semibold text-content-primary">Settings</h1>
           <span className="text-[11px] text-content-tertiary">
@@ -106,22 +106,19 @@ export default function ConfigEditorModal({
       {/* ── Body: sidebar tabs + content ─────────────────────────── */}
       <div className="flex flex-1 min-h-0">
         {/* Tab sidebar */}
-        <nav className="w-48 flex-shrink-0 border-r border-edge-primary/30 bg-surface-secondary/5 px-2 py-3 space-y-0.5">
-          {TABS.map(({ id, label, icon }, idx) => (
+        <nav className="w-44 flex-shrink-0 border-r border-edge-primary/30 px-3 py-4 space-y-1">
+          {TABS.map(({ id, label, icon }) => (
             <button
               key={id}
               onClick={() => setActiveTab(id)}
-              className={`group flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12.5px] font-medium transition-colors ${
+              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
                 activeTab === id
-                  ? 'bg-themed-accent-soft/70 text-themed-accent-text'
-                  : 'text-content-tertiary hover:bg-surface-tertiary/50 hover:text-content-primary'
+                  ? 'bg-themed-accent-soft/70 text-themed-accent-text font-semibold'
+                  : 'text-content-secondary hover:bg-surface-tertiary/40 hover:text-content-primary font-medium'
               }`}
             >
               {icon}
-              <span className="flex-1">{label}</span>
-              <kbd className="hidden group-hover:inline-block rounded border border-edge-primary/60 bg-surface-tertiary/60 px-1 py-0.5 font-mono text-[9px] text-content-tertiary">
-                {'\u2318'}{idx + 1}
-              </kbd>
+              {label}
             </button>
           ))}
         </nav>
