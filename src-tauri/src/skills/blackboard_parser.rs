@@ -104,6 +104,7 @@ fn parse_checklist_line(line: &str) -> Option<SubtaskCard> {
         files_touched: Vec::new(),
         isolated_workspace: None,
         merge_conflict: None,
+        attempted_fixes: Vec::new(),
     })
 }
 
@@ -134,6 +135,7 @@ fn subtask_from_plan_graph(subtask: &PlanSubtask, is_checked: bool) -> SubtaskCa
         files_touched: Vec::new(),
         isolated_workspace: None,
         merge_conflict: None,
+        attempted_fixes: Vec::new(),
     }
 }
 

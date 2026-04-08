@@ -71,6 +71,38 @@ pub(super) fn build_fix_prompt(
             .join("\n")
     };
 
+    // Build optional context sections that only appear when relevant.
+    let mut extra_sections = Vec::new();
+
+    // Prior files touched — tells Claude which files to focus on.
+    if !card.files_touched.is_empty() {
+        extra_sections.push(format!(
+            "Files modified in previous attempt (focus your fixes here):\n{}",
+            card.files_touched.iter().map(|f| format!("- {f}")).collect::<Vec<_>>().join("\n")
+        ));
+    }
+
+    // Merge conflict context — critical info that was previously lost.
+    if let Some(conflict) = &card.merge_conflict {
+        extra_sections.push(format!(
+            "Merge conflict from previous attempt (your fix must resolve this):\n{conflict}"
+        ));
+    }
+
+    // Prior attempted fixes — prevents Claude from repeating failed approaches.
+    if !card.attempted_fixes.is_empty() {
+        extra_sections.push(format!(
+            "Previously attempted approaches that FAILED (do NOT repeat these):\n{}",
+            card.attempted_fixes.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n")
+        ));
+    }
+
+    let extra = if extra_sections.is_empty() {
+        String::new()
+    } else {
+        format!("\n{}\n", extra_sections.join("\n\n"))
+    };
+
     format!(
         "{base_prompt}\n\n\
 Shared-blackboard contract:\n\
@@ -92,6 +124,11 @@ Current subtask:\n\
 \n\
 Blackboard review findings to resolve:\n\
 {findings}\n\
+{extra}\n\
+Fix strategy:\n\
+- Address each finding above as a checklist item — do not skip any.\n\
+- If a merge conflict is noted, restructure your changes to avoid conflicting with parallel subtask output.\n\
+- If previous approaches failed, try a fundamentally different strategy.\n\
 \n\
 At the very end output exactly these lines:\n\
 SUBTASK_ID: {id}\n\
@@ -109,11 +146,21 @@ pub(super) fn build_review_prompt(
     task: &str,
     card: &SubtaskCard,
     acceptance: Option<&SubtaskAcceptance>,
+    verifier_warnings: &[String],
 ) -> String {
     let files = if card.files_touched.is_empty() {
         "none".to_string()
     } else {
         card.files_touched.join(", ")
+    };
+
+    let verifier_section = if verifier_warnings.is_empty() {
+        "Verifier: passed with no warnings.".to_string()
+    } else {
+        format!(
+            "Verifier passed but flagged these warnings (confirm or escalate):\n{}",
+            verifier_warnings.iter().map(|w| format!("- {w}")).collect::<Vec<_>>().join("\n")
+        )
     };
 
     format!(
@@ -134,12 +181,15 @@ Current subtask:\n\
 - Files recently touched: {files}\n\
 - Blackboard implementation summary: {implementation}\n\
 \n\
+{verifier_section}\n\
+\n\
 {acceptance_block}\n\
 \n\
 Review standard:\n\
 - PASS only if this subtask is implemented, wired correctly, and has no obvious correctness gap in scope.\n\
 - PASS only if the implementation satisfies the structured acceptance requirements below when they are provided.\n\
 - FAIL if required behavior is missing, incorrect, fragile, or not integrated.\n\
+- If the verifier flagged warnings above, confirm whether they are actual issues or false positives.\n\
 \n\
 At the very end output exactly this shape:\n\
 REVIEW_DECISION: PASS or FAIL\n\

@@ -463,14 +463,14 @@ async fn run_single_attempt(
         run_implementation_phase(ctx, &card, attempt, isolated).await?;
 
     // Phase 2: Verification.
-    let verifier_passed =
+    let verifier_warnings =
         run_verification_phase(ctx, &card, attempt, isolated, &acceptance, &implementation).await?;
-    if !verifier_passed {
+    let Some(verifier_warnings) = verifier_warnings else {
         return Ok(AttemptResolution::Retry);
-    }
+    };
 
     // Phase 3: Codex review + merge.
-    run_review_and_merge_phase(ctx, &card, attempt, isolated, &acceptance).await
+    run_review_and_merge_phase(ctx, &card, attempt, isolated, &acceptance, &verifier_warnings).await
 }
 
 /// Phase 1 — Select vendored skill (if any), build prompt, run Claude, record implementation.
@@ -567,7 +567,8 @@ fn resolve_vendored_skill(
     }
 }
 
-/// Phase 2 — Run verifier; on failure, record and possibly abort. Returns whether verification passed.
+/// Phase 2 — Run verifier; on failure, record and possibly abort.
+/// Returns `Some(warnings)` if passed, `None` if failed (caller should retry).
 async fn run_verification_phase(
     ctx: &AttemptContext<'_>,
     card: &SubtaskCard,
@@ -575,7 +576,7 @@ async fn run_verification_phase(
     isolated: &IsolatedWorkspace,
     acceptance: &Option<SubtaskAcceptance>,
     implementation: &super::code_prompts::ImplementationReport,
-) -> Result<bool, String> {
+) -> Result<Option<Vec<String>>, String> {
     let verifier_result = verifier::run_and_persist(
         ctx.workspace, &isolated.root, card, acceptance.as_ref(),
         &implementation.files_touched, &implementation.summary,
@@ -587,7 +588,7 @@ async fn run_verification_phase(
             Some(card.id.clone()), "verifier_passed",
             format!("Verifier passed {} attempt {}. Codex is now reviewing the subtask.", card.id, attempt),
         )?;
-        return Ok(true);
+        return Ok(Some(verifier_result.warnings));
     }
 
     // Verifier failed — record findings and decide whether to retry or abort.
@@ -617,7 +618,7 @@ async fn run_verification_phase(
         Some(card.id.clone()), "needs_fix",
         format!("Verifier rejected {} on attempt {}. Claude will retry in a fresh isolated workspace using the verifier findings.", card.id, attempt),
     )?;
-    Ok(false)
+    Ok(None)
 }
 
 /// Phase 3 — Run Codex review, then merge on success.
@@ -627,12 +628,13 @@ async fn run_review_and_merge_phase(
     attempt: u32,
     isolated: &IsolatedWorkspace,
     acceptance: &Option<SubtaskAcceptance>,
+    verifier_warnings: &[String],
 ) -> Result<AttemptResolution, String> {
     let review_card = read_card(&ctx.board, &card.id).await?;
     sync_coordination_files(ctx.workspace, &isolated.root)?;
     let review_prompt = super::inject_context(
         ctx.context,
-        build_review_prompt(ctx.task, &review_card, acceptance.as_ref()),
+        build_review_prompt(ctx.task, &review_card, acceptance.as_ref(), verifier_warnings),
     );
     let review_output = runners::codex_read_only_quiet_subtask(
         &review_prompt,
@@ -812,6 +814,7 @@ mod tests {
             files_touched: Vec::new(),
             isolated_workspace: None,
             merge_conflict: None,
+            attempted_fixes: Vec::new(),
         }
     }
 

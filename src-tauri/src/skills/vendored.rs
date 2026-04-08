@@ -207,6 +207,7 @@ mod tests {
             files_touched: Vec::new(),
             isolated_workspace: None,
             merge_conflict: None,
+            attempted_fixes: Vec::new(),
         };
         assert_eq!(
             select_for_subtask(&card),
@@ -234,6 +235,7 @@ mod tests {
             files_touched: Vec::new(),
             isolated_workspace: None,
             merge_conflict: None,
+            attempted_fixes: Vec::new(),
         };
         assert_eq!(
             select_for_subtask(&card),
@@ -261,6 +263,7 @@ mod tests {
             files_touched: Vec::new(),
             isolated_workspace: None,
             merge_conflict: None,
+            attempted_fixes: Vec::new(),
         };
         assert_eq!(select_for_subtask(&card), None);
     }
@@ -285,6 +288,7 @@ mod tests {
             files_touched: Vec::new(),
             isolated_workspace: None,
             merge_conflict: None,
+            attempted_fixes: Vec::new(),
         };
         assert_eq!(
             select_for_subtask(&card),
@@ -312,6 +316,7 @@ mod tests {
             files_touched: Vec::new(),
             isolated_workspace: None,
             merge_conflict: None,
+            attempted_fixes: Vec::new(),
         };
         assert_eq!(
             select_for_subtask(&card),
@@ -339,6 +344,7 @@ mod tests {
             files_touched: Vec::new(),
             isolated_workspace: None,
             merge_conflict: None,
+            attempted_fixes: Vec::new(),
         };
         assert_eq!(
             select_for_subtask(&card),

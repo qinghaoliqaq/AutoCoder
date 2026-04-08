@@ -221,6 +221,7 @@ mod tests {
             files_touched: vec!["src/jobs/api.rs".to_string()],
             isolated_workspace: None,
             merge_conflict: None,
+            attempted_fixes: Vec::new(),
         }
     }
 

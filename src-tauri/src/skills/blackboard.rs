@@ -64,6 +64,9 @@ pub(crate) struct SubtaskCard {
     pub files_touched: Vec<String>,
     pub isolated_workspace: Option<String>,
     pub merge_conflict: Option<String>,
+    /// Implementation summaries from prior failed attempts, so Claude avoids repeating approaches.
+    #[serde(default)]
+    pub attempted_fixes: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -225,6 +228,18 @@ impl Blackboard {
         findings: Vec<String>,
     ) -> Result<(), String> {
         let card = self.subtask_mut(subtask_id)?;
+        // On failure, archive the current implementation summary so the next
+        // attempt knows what was already tried and can avoid repeating it.
+        if !passed {
+            if let Some(impl_summary) = card.latest_implementation.as_ref() {
+                if !impl_summary.is_empty() {
+                    card.attempted_fixes.push(format!(
+                        "Attempt {}: {}",
+                        card.attempts, impl_summary
+                    ));
+                }
+            }
+        }
         card.latest_review = Some(summary);
         card.review_findings = findings;
         card.status = if passed {
@@ -247,6 +262,14 @@ impl Blackboard {
         conflict: String,
     ) -> Result<(), String> {
         let card = self.subtask_mut(subtask_id)?;
+        if let Some(impl_summary) = card.latest_implementation.as_ref() {
+            if !impl_summary.is_empty() {
+                card.attempted_fixes.push(format!(
+                    "Attempt {} (merge conflict): {}",
+                    card.attempts, impl_summary
+                ));
+            }
+        }
         card.latest_review = Some(summary);
         card.review_findings = findings;
         card.merge_conflict = Some(conflict);
@@ -406,6 +429,7 @@ mod tests {
                     files_touched: Vec::new(),
                     isolated_workspace: Some("/tmp/demo".to_string()),
                     merge_conflict: None,
+                    attempted_fixes: Vec::new(),
                 },
                 SubtaskCard {
                     id: "F2".to_string(),
@@ -425,6 +449,7 @@ mod tests {
                     files_touched: Vec::new(),
                     isolated_workspace: Some("/tmp/demo-2".to_string()),
                     merge_conflict: None,
+                    attempted_fixes: Vec::new(),
                 },
             ],
             updated_at: "before".to_string(),
@@ -471,6 +496,7 @@ mod tests {
                     files_touched: Vec::new(),
                     isolated_workspace: None,
                     merge_conflict: None,
+                    attempted_fixes: Vec::new(),
                 },
                 SubtaskCard {
                     id: "P1".to_string(),
@@ -490,6 +516,7 @@ mod tests {
                     files_touched: Vec::new(),
                     isolated_workspace: None,
                     merge_conflict: None,
+                    attempted_fixes: Vec::new(),
                 },
             ],
             updated_at: "now".to_string(),

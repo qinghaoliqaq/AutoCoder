@@ -659,6 +659,7 @@ mod tests {
                 files_touched: vec!["src/jobs.rs".to_string()],
                 isolated_workspace: None,
                 merge_conflict: None,
+                attempted_fixes: Vec::new(),
             }],
             updated_at: "now".to_string(),
         }
