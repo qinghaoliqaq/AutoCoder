@@ -375,7 +375,7 @@ fn truncate_error(text: &str) -> String {
 fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::tray::TrayIconBuilder;
     use tauri::menu::{MenuBuilder, MenuItemBuilder};
-    use tauri::{Manager, Emitter};
+    use tauri::Manager;
 
     let show = MenuItemBuilder::with_id("show", "Show FlowForge").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -386,7 +386,7 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     TrayIconBuilder::new()
-        .icon(app.default_window_icon().cloned().unwrap())
+        .icon(app.default_window_icon().cloned().expect("default icon must be set in tauri.conf.json"))
         .tooltip("FlowForge")
         .menu(&menu)
         .on_menu_event(|app, event| {
