@@ -718,7 +718,7 @@ fn resolve_vendored_skill(
         ctx.config.features.vendored_skills,
         select_for_subtask(card),
     ) {
-        (true, Some(skill_id)) => match load_vendored_skill(skill_id, ctx.app_handle) {
+        (true, Some(skill_id)) => match load_vendored_skill(skill_id) {
             Ok(skill) => {
                 emit_vendored_skill_log(ctx.app_handle, ctx.window_label, "claude", &skill, card)?;
                 emit_blackboard(

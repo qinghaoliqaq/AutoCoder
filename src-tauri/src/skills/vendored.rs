@@ -109,6 +109,8 @@ pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> 
 
     if has_ui && has_backend {
         Some(VendoredSkillId::FullstackDev)
+    } else if has_ui {
+        Some(VendoredSkillId::FrontendDev)
     } else {
         None
     }
@@ -116,10 +118,7 @@ pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> 
 
 /// Load a vendored skill from the bundled skills registry.
 /// No longer reads from the filesystem — skills are compiled into the binary.
-pub(crate) fn load(
-    skill_id: VendoredSkillId,
-    _app_handle: &tauri::AppHandle,
-) -> Result<VendoredSkill, String> {
+pub(crate) fn load(skill_id: VendoredSkillId) -> Result<VendoredSkill, String> {
     let registry = bundled_skills::default_skill_registry();
     match registry.get(skill_id.slug()) {
         Some(def) => Ok(VendoredSkill {

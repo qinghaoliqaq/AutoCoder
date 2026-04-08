@@ -27,7 +27,7 @@ In practice, AutoCoder is trying to be a local AI software delivery console rath
 - Session history with restorable Director context
 - Tool call logging for Claude and Codex runs
 - Inline subtask review loop: Claude implements, Codex reviews, Claude repairs
-- Support for vendored third-party skills injected at runtime
+- Bundled skills system (frontend-dev, fullstack-dev, ui-design-system, simplify, verify)
 - Configurable Director backend through OpenAI-compatible or Anthropic-compatible APIs
 - Desktop UI built with Tauri, React, TypeScript, and Tailwind CSS
 
@@ -119,9 +119,7 @@ The important design choice is that the workflow state is externalized into file
 │   │   ├── workspace.rs     # Workspace and file access
 │   │   └── skills/          # plan/code/debug/review/test runners
 │   └── prompts/             # Prompt templates used by the backend
-├── vendor/                  # Vendored third-party skills
 ├── config.example.toml      # Example Director configuration
-└── VENDORED_SKILLS_ARCHITECTURE.md
 ```
 
 ## Prerequisites

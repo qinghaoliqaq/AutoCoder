@@ -91,7 +91,7 @@ export interface QaResult {
 }
 
 export interface ToolLog {
-  agent: 'claude' | 'codex';
+  agent: 'claude' | 'codex' | 'system';
   tool: string;
   input: string;
   timestamp: number;

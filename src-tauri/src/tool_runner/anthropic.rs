@@ -151,7 +151,7 @@ async fn stream_response(
     let mut current_input_json = String::new();
 
     let mut stream = resp.bytes_stream();
-    let mut buf = String::new();
+    let mut byte_buf: Vec<u8> = Vec::new();
 
     loop {
         let chunk = tokio::select! {
@@ -167,12 +167,15 @@ async fn stream_response(
             None => break, // Stream ended
         };
 
-        buf.push_str(&String::from_utf8_lossy(&chunk));
+        byte_buf.extend_from_slice(&chunk);
 
-        // Process complete SSE lines
-        while let Some(line_end) = buf.find('\n') {
-            let line = buf[..line_end].trim_end_matches('\r').to_string();
-            buf = buf[line_end + 1..].to_string();
+        // Process complete SSE lines (split on \n in the byte buffer)
+        while let Some(pos) = byte_buf.iter().position(|&b| b == b'\n') {
+            let line_bytes = byte_buf[..pos].to_vec();
+            byte_buf.drain(..=pos);
+            let line = String::from_utf8_lossy(&line_bytes)
+                .trim_end_matches('\r')
+                .to_string();
 
             if line.is_empty() || line.starts_with(':') {
                 continue;
