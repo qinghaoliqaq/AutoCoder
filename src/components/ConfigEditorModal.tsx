@@ -163,10 +163,10 @@ export default function ConfigEditorModal({
           ))}
         </nav>
 
-        {/* Content area */}
-        <div className="flex-1 custom-scrollbar overflow-y-auto">
+        {/* Content area — only scrolls when content exceeds viewport */}
+        <div className="flex-1 custom-scrollbar overflow-y-auto min-h-0">
           {draft ? (
-            <div className="mx-auto max-w-2xl px-8 py-6">
+            <div className="mx-auto max-w-2xl px-8 py-4">
               {activeTab === 'general' && <GeneralTab draft={draft} update={update} />}
               {activeTab === 'agent' && <AgentTab draft={draft} update={update} />}
               {activeTab === 'appearance' && <AppearanceTab />}
@@ -250,7 +250,7 @@ function GeneralTab({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <SectionHeading title="Director 模型" description="配置对话指挥层（Director）使用的模型和接口" />
 
       <div className="grid gap-4 sm:grid-cols-2">

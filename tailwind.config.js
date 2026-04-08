@@ -13,10 +13,6 @@ export default {
           codex: '#10a37f',
           director: '#7c3aed',
         },
-        background: {
-          light: 'rgb(250 250 249)', // zinc-50
-          dark: 'rgb(9 9 11)',       // zinc-950
-        },
         // CSS variable-driven semantic tokens
         surface: {
           primary: 'rgb(var(--bg-primary) / <alpha-value>)',

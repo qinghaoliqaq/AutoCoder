@@ -503,11 +503,20 @@ export default function App() {
   return (
     <ThemeProvider>
       <ModeActivated mode={currentMode} />
-      {/* Global Background Layer with glowing orbs for Glassmorphism effect */}
-      <div className="fixed inset-0 z-0 bg-background-light dark:bg-background-dark pointer-events-none overflow-hidden">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-violet-400/20 dark:bg-violet-600/20 blur-[100px] animate-blob" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-blue-400/20 dark:bg-blue-600/20 blur-[100px] animate-blob" style={{ animationDelay: '2s' }} />
-        <div className="absolute top-[20%] right-[20%] w-[30%] h-[30%] rounded-full bg-rose-400/20 dark:bg-rose-600/20 blur-[100px] animate-blob" style={{ animationDelay: '4s' }} />
+      {/* Global Background Layer — uses theme CSS vars so every theme gets matching orbs */}
+      <div className="fixed inset-0 z-0 bg-surface-primary pointer-events-none overflow-hidden">
+        <div
+          className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full blur-[100px] animate-blob"
+          style={{ backgroundColor: 'rgb(var(--accent) / 0.12)' }}
+        />
+        <div
+          className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full blur-[100px] animate-blob"
+          style={{ backgroundColor: 'rgb(var(--accent) / 0.08)', animationDelay: '2s' }}
+        />
+        <div
+          className="absolute top-[20%] right-[20%] w-[30%] h-[30%] rounded-full blur-[100px] animate-blob"
+          style={{ backgroundColor: 'rgb(var(--accent) / 0.06)', animationDelay: '4s' }}
+        />
       </div>
 
       <div className="flex flex-col h-screen w-screen overflow-hidden bg-transparent font-sans animate-app-entrance relative z-10 text-content-primary">
