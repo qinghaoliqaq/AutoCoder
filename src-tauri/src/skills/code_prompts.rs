@@ -198,9 +198,11 @@ Current subtask:\n\
 {acceptance_block}\n\
 \n\
 Review standard:\n\
-- PASS only if this subtask is implemented, wired correctly, and has no obvious correctness gap in scope.\n\
-- PASS only if the implementation satisfies the structured acceptance requirements below when they are provided.\n\
-- FAIL if required behavior is missing, incorrect, fragile, or not integrated.\n\
+- PASS if the subtask is implemented, wired correctly, and has no **blocking** correctness gap.\n\
+- PASS if the implementation satisfies the structured acceptance requirements below when they are provided.\n\
+- PASS with findings for minor style issues, best-practice suggestions, or non-critical improvements — list them in REVIEW_FINDINGS but still PASS.\n\
+- FAIL **only** if required behavior is missing, there is a runtime crash/error, data loss risk, or a security vulnerability.\n\
+- Do NOT fail for: cosmetic issues, missing optional props defaults, naming preferences, minor code style, or theoretical edge cases that don't break functionality.\n\
 - If the verifier flagged warnings above, confirm whether they are actual issues or false positives.\n\
 \n\
 At the very end output exactly this shape:\n\

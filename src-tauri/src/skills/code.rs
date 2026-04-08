@@ -41,7 +41,7 @@ use std::sync::Arc;
 use tokio::{sync::Mutex, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
-const MAX_SUBTASK_ATTEMPTS: u32 = 3;
+const MAX_SUBTASK_ATTEMPTS: u32 = 5;
 
 pub(super) async fn run(
     task: &str,
