@@ -75,6 +75,10 @@ impl Tool for ToolSearchTool {
          \"+slack send\" — require \"slack\" in the name, rank by remaining terms."
     }
 
+    fn prompt(&self) -> Option<&'static str> {
+        Some(prompt::PROMPT)
+    }
+
     fn input_schema(&self) -> Value {
         json!({
             "type": "object",

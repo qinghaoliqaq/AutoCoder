@@ -1,3 +1,5 @@
+pub mod prompt;
+
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -57,6 +59,10 @@ impl Tool for TaskCreateTool {
         "Create a new task in the task list. Use this to track multi-step work, \
          organize complex tasks, and show progress to the user. Each task is created \
          with status 'pending' and can later be updated via TaskUpdate."
+    }
+
+    fn prompt(&self) -> Option<&'static str> {
+        Some(prompt::PROMPT)
     }
 
     fn input_schema(&self) -> Value {
