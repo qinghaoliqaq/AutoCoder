@@ -323,7 +323,13 @@ fn handle_result_event(
     subtask_id: Option<&str>,
 ) -> LineAction {
     if v["is_error"].as_bool() == Some(true) {
-        let msg = v["result"].as_str().unwrap_or("unknown error").to_string();
+        let msg = if let Some(s) = v["result"].as_str() {
+            s.to_string()
+        } else if v["result"].is_null() {
+            "unknown error (null result)".to_string()
+        } else {
+            v["result"].to_string()
+        };
         return LineAction::Error(format!("Claude error: {msg}"));
     }
     if full_text.is_empty() {

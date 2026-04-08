@@ -136,8 +136,11 @@ async fn run_codex(
             let msg = v["message"]
                 .as_str()
                 .or_else(|| v["error"].as_str())
-                .unwrap_or("unknown error")
-                .to_string();
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| {
+                    // Serialize the full event so no error detail is lost.
+                    v.to_string()
+                });
             return LineAction::Error(format!("Codex error: {msg}"));
         }
 
