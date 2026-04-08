@@ -443,24 +443,36 @@ async fn run_subtask(
         })
         .await?;
 
-        let isolated = if let Some(prev) = reuse_isolated.take() {
-            // Reuse previous attempt's workspace — Claude will fix in-place.
-            // Re-sync coordination files so blackboard/plan are up to date.
-            tracing::info!(
-                subtask = %subtask_id,
-                attempt,
-                "Reusing previous isolated workspace for fix attempt"
-            );
-            sync_coordination_files(workspace, &prev.root)?;
-            prev
-        } else {
-            create_isolated_workspace(workspace, &subtask_id, attempt)?
+        // Setup phase: create/reuse isolated workspace.  If any step fails,
+        // we must clean up the active-subtask tracking before propagating.
+        let isolated = match setup_isolated_workspace(
+            &ctx,
+            &subtask_id,
+            attempt,
+            reuse_isolated.take(),
+        )
+        .await
+        {
+            Ok(iso) => iso,
+            Err(e) => {
+                // Setup failed — remove from active set so the scheduler
+                // doesn't think we're still running.
+                let _ = mutate_board(&ctx.board, workspace, |board| {
+                    board.finish_active_subtask(&subtask_id);
+                    Ok(())
+                })
+                .await;
+                if attempt < MAX_SUBTASK_ATTEMPTS {
+                    tracing::warn!(
+                        subtask = %subtask_id,
+                        attempt,
+                        "Workspace setup failed, will retry fresh: {e}"
+                    );
+                    continue;
+                }
+                return Err(e);
+            }
         };
-
-        mutate_board(&ctx.board, workspace, |board| {
-            board.set_isolated_workspace(&subtask_id, Some(isolated.root.display().to_string()))
-        })
-        .await?;
 
         let attempt_result = run_single_attempt(&ctx, &subtask_id, attempt, &isolated).await;
 
@@ -528,6 +540,31 @@ async fn run_subtask(
             Err(e) => return Err(e),
         }
     }
+}
+
+/// Set up the isolated workspace for an attempt — create fresh or reuse previous.
+async fn setup_isolated_workspace(
+    ctx: &AttemptContext<'_>,
+    subtask_id: &str,
+    attempt: u32,
+    reuse: Option<IsolatedWorkspace>,
+) -> Result<IsolatedWorkspace, String> {
+    let isolated = if let Some(prev) = reuse {
+        tracing::info!(
+            subtask = %subtask_id,
+            attempt,
+            "Reusing previous isolated workspace for fix attempt"
+        );
+        sync_coordination_files(ctx.workspace, &prev.root)?;
+        prev
+    } else {
+        create_isolated_workspace(ctx.workspace, subtask_id, attempt)?
+    };
+    mutate_board(&ctx.board, ctx.workspace, |board| {
+        board.set_isolated_workspace(subtask_id, Some(isolated.root.display().to_string()))
+    })
+    .await?;
+    Ok(isolated)
 }
 
 /// Execute a single attempt of a subtask: implement → build gate → verify → review → merge.
@@ -911,7 +948,7 @@ async fn run_verification_phase(
     emit_blackboard(
         ctx.workspace, ctx.app_handle, ctx.window_label,
         Some(card.id.clone()), "needs_fix",
-        format!("Verifier rejected {} on attempt {}. Claude will retry in a fresh isolated workspace using the verifier findings.", card.id, attempt),
+        format!("Verifier rejected {} on attempt {}. Claude will fix the code in-place using the verifier findings.", card.id, attempt),
     )?;
     Ok(None)
 }
@@ -987,7 +1024,7 @@ async fn run_review_and_merge_phase(
     emit_blackboard(
         ctx.workspace, ctx.app_handle, ctx.window_label,
         Some(card.id.clone()), "needs_fix",
-        format!("Codex rejected {} on attempt {}. Claude will retry in a fresh isolated workspace using the shared blackboard findings.", card.id, attempt),
+        format!("Codex rejected {} on attempt {}. Claude will fix the existing code in-place using the shared blackboard findings.", card.id, attempt),
     )?;
     Ok(AttemptResolution::Retry)
 }
@@ -1074,7 +1111,7 @@ async fn apply_merge(
             emit_blackboard(
                 ctx.workspace, ctx.app_handle, ctx.window_label,
                 Some(card.id.clone()), "needs_fix",
-                format!("Subtask {} passed review but hit merge conflicts. Claude will retry from a fresh isolated workspace.", card.id),
+                format!("Subtask {} passed review but hit merge conflicts. Claude will fix the code in-place to resolve conflicts.", card.id),
             )?;
             Ok(AttemptResolution::Retry)
         }
