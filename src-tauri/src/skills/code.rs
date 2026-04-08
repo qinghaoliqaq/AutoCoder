@@ -114,7 +114,6 @@ pub(super) async fn run(
 
     // Track subtask failures without cancelling other workers.  Only a
     // JoinSet panic (worker crash) is treated as truly fatal.
-    let mut failed_subtask_ids: Vec<String> = Vec::new();
 
     let fatal_error = loop {
         spawn_ready_subtasks(
@@ -210,7 +209,7 @@ pub(super) async fn run(
                 "subtask_failed",
                 format!("Subtask {} failed: {err}. Other subtasks continue.", subtask_id),
             );
-            failed_subtask_ids.push(subtask_id);
+            // The subtask is already marked Failed on the board.
             // Do NOT cancel — let remaining subtasks finish.
         }
     };
@@ -220,7 +219,6 @@ pub(super) async fn run(
         if fatal_error.is_none() {
             if let Ok((id, Err(err))) = joined {
                 tracing::warn!(subtask = %id, "Late subtask failure: {err}");
-                failed_subtask_ids.push(id);
             }
         }
     }
@@ -232,18 +230,15 @@ pub(super) async fn run(
     let mut board = shared_board.lock().await;
     board.complete_if_finished();
     board.persist(workspace)?;
-
-    if failed_subtask_ids.is_empty() {
-        emit_blackboard(
-            workspace,
-            app_handle,
-            window_label,
-            None,
-            "completed",
-            "All planned subtasks passed inline review and were merged from isolated workspaces."
-                .to_string(),
-        )?;
-    }
+    emit_blackboard(
+        workspace,
+        app_handle,
+        window_label,
+        None,
+        "completed",
+        "All planned subtasks passed inline review and were merged from isolated workspaces."
+            .to_string(),
+    )?;
     Ok(())
 }
 
