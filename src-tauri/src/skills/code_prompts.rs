@@ -134,6 +134,7 @@ Blackboard review findings to resolve:\n\
 {extra}\n\
 Fix strategy:\n\
 - Address each finding above as a checklist item — do not skip any.\n\
+- If compile or type-check errors are listed, fix every error so the build passes cleanly.\n\
 - If a merge conflict is noted, restructure your changes to avoid conflicting with parallel subtask output.\n\
 - If previous approaches failed, try a fundamentally different strategy.\n\
 \n\

@@ -1,14 +1,14 @@
 use super::{
-    emit_skill_event, record_skill_evidence,
+    emit_skill_event,
     plan_board::{PlanBoard, PlanBoardMode, PLAN_BOARD_MD},
-    runners,
+    record_skill_evidence, runners,
 };
 /// Plan skill — shared-blackboard orchestration for both scratch planning and
 /// document-review planning.
 use crate::{
     planning_schema::{
         parse_plan_acceptance, parse_plan_graph, validate_acceptance_matches_graph,
-        PLAN_ACCEPTANCE_JSON, PLAN_GRAPH_JSON,
+        validate_plan_quality, PLAN_ACCEPTANCE_JSON, PLAN_GRAPH_JSON,
     },
     prompts::Prompts,
 };
@@ -116,7 +116,9 @@ pub(super) async fn run(
     record_skill_evidence(
         Some(&ws_str),
         "plan_completed",
-        &format!("Planning completed. PLAN.md, {PLAN_GRAPH_JSON}, and {PLAN_ACCEPTANCE_JSON} validated."),
+        &format!(
+            "Planning completed. PLAN.md, {PLAN_GRAPH_JSON}, and {PLAN_ACCEPTANCE_JSON} validated."
+        ),
         "system",
         vec![
             "PLAN.md".to_string(),
@@ -458,8 +460,8 @@ async fn validate_or_repair_plan_artifacts(
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<String, String> {
-    match validate_plan_artifacts(workspace) {
-        Ok(plan_doc) => Ok(plan_doc),
+    let validated = match validate_plan_artifacts(workspace) {
+        Ok(v) => v,
         Err(validation_err) => {
             emit_skill_event(
                 app_handle,
@@ -508,9 +510,33 @@ async fn validate_or_repair_plan_artifacts(
                     err,
                 )
             })?;
-            validate_plan_artifacts(workspace)
+            validate_plan_artifacts(workspace)?
         }
+    };
+
+    // Emit quality warnings (advisory, non-blocking).
+    for warning in &validated.quality_warnings {
+        emit_skill_event(
+            app_handle,
+            window_label,
+            "plan_quality_warning",
+            warning.clone(),
+        )?;
     }
+    if !validated.quality_warnings.is_empty() {
+        record_skill_evidence(
+            Some(workspace.to_string_lossy().as_ref()),
+            "plan_quality_warnings",
+            &format!(
+                "{} plan quality warning(s) detected.",
+                validated.quality_warnings.len()
+            ),
+            "system",
+            validated.quality_warnings,
+        );
+    }
+
+    Ok(validated.plan_doc)
 }
 
 fn stage_error(
@@ -528,7 +554,13 @@ fn stage_error(
     )
 }
 
-fn validate_plan_artifacts(workspace: &std::path::Path) -> Result<String, String> {
+/// Validated plan output — the plan document plus any quality warnings.
+struct ValidatedPlan {
+    plan_doc: String,
+    quality_warnings: Vec<String>,
+}
+
+fn validate_plan_artifacts(workspace: &std::path::Path) -> Result<ValidatedPlan, String> {
     let plan_path = workspace.join("PLAN.md");
     let graph_path = workspace.join(PLAN_GRAPH_JSON);
     let acceptance_path = workspace.join(PLAN_ACCEPTANCE_JSON);
@@ -548,7 +580,12 @@ fn validate_plan_artifacts(workspace: &std::path::Path) -> Result<String, String
     let acceptance = parse_plan_acceptance(&acceptance_doc)?;
     validate_acceptance_matches_graph(&graph, &acceptance)?;
 
-    Ok(plan_doc)
+    let quality_warnings = validate_plan_quality(&graph, &acceptance);
+
+    Ok(ValidatedPlan {
+        plan_doc,
+        quality_warnings,
+    })
 }
 
 fn create_plan_workspace_unique(base_name: &str) -> Result<std::path::PathBuf, String> {

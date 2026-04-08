@@ -13,13 +13,13 @@
 ///   merge_engine       — three-way line-level merge
 ///   code_prompts       — prompt builders and output parsers
 ///   code_events        — Tauri event emission and evidence recording
-
 use super::{
     blackboard::{tick_plan_checkbox, Blackboard, SubtaskCard, BLACKBOARD_MD},
+    build_gate,
     code_events::{emit_blackboard, emit_vendored_skill_log},
     code_prompts::{
-        build_fix_prompt, build_implement_prompt, build_review_prompt,
-        parse_implementation_report, parse_review_report,
+        build_fix_prompt, build_implement_prompt, build_review_prompt, parse_implementation_report,
+        parse_review_report,
     },
     isolated_workspace::{
         cleanup_isolated_workspace, create_isolated_workspace, relative_paths_from_root,
@@ -391,8 +391,10 @@ async fn run_subtask(
     };
 
     loop {
-        let attempt =
-            mutate_board(&ctx.board, workspace, |board| board.begin_attempt(&subtask_id)).await?;
+        let attempt = mutate_board(&ctx.board, workspace, |board| {
+            board.begin_attempt(&subtask_id)
+        })
+        .await?;
 
         let isolated = create_isolated_workspace(workspace, &subtask_id, attempt)?;
         mutate_board(&ctx.board, workspace, |board| {
@@ -435,7 +437,7 @@ async fn run_subtask(
     }
 }
 
-/// Execute a single attempt of a subtask: implement → verify → review → merge.
+/// Execute a single attempt of a subtask: implement → build gate → verify → review → merge.
 async fn run_single_attempt(
     ctx: &AttemptContext<'_>,
     subtask_id: &str,
@@ -448,7 +450,11 @@ async fn run_single_attempt(
     let summary = if attempt == 1 {
         format!(
             "Subtask {}/{}: {} is now implementing {} in isolated workspace {}.",
-            ctx.ordinal, ctx.total, card.id, card.title, isolated.root.display()
+            ctx.ordinal,
+            ctx.total,
+            card.id,
+            card.title,
+            isolated.root.display()
         )
     } else {
         format!(
@@ -456,11 +462,23 @@ async fn run_single_attempt(
             ctx.ordinal, ctx.total, card.id, card.title, isolated.root.display(), BLACKBOARD_MD
         )
     };
-    emit_blackboard(ctx.workspace, ctx.app_handle, ctx.window_label, Some(card.id.clone()), "subtask_started", summary)?;
+    emit_blackboard(
+        ctx.workspace,
+        ctx.app_handle,
+        ctx.window_label,
+        Some(card.id.clone()),
+        "subtask_started",
+        summary,
+    )?;
 
     // Phase 1: Claude implementation.
     let (implementation, acceptance) =
         run_implementation_phase(ctx, &card, attempt, isolated).await?;
+
+    // Phase 1.5: Build gate — compile/type-check before review.
+    if let Some(resolution) = run_build_gate_phase(ctx, &card, attempt, isolated).await? {
+        return Ok(resolution);
+    }
 
     // Phase 2: Verification.
     let verifier_warnings =
@@ -470,7 +488,15 @@ async fn run_single_attempt(
     };
 
     // Phase 3: Codex review + merge.
-    run_review_and_merge_phase(ctx, &card, attempt, isolated, &acceptance, &verifier_warnings).await
+    run_review_and_merge_phase(
+        ctx,
+        &card,
+        attempt,
+        isolated,
+        &acceptance,
+        &verifier_warnings,
+    )
+    .await
 }
 
 /// Phase 1 — Select vendored skill (if any), build prompt, run Claude, record implementation.
@@ -479,16 +505,34 @@ async fn run_implementation_phase(
     card: &SubtaskCard,
     attempt: u32,
     isolated: &IsolatedWorkspace,
-) -> Result<(super::code_prompts::ImplementationReport, Option<SubtaskAcceptance>), String> {
+) -> Result<
+    (
+        super::code_prompts::ImplementationReport,
+        Option<SubtaskAcceptance>,
+    ),
+    String,
+> {
     let vendored_skill = resolve_vendored_skill(ctx, card)?;
 
     sync_coordination_files(ctx.workspace, &isolated.root)?;
     let acceptance = ctx.acceptance_by_subtask.get(&card.id).cloned();
 
     let claude_prompt = if card.review_findings.is_empty() {
-        build_implement_prompt(ctx.base_prompt, ctx.task, card, acceptance.as_ref(), vendored_skill.as_ref())
+        build_implement_prompt(
+            ctx.base_prompt,
+            ctx.task,
+            card,
+            acceptance.as_ref(),
+            vendored_skill.as_ref(),
+        )
     } else {
-        build_fix_prompt(ctx.base_prompt, ctx.task, card, acceptance.as_ref(), vendored_skill.as_ref())
+        build_fix_prompt(
+            ctx.base_prompt,
+            ctx.task,
+            card,
+            acceptance.as_ref(),
+            vendored_skill.as_ref(),
+        )
     };
     let claude_prompt = super::inject_context(ctx.context, claude_prompt);
     // Inject evidence history for retries so Claude knows what failed before.
@@ -513,18 +557,29 @@ async fn run_implementation_phase(
 
     let isolated_after = snapshot_workspace(&isolated.root);
     let isolated_changes = workspace_changes(&isolated.base_snapshot, &isolated_after);
-    let observed_files = relative_paths_from_root(&isolated.root, &isolated_changes.changed_or_created);
+    let observed_files =
+        relative_paths_from_root(&isolated.root, &isolated_changes.changed_or_created);
     let implementation = parse_implementation_report(&claude_output, &observed_files, &card.id);
 
     mutate_board(&ctx.board, ctx.workspace, |board| {
-        board.record_implementation(&card.id, implementation.summary.clone(), implementation.files_touched.clone())
+        board.record_implementation(
+            &card.id,
+            implementation.summary.clone(),
+            implementation.files_touched.clone(),
+        )
     })
     .await?;
 
     emit_blackboard(
-        ctx.workspace, ctx.app_handle, ctx.window_label,
-        Some(card.id.clone()), "implemented",
-        format!("Claude finished {} attempt {} in isolation. Verifier is now checking the subtask.", card.id, attempt),
+        ctx.workspace,
+        ctx.app_handle,
+        ctx.window_label,
+        Some(card.id.clone()),
+        "implemented",
+        format!(
+            "Claude finished {} attempt {} in isolation. Verifier is now checking the subtask.",
+            card.id, attempt
+        ),
     )?;
 
     Ok((implementation, acceptance))
@@ -535,22 +590,38 @@ fn resolve_vendored_skill(
     ctx: &AttemptContext<'_>,
     card: &SubtaskCard,
 ) -> Result<Option<super::vendored::VendoredSkill>, String> {
-    match (ctx.config.features.vendored_skills, select_for_subtask(card)) {
+    match (
+        ctx.config.features.vendored_skills,
+        select_for_subtask(card),
+    ) {
         (true, Some(skill_id)) => match load_vendored_skill(skill_id, ctx.app_handle) {
             Ok(skill) => {
                 emit_vendored_skill_log(ctx.app_handle, ctx.window_label, "claude", &skill, card)?;
                 emit_blackboard(
-                    ctx.workspace, ctx.app_handle, ctx.window_label,
-                    Some(card.id.clone()), "vendored_skill_selected",
-                    format!("Subtask {} is using packaged helper skill {}.", card.id, skill.id.label()),
+                    ctx.workspace,
+                    ctx.app_handle,
+                    ctx.window_label,
+                    Some(card.id.clone()),
+                    "vendored_skill_selected",
+                    format!(
+                        "Subtask {} is using packaged helper skill {}.",
+                        card.id,
+                        skill.id.label()
+                    ),
                 )?;
                 Ok(Some(skill))
             }
             Err(err) => {
                 emit_blackboard(
-                    ctx.workspace, ctx.app_handle, ctx.window_label,
-                    Some(card.id.clone()), "vendored_skill_unavailable",
-                    format!("Packaged helper skill for {} is unavailable, continuing without it: {}", card.id, err),
+                    ctx.workspace,
+                    ctx.app_handle,
+                    ctx.window_label,
+                    Some(card.id.clone()),
+                    "vendored_skill_unavailable",
+                    format!(
+                        "Packaged helper skill for {} is unavailable, continuing without it: {}",
+                        card.id, err
+                    ),
                 )?;
                 Ok(None)
             }
@@ -567,6 +638,105 @@ fn resolve_vendored_skill(
     }
 }
 
+/// Phase 1.5 — Run compile/type-check commands in the isolated workspace.
+/// Returns `Some(Retry)` if the build failed and the subtask should retry,
+/// or `None` if the gate passed (or was skipped) and phases can continue.
+async fn run_build_gate_phase(
+    ctx: &AttemptContext<'_>,
+    card: &SubtaskCard,
+    attempt: u32,
+    isolated: &IsolatedWorkspace,
+) -> Result<Option<AttemptResolution>, String> {
+    if !ctx.config.features.build_gate {
+        return Ok(None);
+    }
+
+    let commands = build_gate::detect_build_commands(&isolated.root);
+    if commands.is_empty() {
+        return Ok(None);
+    }
+
+    let labels: Vec<&str> = commands.iter().map(|c| c.label.as_str()).collect();
+    emit_blackboard(
+        ctx.workspace,
+        ctx.app_handle,
+        ctx.window_label,
+        Some(card.id.clone()),
+        "build_gate_running",
+        format!(
+            "Build gate: running {} for subtask {}.",
+            labels.join(", "),
+            card.id
+        ),
+    )?;
+
+    let result = build_gate::run_build_gate(&isolated.root, &commands).await;
+
+    if result.passed {
+        emit_blackboard(
+            ctx.workspace,
+            ctx.app_handle,
+            ctx.window_label,
+            Some(card.id.clone()),
+            "build_gate_passed",
+            format!(
+                "Build gate passed for {} attempt {}. Proceeding to verification.",
+                card.id, attempt
+            ),
+        )?;
+        return Ok(None);
+    }
+
+    // Build failed — record the compile errors as review findings so the
+    // fix prompt can include them, then decide whether to retry or abort.
+    let failure_summary = result.failure_summary();
+    let finding = format!("Build gate failed:\n{failure_summary}");
+
+    mutate_board(&ctx.board, ctx.workspace, |board| {
+        board.record_review(
+            &card.id,
+            false,
+            "Build gate: compile/type-check failed.".to_string(),
+            vec![finding],
+        )?;
+        board.finish_active_subtask(&card.id);
+        Ok(())
+    })
+    .await?;
+
+    emit_blackboard(
+        ctx.workspace,
+        ctx.app_handle,
+        ctx.window_label,
+        Some(card.id.clone()),
+        "build_gate_failed",
+        format!(
+            "Build gate failed for {} attempt {}: compile errors detected. {}",
+            card.id,
+            attempt,
+            if attempt >= MAX_SUBTASK_ATTEMPTS {
+                "Max attempts reached."
+            } else {
+                "Claude will retry with error context."
+            }
+        ),
+    )?;
+
+    if attempt >= MAX_SUBTASK_ATTEMPTS {
+        let reason = format!(
+            "Subtask {} failed build gate after {} attempts.",
+            card.id, MAX_SUBTASK_ATTEMPTS
+        );
+        mutate_board(&ctx.board, ctx.workspace, |board| {
+            board.mark_failed(&card.id, reason.clone())
+        })
+        .await?;
+        return Err(reason);
+    }
+
+    Ok(Some(AttemptResolution::Retry))
+}
+
 /// Phase 2 — Run verifier; on failure, record and possibly abort.
 /// Returns `Some(warnings)` if passed, `None` if failed (caller should retry).
 async fn run_verification_phase(
@@ -578,38 +748,70 @@ async fn run_verification_phase(
     implementation: &super::code_prompts::ImplementationReport,
 ) -> Result<Option<Vec<String>>, String> {
     let verifier_result = verifier::run_and_persist(
-        ctx.workspace, &isolated.root, card, acceptance.as_ref(),
-        &implementation.files_touched, &implementation.summary,
+        ctx.workspace,
+        &isolated.root,
+        card,
+        acceptance.as_ref(),
+        &implementation.files_touched,
+        &implementation.summary,
     )?;
 
     if verifier_result.passed {
         emit_blackboard(
-            ctx.workspace, ctx.app_handle, ctx.window_label,
-            Some(card.id.clone()), "verifier_passed",
-            format!("Verifier passed {} attempt {}. Codex is now reviewing the subtask.", card.id, attempt),
+            ctx.workspace,
+            ctx.app_handle,
+            ctx.window_label,
+            Some(card.id.clone()),
+            "verifier_passed",
+            format!(
+                "Verifier passed {} attempt {}. Codex is now reviewing the subtask.",
+                card.id, attempt
+            ),
         )?;
         return Ok(Some(verifier_result.warnings));
     }
 
     // Verifier failed — record findings and decide whether to retry or abort.
     mutate_board(&ctx.board, ctx.workspace, |board| {
-        board.record_review(&card.id, false, verifier_result.summary.clone(), verifier_result.findings.clone())?;
+        board.record_review(
+            &card.id,
+            false,
+            verifier_result.summary.clone(),
+            verifier_result.findings.clone(),
+        )?;
         board.finish_active_subtask(&card.id);
         Ok(())
     })
     .await?;
     emit_blackboard(
-        ctx.workspace, ctx.app_handle, ctx.window_label,
-        Some(card.id.clone()), "verifier_failed",
-        format!("Verifier blocked {} attempt {} before Codex review: {}", card.id, attempt, verifier_result.summary),
+        ctx.workspace,
+        ctx.app_handle,
+        ctx.window_label,
+        Some(card.id.clone()),
+        "verifier_failed",
+        format!(
+            "Verifier blocked {} attempt {} before Codex review: {}",
+            card.id, attempt, verifier_result.summary
+        ),
     )?;
 
     if attempt >= MAX_SUBTASK_ATTEMPTS {
         let reason = format!(
-            "Subtask {} failed verifier after {} attempts: {}", card.id, MAX_SUBTASK_ATTEMPTS, verifier_result.summary
+            "Subtask {} failed verifier after {} attempts: {}",
+            card.id, MAX_SUBTASK_ATTEMPTS, verifier_result.summary
         );
-        mutate_board(&ctx.board, ctx.workspace, |board| board.mark_failed(&card.id, reason.clone())).await?;
-        emit_blackboard(ctx.workspace, ctx.app_handle, ctx.window_label, Some(card.id.clone()), "failed", reason.clone())?;
+        mutate_board(&ctx.board, ctx.workspace, |board| {
+            board.mark_failed(&card.id, reason.clone())
+        })
+        .await?;
+        emit_blackboard(
+            ctx.workspace,
+            ctx.app_handle,
+            ctx.window_label,
+            Some(card.id.clone()),
+            "failed",
+            reason.clone(),
+        )?;
         return Err(reason);
     }
 
@@ -634,12 +836,19 @@ async fn run_review_and_merge_phase(
     sync_coordination_files(ctx.workspace, &isolated.root)?;
     let review_prompt = super::inject_context(
         ctx.context,
-        build_review_prompt(ctx.task, &review_card, acceptance.as_ref(), verifier_warnings),
+        build_review_prompt(
+            ctx.task,
+            &review_card,
+            acceptance.as_ref(),
+            verifier_warnings,
+        ),
     );
     let review_output = runners::codex_read_only_quiet_subtask(
         &review_prompt,
         Some(isolated.root.to_string_lossy().as_ref()),
-        ctx.window_label, ctx.app_handle, ctx.token.clone(),
+        ctx.window_label,
+        ctx.app_handle,
+        ctx.token.clone(),
         &card.id,
     )
     .await?;
@@ -651,7 +860,12 @@ async fn run_review_and_merge_phase(
 
     // Review rejected — record and decide whether to retry or abort.
     mutate_board(&ctx.board, ctx.workspace, |board| {
-        board.record_review(&card.id, false, review.summary.clone(), review.findings.clone())?;
+        board.record_review(
+            &card.id,
+            false,
+            review.summary.clone(),
+            review.findings.clone(),
+        )?;
         board.finish_active_subtask(&card.id);
         Ok(())
     })
@@ -659,10 +873,21 @@ async fn run_review_and_merge_phase(
 
     if attempt >= MAX_SUBTASK_ATTEMPTS {
         let reason = format!(
-            "Subtask {} failed inline review after {} attempts: {}", card.id, MAX_SUBTASK_ATTEMPTS, review.summary
+            "Subtask {} failed inline review after {} attempts: {}",
+            card.id, MAX_SUBTASK_ATTEMPTS, review.summary
         );
-        mutate_board(&ctx.board, ctx.workspace, |board| board.mark_failed(&card.id, reason.clone())).await?;
-        emit_blackboard(ctx.workspace, ctx.app_handle, ctx.window_label, Some(card.id.clone()), "failed", reason.clone())?;
+        mutate_board(&ctx.board, ctx.workspace, |board| {
+            board.mark_failed(&card.id, reason.clone())
+        })
+        .await?;
+        emit_blackboard(
+            ctx.workspace,
+            ctx.app_handle,
+            ctx.window_label,
+            Some(card.id.clone()),
+            "failed",
+            reason.clone(),
+        )?;
         return Err(reason);
     }
 
@@ -690,8 +915,12 @@ async fn apply_merge(
             mutate_board(&ctx.board, ctx.workspace, |board| {
                 board.record_implementation(
                     &card.id,
-                    review_card.latest_implementation.clone()
-                        .unwrap_or_else(|| "Implementation merged from isolated workspace.".to_string()),
+                    review_card
+                        .latest_implementation
+                        .clone()
+                        .unwrap_or_else(|| {
+                            "Implementation merged from isolated workspace.".to_string()
+                        }),
                     merged_files.clone(),
                 )?;
                 board.record_review(&card.id, true, review.summary.clone(), Vec::new())?;
@@ -702,9 +931,15 @@ async fn apply_merge(
             .await?;
             tick_plan_checkbox(ctx.workspace, &card.id)?;
             emit_blackboard(
-                ctx.workspace, ctx.app_handle, ctx.window_label,
-                Some(card.id.clone()), "passed",
-                format!("Subtask {} passed Codex review and merged cleanly from isolated workspace.", card.id),
+                ctx.workspace,
+                ctx.app_handle,
+                ctx.window_label,
+                Some(card.id.clone()),
+                "passed",
+                format!(
+                    "Subtask {} passed Codex review and merged cleanly from isolated workspace.",
+                    card.id
+                ),
             )?;
             Ok(AttemptResolution::Completed)
         }
@@ -714,10 +949,21 @@ async fn apply_merge(
 
             if attempt >= MAX_SUBTASK_ATTEMPTS {
                 let reason = format!(
-                    "Subtask {} hit merge conflicts after {} attempts: {}", card.id, MAX_SUBTASK_ATTEMPTS, conflict
+                    "Subtask {} hit merge conflicts after {} attempts: {}",
+                    card.id, MAX_SUBTASK_ATTEMPTS, conflict
                 );
-                mutate_board(&ctx.board, ctx.workspace, |board| board.mark_failed(&card.id, reason.clone())).await?;
-                emit_blackboard(ctx.workspace, ctx.app_handle, ctx.window_label, Some(card.id.clone()), "failed", reason.clone())?;
+                mutate_board(&ctx.board, ctx.workspace, |board| {
+                    board.mark_failed(&card.id, reason.clone())
+                })
+                .await?;
+                emit_blackboard(
+                    ctx.workspace,
+                    ctx.app_handle,
+                    ctx.window_label,
+                    Some(card.id.clone()),
+                    "failed",
+                    reason.clone(),
+                )?;
                 return Err(reason);
             }
 
@@ -787,8 +1033,6 @@ async fn ordinal_for_subtask(
         .map(|index| index + 1)
         .ok_or_else(|| format!("Unknown subtask order for {subtask_id}"))
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -873,5 +1117,4 @@ mod tests {
 
         assert!(!can_spawn_subtask(&card, &active));
     }
-
 }

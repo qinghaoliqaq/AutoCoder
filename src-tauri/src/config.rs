@@ -76,6 +76,10 @@ pub struct FeaturesConfig {
     pub max_parallel_subtasks: usize,
     #[serde(default)]
     pub execution_access_mode: ExecutionAccessMode,
+    /// When enabled, code mode runs compile/type-check commands after
+    /// implementation and before review.  Auto-detects build system.
+    #[serde(default = "default_true")]
+    pub build_gate: bool,
 }
 
 /// Agent-layer configuration — used by skills that run via the Anthropic API
@@ -85,14 +89,14 @@ pub struct FeaturesConfig {
 pub struct AgentConfig {
     /// Anthropic API key (or cloud provider key).
     #[serde(default)]
-    pub api_key:  String,
+    pub api_key: String,
     /// Custom base URL for API proxy / self-hosted endpoint.
     /// Leave empty to use Anthropic's default endpoint.
     #[serde(default)]
     pub base_url: String,
     /// Model to use for skill execution (e.g. "claude-sonnet-4-6").
     #[serde(default = "default_agent_model")]
-    pub model:    String,
+    pub model: String,
     /// Provider: "anthropic" (default), "bedrock", "vertex", "foundry".
     #[serde(default = "default_provider")]
     pub provider: String,
@@ -179,9 +183,9 @@ impl Default for DirectorConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            api_key:  String::new(),
+            api_key: String::new(),
             base_url: String::new(),
-            model:    default_agent_model(),
+            model: default_agent_model(),
             provider: default_provider(),
             second_provider: String::new(),
             second_api_key: String::new(),
@@ -203,7 +207,7 @@ impl Default for AppConfig {
         Self {
             director: DirectorConfig::default(),
             features: FeaturesConfig::default(),
-            agent:    AgentConfig::default(),
+            agent: AgentConfig::default(),
         }
     }
 }
@@ -214,6 +218,7 @@ impl Default for FeaturesConfig {
             vendored_skills: default_true(),
             max_parallel_subtasks: default_max_parallel_subtasks(),
             execution_access_mode: ExecutionAccessMode::default(),
+            build_gate: default_true(),
         }
     }
 }

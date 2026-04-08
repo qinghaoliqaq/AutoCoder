@@ -352,6 +352,128 @@ fn is_valid_subtask_id(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+// ── Plan quality validation (non-blocking warnings) ──────────────────────
+
+/// Analyse the plan graph and acceptance criteria for quality issues.
+/// Returns a list of human-readable warnings.  These are advisory — they
+/// do not prevent code mode from running but highlight likely problems.
+pub(crate) fn validate_plan_quality(graph: &PlanGraph, acceptance: &PlanAcceptance) -> Vec<String> {
+    let mut warnings = Vec::new();
+    check_overlapping_touch(graph, &mut warnings);
+    check_missing_expected_touch(graph, &mut warnings);
+    check_sequential_bottleneck(graph, &mut warnings);
+    check_thin_acceptance(graph, acceptance, &mut warnings);
+    warnings
+}
+
+/// Warn if multiple subtasks share expected_touch paths (merge-conflict risk).
+fn check_overlapping_touch(graph: &PlanGraph, warnings: &mut Vec<String>) {
+    let mut path_owners: HashMap<&str, Vec<&str>> = HashMap::new();
+    for subtask in &graph.subtasks {
+        for path in &subtask.expected_touch {
+            path_owners
+                .entry(path.as_str())
+                .or_default()
+                .push(subtask.id.as_str());
+        }
+    }
+    for (path, owners) in &path_owners {
+        if owners.len() > 1 {
+            warnings.push(format!(
+                "Path '{}' is in expected_touch of multiple subtasks ({}). \
+                 This increases merge-conflict risk during parallel execution.",
+                path,
+                owners.join(", ")
+            ));
+        }
+    }
+}
+
+/// Warn if a subtask has no expected_touch — the verifier cannot check file scope.
+fn check_missing_expected_touch(graph: &PlanGraph, warnings: &mut Vec<String>) {
+    for subtask in &graph.subtasks {
+        if subtask.expected_touch.is_empty() {
+            warnings.push(format!(
+                "Subtask {} ('{}') has no expected_touch paths. \
+                 The verifier cannot detect out-of-scope file changes.",
+                subtask.id, subtask.title
+            ));
+        }
+    }
+}
+
+/// Warn if the longest dependency chain exceeds a threshold.
+/// Long sequential chains prevent parallel execution and slow down code mode.
+fn check_sequential_bottleneck(graph: &PlanGraph, warnings: &mut Vec<String>) {
+    const MAX_CHAIN_LENGTH: usize = 4;
+    let by_id: HashMap<&str, &PlanSubtask> =
+        graph.subtasks.iter().map(|s| (s.id.as_str(), s)).collect();
+    let mut depth_cache: HashMap<&str, usize> = HashMap::new();
+
+    fn chain_depth<'a>(
+        id: &'a str,
+        by_id: &HashMap<&str, &'a PlanSubtask>,
+        cache: &mut HashMap<&'a str, usize>,
+    ) -> usize {
+        if let Some(&cached) = cache.get(id) {
+            return cached;
+        }
+        let depth = by_id
+            .get(id)
+            .map(|subtask| {
+                subtask
+                    .depends_on
+                    .iter()
+                    .map(|dep| 1 + chain_depth(dep, by_id, cache))
+                    .max()
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+        cache.insert(id, depth);
+        depth
+    }
+
+    let max_depth = graph
+        .subtasks
+        .iter()
+        .map(|s| chain_depth(s.id.as_str(), &by_id, &mut depth_cache))
+        .max()
+        .unwrap_or(0);
+
+    if max_depth >= MAX_CHAIN_LENGTH {
+        warnings.push(format!(
+            "Longest dependency chain is {} steps deep (threshold: {}). \
+             Consider breaking sequential dependencies to enable more parallelism.",
+            max_depth, MAX_CHAIN_LENGTH
+        ));
+    }
+}
+
+/// Warn if any subtask's acceptance criteria are thin (empty must_have).
+fn check_thin_acceptance(
+    graph: &PlanGraph,
+    acceptance: &PlanAcceptance,
+    warnings: &mut Vec<String>,
+) {
+    let acceptance_by_id: HashMap<&str, &SubtaskAcceptance> = acceptance
+        .subtasks
+        .iter()
+        .map(|a| (a.subtask_id.as_str(), a))
+        .collect();
+
+    for subtask in &graph.subtasks {
+        if let Some(acc) = acceptance_by_id.get(subtask.id.as_str()) {
+            if acc.must_have.is_empty() {
+                warnings.push(format!(
+                    "Subtask {} ('{}') has no must_have acceptance criteria. \
+                     The reviewer cannot verify required behavior.",
+                    subtask.id, subtask.title
+                ));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -521,5 +643,116 @@ mod tests {
         let (acceptance, warning) = read_plan_acceptance_lenient(dir.path().to_str().unwrap());
         assert!(acceptance.is_none());
         assert!(warning.unwrap().contains("Cannot parse"));
+    }
+
+    // ── Plan quality tests ───────────────────────────────────────────────
+
+    fn sample_graph(subtasks: Vec<PlanSubtask>) -> PlanGraph {
+        PlanGraph {
+            version: 1,
+            project_name: "Test".to_string(),
+            project_goal: "Test".to_string(),
+            subtasks,
+        }
+    }
+
+    fn sample_subtask(id: &str) -> PlanSubtask {
+        PlanSubtask {
+            id: id.to_string(),
+            title: format!("Title {id}"),
+            description: "desc".to_string(),
+            category: SubtaskCategory::Backend,
+            depends_on: Vec::new(),
+            parallel_group: None,
+            can_run_in_parallel: true,
+            suggested_skill: None,
+            expected_touch: vec![format!("src/{}", id.to_lowercase())],
+        }
+    }
+
+    fn sample_acceptance(ids: &[&str]) -> PlanAcceptance {
+        PlanAcceptance {
+            version: 1,
+            project_acceptance: Vec::new(),
+            subtasks: ids
+                .iter()
+                .map(|id| SubtaskAcceptance {
+                    subtask_id: id.to_string(),
+                    must_have: vec!["something".to_string()],
+                    must_not: Vec::new(),
+                    evidence_required: Vec::new(),
+                    qa_focus: Vec::new(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn quality_warns_on_overlapping_touch() {
+        let mut s1 = sample_subtask("F1");
+        let mut s2 = sample_subtask("F2");
+        s1.expected_touch = vec!["src/shared".to_string()];
+        s2.expected_touch = vec!["src/shared".to_string()];
+        let graph = sample_graph(vec![s1, s2]);
+        let acceptance = sample_acceptance(&["F1", "F2"]);
+        let warnings = validate_plan_quality(&graph, &acceptance);
+        assert!(warnings.iter().any(|w| w.contains("merge-conflict risk")));
+    }
+
+    #[test]
+    fn quality_warns_on_missing_expected_touch() {
+        let mut s1 = sample_subtask("F1");
+        s1.expected_touch.clear();
+        let graph = sample_graph(vec![s1]);
+        let acceptance = sample_acceptance(&["F1"]);
+        let warnings = validate_plan_quality(&graph, &acceptance);
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("no expected_touch paths")));
+    }
+
+    #[test]
+    fn quality_warns_on_sequential_bottleneck() {
+        let mut s1 = sample_subtask("F1");
+        let mut s2 = sample_subtask("F2");
+        let mut s3 = sample_subtask("F3");
+        let mut s4 = sample_subtask("F4");
+        let mut s5 = sample_subtask("F5");
+        s2.depends_on = vec!["F1".to_string()];
+        s3.depends_on = vec!["F2".to_string()];
+        s4.depends_on = vec!["F3".to_string()];
+        s5.depends_on = vec!["F4".to_string()];
+        let graph = sample_graph(vec![s1, s2, s3, s4, s5]);
+        let acceptance = sample_acceptance(&["F1", "F2", "F3", "F4", "F5"]);
+        let warnings = validate_plan_quality(&graph, &acceptance);
+        assert!(warnings.iter().any(|w| w.contains("dependency chain")));
+    }
+
+    #[test]
+    fn quality_warns_on_thin_acceptance() {
+        let graph = sample_graph(vec![sample_subtask("F1")]);
+        let acceptance = PlanAcceptance {
+            version: 1,
+            project_acceptance: Vec::new(),
+            subtasks: vec![SubtaskAcceptance {
+                subtask_id: "F1".to_string(),
+                must_have: Vec::new(),
+                must_not: Vec::new(),
+                evidence_required: vec!["tests".to_string()],
+                qa_focus: Vec::new(),
+            }],
+        };
+        let warnings = validate_plan_quality(&graph, &acceptance);
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("no must_have acceptance")));
+    }
+
+    #[test]
+    fn quality_clean_plan_has_no_warnings() {
+        let graph = sample_graph(vec![sample_subtask("F1"), sample_subtask("F2")]);
+        let acceptance = sample_acceptance(&["F1", "F2"]);
+        let warnings = validate_plan_quality(&graph, &acceptance);
+        assert!(warnings.is_empty());
     }
 }

@@ -5,7 +5,11 @@
 ///   2. Add `mod <name>;` below
 ///   3. Add a match arm in `execute()`
 ///   4. Optionally add a new prompt file in src-tauri/prompts/
-use crate::{config::AppConfig, evidence::{self, EvidenceEvent}, prompts::Prompts};
+use crate::{
+    config::AppConfig,
+    evidence::{self, EvidenceEvent},
+    prompts::Prompts,
+};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
@@ -13,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 pub(crate) mod blackboard;
 mod blackboard_parser;
 mod blackboard_render;
+mod build_gate;
 mod code;
 mod code_events;
 mod code_prompts;
