@@ -69,9 +69,9 @@ When you encounter an obstacle, do not use destructive actions as a shortcut. Tr
 fn using_tools_section() -> String {
     r#"# Using your tools
  - Do NOT use the Bash tool to run commands when a relevant dedicated tool is provided. Using dedicated tools allows better understanding and review of your work. This is CRITICAL:
-   - To read files use FileRead instead of cat, head, tail, or sed
-   - To edit files use FileEdit instead of sed or awk
-   - To create files use FileWrite instead of cat with heredoc or echo redirection
+   - To read files use Read instead of cat, head, tail, or sed
+   - To edit files use Edit instead of sed or awk
+   - To create files use Write instead of cat with heredoc or echo redirection
    - To search for files use Glob instead of find or ls
    - To search the content of files, use Grep instead of grep or rg
    - Reserve using the Bash tool exclusively for system commands and terminal operations that require shell execution. If you are unsure and there is a relevant dedicated tool, default to using the dedicated tool.
