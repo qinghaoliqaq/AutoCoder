@@ -4,15 +4,17 @@ mod openai;
 ///
 /// ```text
 /// tool_runner/
-///   mod.rs        ← public API (this file)
-///   providers.rs  ← provider registry (Anthropic, OpenAI, Zhipu, MiniMax, ...)
-///   anthropic.rs  ← Anthropic Messages API loop
-///   openai.rs     ← OpenAI-compatible Chat Completions loop
+///   mod.rs           ← public API (this file)
+///   providers.rs     ← provider registry (Anthropic, OpenAI, Zhipu, MiniMax, ...)
+///   anthropic.rs     ← Anthropic Messages API loop (SSE streaming)
+///   openai.rs        ← OpenAI-compatible Chat Completions loop (SSE streaming)
+///   system_prompt.rs ← comprehensive base system prompt (adapted from Claw)
 /// ```
 ///
 /// Tool definitions and execution are now provided by the `crate::tools` module.
 /// The tool_runner only handles the API loop and event emission.
 pub mod providers;
+mod system_prompt;
 
 use crate::config::AppConfig;
 use crate::skills::{SkillChunk, ToolLog};
@@ -162,13 +164,22 @@ async fn run_inner(
         registry.definitions(provider.wire)
     };
 
-    // Inject tool usage prompts into the system prompt so the model knows
-    // when/how to use each tool (same pattern as Claude Code's prompt.ts).
+    // Build comprehensive system prompt:
+    //   1. Base system prompt (adapted from Claw — behavior, safety, tool usage)
+    //   2. Skill-specific system prompt (provided by the caller)
+    //   3. Per-tool usage instructions (from ToolRegistry::tool_prompts())
+    let base_prompt =
+        system_prompt::build_base_prompt(&provider.model, &workspace.to_string_lossy());
     let tool_instructions = registry.tool_prompts();
-    let full_system_prompt = if tool_instructions.is_empty() {
-        system_prompt.to_string()
-    } else {
-        format!("{system_prompt}\n\n{tool_instructions}")
+    let full_system_prompt = {
+        let mut parts = vec![base_prompt];
+        if !system_prompt.is_empty() {
+            parts.push(system_prompt.to_string());
+        }
+        if !tool_instructions.is_empty() {
+            parts.push(tool_instructions);
+        }
+        parts.join("\n\n")
     };
 
     match provider.wire {

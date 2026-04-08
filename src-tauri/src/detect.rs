@@ -1,13 +1,6 @@
 use crate::config::AppConfig;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ToolInfo {
-    pub installed: bool,
-    pub version: Option<String>,
-    pub path: Option<String>,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemStatus {
     /// Whether the agent API is configured (api_key present in [agent] or [director]).
@@ -16,9 +9,6 @@ pub struct SystemStatus {
     pub api_provider: String,
     /// Model configured for the agent layer.
     pub api_model: String,
-    // Legacy CLI fields — kept for frontend compatibility but no longer required.
-    pub claude: ToolInfo,
-    pub codex: ToolInfo,
 }
 
 pub fn detect_tools() -> SystemStatus {
@@ -40,16 +30,5 @@ pub fn detect_tools() -> SystemStatus {
         api_configured,
         api_provider,
         api_model,
-        // Legacy: report as not installed since CLI is no longer needed.
-        claude: ToolInfo {
-            installed: false,
-            version: None,
-            path: None,
-        },
-        codex: ToolInfo {
-            installed: false,
-            version: None,
-            path: None,
-        },
     }
 }

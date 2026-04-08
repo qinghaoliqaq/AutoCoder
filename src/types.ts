@@ -2,19 +2,10 @@ export type AgentRole = 'claude' | 'codex' | 'director' | 'user';
 
 export type AppMode = 'chat' | 'plan' | 'code' | 'debug' | 'test' | 'review' | 'qa';
 
-export interface ToolInfo {
-  installed: boolean;
-  version: string | null;
-  path: string | null;
-}
-
 export interface SystemStatus {
   api_configured: boolean;
   api_provider: string;
   api_model: string;
-  // Legacy fields — kept for backward compatibility, always report not installed.
-  claude: ToolInfo;
-  codex: ToolInfo;
 }
 
 /** Returned by get_config command */

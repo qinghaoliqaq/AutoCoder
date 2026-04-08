@@ -82,9 +82,8 @@ pub struct FeaturesConfig {
     pub build_gate: bool,
 }
 
-/// Agent-layer configuration — used by skills that run via the Anthropic API
-/// tool_use loop. If not configured, skills fall back to the legacy CLI runner
-/// mode, or use the [director] config if it has api_format = "anthropic".
+/// Agent-layer configuration — used by skills that run via the API tool_use loop.
+/// If not configured, falls back to the [director] config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
     /// Anthropic API key (or cloud provider key).

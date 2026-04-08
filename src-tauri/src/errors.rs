@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn skill_error_tool_missing() {
-        let e = SkillError::from_raw("Failed to start `claude`: No such file or directory");
+        let e = SkillError::from_raw("Failed to start `node`: No such file or directory");
         assert_eq!(e.kind, "tool_missing");
         assert!(!e.retryable);
     }
