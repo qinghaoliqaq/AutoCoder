@@ -389,12 +389,11 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .item(&quit)
         .build()?;
 
+    // Use a dedicated tray icon sized for macOS menu bar (44×44 @2x).
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon@2x.png"))?;
+
     TrayIconBuilder::new()
-        .icon(
-            app.default_window_icon()
-                .cloned()
-                .expect("default icon must be set in tauri.conf.json"),
-        )
+        .icon(tray_icon)
         .tooltip("FlowForge")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
