@@ -106,11 +106,7 @@ impl From<serde_json::Error> for AppError {
 
 impl From<reqwest::Error> for AppError {
     fn from(e: reqwest::Error) -> Self {
-        if e.is_timeout() || e.is_connect() {
-            AppError::Network(e.to_string())
-        } else {
-            AppError::Network(e.to_string())
-        }
+        AppError::Network(e.to_string())
     }
 }
 
@@ -198,6 +194,12 @@ impl SkillError {
 impl fmt::Display for SkillError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
+    }
+}
+
+impl From<AppError> for SkillError {
+    fn from(e: AppError) -> Self {
+        Self::from_app_error(&e)
     }
 }
 
@@ -381,5 +383,118 @@ mod tests {
         let e = SkillError::from_app_error(&AppError::Cancelled);
         assert_eq!(e.kind, "cancelled");
         assert!(!e.retryable);
+    }
+
+    #[test]
+    fn skill_error_from_trait_conversion() {
+        let app_err = AppError::Io("disk full".into());
+        let skill_err: SkillError = app_err.into();
+        assert_eq!(skill_err.kind, "io");
+        assert!(!skill_err.retryable);
+    }
+
+    // ── Display coverage ─────────────────────────────────────────────────
+
+    #[test]
+    fn display_all_variants() {
+        let cases: Vec<(AppError, &str)> = vec![
+            (AppError::Cancelled, "cancelled"),
+            (AppError::Config("bad".into()), "config error: bad"),
+            (AppError::Network("timeout".into()), "network error: timeout"),
+            (AppError::Api { status: 400, body: "bad".into() }, "API error 400: bad"),
+            (AppError::ApiOverloaded { status: 429, body: "slow".into() }, "API overloaded 429: slow"),
+            (AppError::ApiParse("json".into()), "API parse error: json"),
+            (AppError::Tool { tool: "bash".into(), detail: "fail".into() }, "bash: fail"),
+            (AppError::Io("disk".into()), "IO error: disk"),
+            (AppError::Merge("conflict".into()), "merge error: conflict"),
+            (AppError::Verification("mismatch".into()), "verification failed: mismatch"),
+            (AppError::Internal("oops".into()), "internal error: oops"),
+        ];
+
+        for (err, expected) in cases {
+            assert_eq!(err.to_string(), expected);
+        }
+    }
+
+    // ── From conversions ─────────────────────────────────────────────────
+
+    #[test]
+    fn from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "not found");
+        let app_err = AppError::from(io_err);
+        assert!(matches!(app_err, AppError::Io(_)));
+        assert!(app_err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn from_serde_error() {
+        let serde_err = serde_json::from_str::<serde_json::Value>("invalid").unwrap_err();
+        let app_err = AppError::from(serde_err);
+        assert!(matches!(app_err, AppError::ApiParse(_)));
+    }
+
+    #[test]
+    fn app_error_to_string_conversion() {
+        let err = AppError::Config("missing key".into());
+        let s: String = err.into();
+        assert_eq!(s, "config error: missing key");
+    }
+
+    // ── SkillError coverage for all parse branches ───────────────────────
+
+    #[test]
+    fn skill_error_permission() {
+        let e = SkillError::from_raw("Claude read-only run attempted forbidden tool");
+        assert_eq!(e.kind, "permission");
+    }
+
+    #[test]
+    fn skill_error_config() {
+        let e = SkillError::from_raw("config error: missing API key");
+        assert_eq!(e.kind, "config");
+    }
+
+    #[test]
+    fn skill_error_api_overloaded() {
+        let e = SkillError::from_raw("API overloaded 429: rate limit");
+        assert_eq!(e.kind, "network");
+        assert!(e.retryable);
+    }
+
+    #[test]
+    fn skill_error_api_error() {
+        let e = SkillError::from_raw("API error 400: bad request");
+        assert_eq!(e.kind, "api");
+        assert!(!e.retryable);
+    }
+
+    #[test]
+    fn skill_error_invalid_mode() {
+        let e = SkillError::from_raw("Unknown skill: fly");
+        assert_eq!(e.kind, "invalid_mode");
+    }
+
+    // ── SkillError from all AppError variants ────────────────────────────
+
+    #[test]
+    fn skill_error_covers_all_app_error_variants() {
+        let cases: Vec<(AppError, &str)> = vec![
+            (AppError::Cancelled, "cancelled"),
+            (AppError::Config("x".into()), "config"),
+            (AppError::Network("x".into()), "network"),
+            (AppError::Api { status: 400, body: "x".into() }, "api"),
+            (AppError::ApiOverloaded { status: 429, body: "x".into() }, "network"),
+            (AppError::ApiParse("x".into()), "api_parse"),
+            (AppError::Tool { tool: "bash".into(), detail: "x".into() }, "tool"),
+            (AppError::Io("x".into()), "io"),
+            (AppError::Merge("x".into()), "merge"),
+            (AppError::Verification("x".into()), "verification"),
+            (AppError::Internal("x".into()), "internal"),
+        ];
+
+        for (app_err, expected_kind) in cases {
+            let skill_err = SkillError::from_app_error(&app_err);
+            assert_eq!(skill_err.kind, expected_kind, "Failed for {app_err:?}");
+        }
     }
 }

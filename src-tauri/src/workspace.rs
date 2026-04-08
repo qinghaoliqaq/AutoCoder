@@ -283,3 +283,147 @@ fn sanitize_name(task: &str) -> String {
     };
     s.chars().take(48).collect()
 }
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── sanitize_name ────────────────────────────────────────────────────────
+
+    #[test]
+    fn sanitize_ascii_task() {
+        assert_eq!(sanitize_name("build a todo app"), "build-a-todo-app");
+    }
+
+    #[test]
+    fn sanitize_strips_non_ascii() {
+        assert_eq!(sanitize_name("JWT 登录功能"), "jwt");
+    }
+
+    #[test]
+    fn sanitize_collapses_hyphens() {
+        assert_eq!(sanitize_name("hello---world"), "hello-world");
+    }
+
+    #[test]
+    fn sanitize_fallback_on_empty() {
+        assert_eq!(sanitize_name("你好世界"), "project");
+    }
+
+    #[test]
+    fn sanitize_truncates_long_names() {
+        let long = "a".repeat(100);
+        assert_eq!(sanitize_name(&long).len(), 48);
+    }
+
+    #[test]
+    fn sanitize_preserves_underscores() {
+        assert_eq!(sanitize_name("my_feature_branch"), "my_feature_branch");
+    }
+
+    #[test]
+    fn sanitize_trims_whitespace() {
+        assert_eq!(sanitize_name("  hello  "), "hello");
+    }
+
+    // ── build_tree ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn build_tree_skips_hidden_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(tmp.path().join(".hidden")).unwrap();
+        std::fs::write(tmp.path().join("visible.txt"), "content").unwrap();
+
+        let tree = build_tree(tmp.path(), 1);
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].name, "visible.txt");
+    }
+
+    #[test]
+    fn build_tree_skips_node_modules() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(tmp.path().join("node_modules")).unwrap();
+        std::fs::create_dir(tmp.path().join("src")).unwrap();
+
+        let tree = build_tree(tmp.path(), 1);
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].name, "src");
+    }
+
+    #[test]
+    fn build_tree_respects_depth_limit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let deep = tmp.path().join("a").join("b").join("c");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("deep.txt"), "content").unwrap();
+
+        let tree = build_tree(tmp.path(), 1);
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].name, "a");
+        // Depth 1: "a" has no children explored
+        assert!(tree[0].children.is_empty());
+    }
+
+    #[test]
+    fn build_tree_sorts_dirs_first() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("b.txt"), "").unwrap();
+        std::fs::create_dir(tmp.path().join("a_dir")).unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "").unwrap();
+
+        let tree = build_tree(tmp.path(), 1);
+        assert!(tree[0].is_dir, "directories should sort first");
+        assert_eq!(tree[0].name, "a_dir");
+    }
+
+    // ── read_workspace_file (path traversal) ─────────────────────────────────
+
+    #[test]
+    fn read_workspace_file_blocks_path_traversal() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("secret.txt"), "secret").unwrap();
+        let workspace = tmp.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        std::fs::write(workspace.join("ok.txt"), "ok").unwrap();
+
+        let result = read_workspace_file(
+            workspace.to_string_lossy().into_owned(),
+            "../secret.txt".to_string(),
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("traversal") || result.unwrap_err().contains("resolve"));
+    }
+
+    #[test]
+    fn read_workspace_file_allows_valid_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
+
+        let result = read_workspace_file(
+            tmp.path().to_string_lossy().into_owned(),
+            "hello.txt".to_string(),
+        );
+        assert_eq!(result.unwrap(), "hello");
+    }
+
+    // ── open_project ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn open_project_rejects_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("file.txt");
+        std::fs::write(&file, "content").unwrap();
+
+        let result = open_project(file.to_string_lossy().into_owned());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn open_project_accepts_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let result = open_project(tmp.path().to_string_lossy().into_owned());
+        assert!(result.is_ok());
+    }
+}

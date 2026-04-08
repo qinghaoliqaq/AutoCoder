@@ -3,6 +3,11 @@
 /// Orchestrates: scheduling → isolated workspace → Claude implement → verifier
 /// → Codex review → three-way merge back to main workspace.
 ///
+/// The main `run_subtask` function delegates to focused phase functions:
+///   `run_implementation_phase`  — vendored skill selection + Claude implementation
+///   `run_verification_phase`    — verifier check against acceptance criteria
+///   `run_review_and_merge_phase` — Codex review + three-way merge back
+///
 /// Heavy-lifting is delegated to submodules:
 ///   isolated_workspace — fork / sync / cleanup / snapshot / diff
 ///   merge_engine       — three-way line-level merge
@@ -18,7 +23,7 @@ use super::{
     },
     isolated_workspace::{
         cleanup_isolated_workspace, create_isolated_workspace, relative_paths_from_root,
-        snapshot_workspace, sync_coordination_files, workspace_changes,
+        snapshot_workspace, sync_coordination_files, workspace_changes, IsolatedWorkspace,
     },
     merge_engine::merge_isolated_workspace,
     runners,
@@ -32,6 +37,7 @@ use crate::{
     verifier,
 };
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use tokio::{sync::Mutex, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -53,7 +59,7 @@ pub(super) async fn run(
     let total = board.subtasks.len();
     board.persist(workspace)?;
     let (acceptance, acceptance_warning) = read_plan_acceptance_lenient(workspace);
-    let acceptance_by_subtask = std::sync::Arc::new(
+    let acceptance_by_subtask = Arc::new(
         acceptance
             .map(|acceptance| {
                 acceptance
@@ -91,8 +97,8 @@ pub(super) async fn run(
     }
 
     let base_prompt = Prompts::render(&prompts.code_claude, &[("task", task)]);
-    let shared_board = std::sync::Arc::new(Mutex::new(board));
-    let merge_lock = std::sync::Arc::new(Mutex::new(()));
+    let shared_board = Arc::new(Mutex::new(board));
+    let merge_lock = Arc::new(Mutex::new(()));
 
     if total == 0 {
         let mut board = shared_board.lock().await;
@@ -206,9 +212,9 @@ async fn spawn_ready_subtasks(
     context: Option<&str>,
     config: &AppConfig,
     base_prompt: &str,
-    board: &std::sync::Arc<Mutex<Blackboard>>,
-    acceptance_by_subtask: &std::sync::Arc<HashMap<String, SubtaskAcceptance>>,
-    merge_lock: &std::sync::Arc<Mutex<()>>,
+    board: &Arc<Mutex<Blackboard>>,
+    acceptance_by_subtask: &Arc<HashMap<String, SubtaskAcceptance>>,
+    merge_lock: &Arc<Mutex<()>>,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
@@ -302,9 +308,9 @@ fn spawn_subtask_worker(
     context: Option<String>,
     config: AppConfig,
     base_prompt: String,
-    board: std::sync::Arc<Mutex<Blackboard>>,
-    acceptance_by_subtask: std::sync::Arc<HashMap<String, SubtaskAcceptance>>,
-    merge_lock: std::sync::Arc<Mutex<()>>,
+    board: Arc<Mutex<Blackboard>>,
+    acceptance_by_subtask: Arc<HashMap<String, SubtaskAcceptance>>,
+    merge_lock: Arc<Mutex<()>>,
     window_label: String,
     app_handle: tauri::AppHandle,
     token: CancellationToken,
@@ -333,6 +339,23 @@ fn spawn_subtask_worker(
     });
 }
 
+/// Context passed through the subtask attempt phases to avoid deep parameter lists.
+struct AttemptContext<'a> {
+    task: &'a str,
+    workspace: &'a str,
+    context: Option<&'a str>,
+    config: &'a AppConfig,
+    base_prompt: &'a str,
+    board: Arc<Mutex<Blackboard>>,
+    acceptance_by_subtask: Arc<HashMap<String, SubtaskAcceptance>>,
+    merge_lock: Arc<Mutex<()>>,
+    window_label: &'a str,
+    app_handle: &'a tauri::AppHandle,
+    token: CancellationToken,
+    ordinal: usize,
+    total: usize,
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_subtask(
     ordinal: usize,
@@ -343,382 +366,49 @@ async fn run_subtask(
     context: Option<&str>,
     config: &AppConfig,
     base_prompt: &str,
-    board: std::sync::Arc<Mutex<Blackboard>>,
-    acceptance_by_subtask: std::sync::Arc<HashMap<String, SubtaskAcceptance>>,
-    merge_lock: std::sync::Arc<Mutex<()>>,
+    board: Arc<Mutex<Blackboard>>,
+    acceptance_by_subtask: Arc<HashMap<String, SubtaskAcceptance>>,
+    merge_lock: Arc<Mutex<()>>,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<(), String> {
     let subtask_id = initial_card.id.clone();
+    let ctx = AttemptContext {
+        task,
+        workspace,
+        context,
+        config,
+        base_prompt,
+        board,
+        acceptance_by_subtask,
+        merge_lock,
+        window_label,
+        app_handle,
+        token,
+        ordinal,
+        total,
+    };
 
     loop {
         let attempt =
-            mutate_board(&board, workspace, |board| board.begin_attempt(&subtask_id)).await?;
+            mutate_board(&ctx.board, workspace, |board| board.begin_attempt(&subtask_id)).await?;
 
         let isolated = create_isolated_workspace(workspace, &subtask_id, attempt)?;
-        mutate_board(&board, workspace, |board| {
+        mutate_board(&ctx.board, workspace, |board| {
             board.set_isolated_workspace(&subtask_id, Some(isolated.root.display().to_string()))
         })
         .await?;
 
-        let attempt_result: Result<AttemptResolution, String> = async {
-            let card = read_card(&board, &subtask_id).await?;
-            let summary = if attempt == 1 {
-                format!(
-                    "Subtask {ordinal}/{total}: {} is now implementing {} in isolated workspace {}.",
-                    card.id,
-                    card.title,
-                    isolated.root.display()
-                )
-            } else {
-                format!(
-                    "Subtask {ordinal}/{total}: {} needs another pass. Claude is fixing {} in isolated workspace {} using Codex findings from {}.",
-                    card.id,
-                    card.title,
-                    isolated.root.display(),
-                    BLACKBOARD_MD
-                )
-            };
-            emit_blackboard(
-                workspace,
-                app_handle,
-                window_label,
-                Some(card.id.clone()),
-                "subtask_started",
-                summary,
-            )?;
+        let attempt_result = run_single_attempt(&ctx, &subtask_id, attempt, &isolated).await;
 
-            let vendored_skill = match (config.features.vendored_skills, select_for_subtask(&card)) {
-                (true, Some(skill_id)) => match load_vendored_skill(skill_id, app_handle) {
-                    Ok(skill) => {
-                        emit_vendored_skill_log(app_handle, window_label, "claude", &skill, &card)?;
-                        emit_blackboard(
-                            workspace,
-                            app_handle,
-                            window_label,
-                            Some(card.id.clone()),
-                            "vendored_skill_selected",
-                            format!(
-                                "Subtask {} is using packaged helper skill {}.",
-                                card.id,
-                                skill.id.label()
-                            ),
-                        )?;
-                        Some(skill)
-                    }
-                    Err(err) => {
-                        emit_blackboard(
-                            workspace,
-                            app_handle,
-                            window_label,
-                            Some(card.id.clone()),
-                            "vendored_skill_unavailable",
-                            format!(
-                                "Packaged helper skill for {} is unavailable, continuing without it: {}",
-                                card.id, err
-                            ),
-                        )?;
-                        None
-                    }
-                },
-                (false, Some(_)) => {
-                    emit_blackboard(
-                        workspace,
-                        app_handle,
-                        window_label,
-                        Some(card.id.clone()),
-                        "vendored_skill_disabled",
-                        format!(
-                            "Packaged helper skills are disabled in config. Subtask {} is continuing without them.",
-                            card.id
-                        ),
-                    )?;
-                    None
-                }
-                (_, None) => None,
-            };
-
-            sync_coordination_files(workspace, &isolated.root)?;
-            let acceptance = acceptance_by_subtask.get(&card.id).cloned();
-            let claude_prompt = if card.review_findings.is_empty() {
-                build_implement_prompt(
-                    base_prompt,
-                    task,
-                    &card,
-                    acceptance.as_ref(),
-                    vendored_skill.as_ref(),
-                )
-            } else {
-                build_fix_prompt(
-                    base_prompt,
-                    task,
-                    &card,
-                    acceptance.as_ref(),
-                    vendored_skill.as_ref(),
-                )
-            };
-            let claude_prompt = super::inject_context(context, claude_prompt);
-            // Inject evidence history for retries so Claude knows what failed before.
-            let claude_prompt = if attempt > 1 {
-                match evidence::build_subtask_context(workspace, &card.id) {
-                    Some(ctx) => format!("{claude_prompt}\n\n---\n\n{ctx}"),
-                    None => claude_prompt,
-                }
-            } else {
-                claude_prompt
-            };
-            let claude_output = runners::claude_quiet(
-                &claude_prompt,
-                Some(isolated.root.to_string_lossy().as_ref()),
-                window_label,
-                app_handle,
-                token.clone(),
-            )
-            .await?;
-
-            let isolated_after = snapshot_workspace(&isolated.root);
-            let isolated_changes = workspace_changes(&isolated.base_snapshot, &isolated_after);
-            let observed_files = relative_paths_from_root(&isolated.root, &isolated_changes.changed_or_created);
-            let implementation = parse_implementation_report(&claude_output, &observed_files, &card.id);
-            mutate_board(&board, workspace, |board| {
-                board.record_implementation(
-                    &card.id,
-                    implementation.summary.clone(),
-                    implementation.files_touched.clone(),
-                )
-            })
-            .await?;
-
-            emit_blackboard(
-                workspace,
-                app_handle,
-                window_label,
-                Some(card.id.clone()),
-                "implemented",
-                format!(
-                    "Claude finished {} attempt {} in isolation. Verifier is now checking the subtask.",
-                    card.id, attempt
-                ),
-            )?;
-
-            let verifier_result = verifier::run_and_persist(
-                workspace,
-                &isolated.root,
-                &card,
-                acceptance.as_ref(),
-                &implementation.files_touched,
-                &implementation.summary,
-            )?;
-            if verifier_result.passed {
-                emit_blackboard(
-                    workspace,
-                    app_handle,
-                    window_label,
-                    Some(card.id.clone()),
-                    "verifier_passed",
-                    format!(
-                        "Verifier passed {} attempt {}. Codex is now reviewing the subtask.",
-                        card.id, attempt
-                    ),
-                )?;
-            } else {
-                mutate_board(&board, workspace, |board| {
-                    board.record_review(
-                        &card.id,
-                        false,
-                        verifier_result.summary.clone(),
-                        verifier_result.findings.clone(),
-                    )?;
-                    board.finish_active_subtask(&card.id);
-                    Ok(())
-                })
-                .await?;
-                emit_blackboard(
-                    workspace,
-                    app_handle,
-                    window_label,
-                    Some(card.id.clone()),
-                    "verifier_failed",
-                    format!(
-                        "Verifier blocked {} attempt {} before Codex review: {}",
-                        card.id, attempt, verifier_result.summary
-                    ),
-                )?;
-
-                if attempt >= MAX_SUBTASK_ATTEMPTS {
-                    let reason = format!(
-                        "Subtask {} failed verifier after {} attempts: {}",
-                        card.id, MAX_SUBTASK_ATTEMPTS, verifier_result.summary
-                    );
-                    mutate_board(&board, workspace, |board| board.mark_failed(&card.id, reason.clone()))
-                        .await?;
-                    emit_blackboard(
-                        workspace,
-                        app_handle,
-                        window_label,
-                        Some(card.id.clone()),
-                        "failed",
-                        reason.clone(),
-                    )?;
-                    return Err(reason);
-                }
-
-                emit_blackboard(
-                    workspace,
-                    app_handle,
-                    window_label,
-                    Some(card.id.clone()),
-                    "needs_fix",
-                    format!(
-                        "Verifier rejected {} on attempt {}. Claude will retry in a fresh isolated workspace using the verifier findings.",
-                        card.id, attempt
-                    ),
-                )?;
-                return Ok(AttemptResolution::Retry);
-            }
-
-            let review_card = read_card(&board, &card.id).await?;
-            sync_coordination_files(workspace, &isolated.root)?;
-            let review_prompt = super::inject_context(
-                context,
-                build_review_prompt(task, &review_card, acceptance.as_ref()),
-            );
-            let review_output = runners::codex_read_only_quiet(
-                &review_prompt,
-                Some(isolated.root.to_string_lossy().as_ref()),
-                window_label,
-                app_handle,
-                token.clone(),
-            )
-            .await?;
-            let review = parse_review_report(&review_output);
-
-            if review.passed {
-                // Serialize merges so parallel subtasks don't race on the main workspace.
-                let _merge_guard = merge_lock.lock().await;
-                match merge_isolated_workspace(workspace, &isolated) {
-                    Ok(merged_files) => {
-                        mutate_board(&board, workspace, |board| {
-                            board.record_implementation(&card.id, review_card.latest_implementation.clone().unwrap_or_else(|| "Implementation merged from isolated workspace.".to_string()), merged_files.clone())?;
-                            board.record_review(&card.id, true, review.summary.clone(), Vec::new())?;
-                            board.finish_active_subtask(&card.id);
-                            board.complete_if_finished();
-                            Ok(())
-                        })
-                        .await?;
-                        tick_plan_checkbox(workspace, &card.id)?;
-                        emit_blackboard(
-                            workspace,
-                            app_handle,
-                            window_label,
-                            Some(card.id.clone()),
-                            "passed",
-                            format!(
-                                "Subtask {} passed Codex review and merged cleanly from isolated workspace.",
-                                card.id
-                            ),
-                        )?;
-                        return Ok(AttemptResolution::Completed);
-                    }
-                    Err(conflict) => {
-                        let mut findings = review.findings.clone();
-                        findings.push(conflict.clone());
-
-                        if attempt >= MAX_SUBTASK_ATTEMPTS {
-                            let reason = format!(
-                                "Subtask {} hit merge conflicts after {} attempts: {}",
-                                card.id, MAX_SUBTASK_ATTEMPTS, conflict
-                            );
-                            mutate_board(&board, workspace, |board| {
-                                board.mark_failed(&card.id, reason.clone())
-                            })
-                            .await?;
-                            emit_blackboard(
-                                workspace,
-                                app_handle,
-                                window_label,
-                                Some(card.id.clone()),
-                                "failed",
-                                reason.clone(),
-                            )?;
-                            return Err(reason);
-                        }
-
-                        mutate_board(&board, workspace, |board| {
-                            board.record_merge_conflict(
-                                &card.id,
-                                "Codex approved the isolated implementation, but the merge back to the main workspace conflicted.".to_string(),
-                                findings.clone(),
-                                conflict.clone(),
-                            )?;
-                            board.finish_active_subtask(&card.id);
-                            Ok(())
-                        })
-                        .await?;
-                        emit_blackboard(
-                            workspace,
-                            app_handle,
-                            window_label,
-                            Some(card.id.clone()),
-                            "needs_fix",
-                            format!(
-                                "Subtask {} passed review but hit merge conflicts. Claude will retry from a fresh isolated workspace.",
-                                card.id
-                            ),
-                        )?;
-                        return Ok(AttemptResolution::Retry);
-                    }
-                }
-            }
-
-            mutate_board(&board, workspace, |board| {
-                board.record_review(&card.id, false, review.summary.clone(), review.findings.clone())?;
-                board.finish_active_subtask(&card.id);
-                Ok(())
-            })
-            .await?;
-
-            if attempt >= MAX_SUBTASK_ATTEMPTS {
-                let reason = format!(
-                    "Subtask {} failed inline review after {} attempts: {}",
-                    card.id, MAX_SUBTASK_ATTEMPTS, review.summary
-                );
-                mutate_board(&board, workspace, |board| board.mark_failed(&card.id, reason.clone()))
-                    .await?;
-                emit_blackboard(
-                    workspace,
-                    app_handle,
-                    window_label,
-                    Some(card.id.clone()),
-                    "failed",
-                    reason.clone(),
-                )?;
-                return Err(reason);
-            }
-
-            emit_blackboard(
-                workspace,
-                app_handle,
-                window_label,
-                Some(card.id.clone()),
-                "needs_fix",
-                format!(
-                    "Codex rejected {} on attempt {}. Claude will retry in a fresh isolated workspace using the shared blackboard findings.",
-                    card.id, attempt
-                ),
-            )?;
-            Ok(AttemptResolution::Retry)
-        }
-        .await;
-
-        let clear_board_err = mutate_board(&board, workspace, |board| {
+        let clear_board_err = mutate_board(&ctx.board, workspace, |board| {
             board.set_isolated_workspace(&subtask_id, None)
         })
         .await
         .err();
         let finish_active_err = if attempt_result.is_err() {
-            mutate_board(&board, workspace, |board| {
+            mutate_board(&ctx.board, workspace, |board| {
                 board.finish_active_subtask(&subtask_id);
                 Ok(())
             })
@@ -745,8 +435,311 @@ async fn run_subtask(
     }
 }
 
+/// Execute a single attempt of a subtask: implement → verify → review → merge.
+async fn run_single_attempt(
+    ctx: &AttemptContext<'_>,
+    subtask_id: &str,
+    attempt: u32,
+    isolated: &IsolatedWorkspace,
+) -> Result<AttemptResolution, String> {
+    let card = read_card(&ctx.board, subtask_id).await?;
+
+    // Phase 0: Emit start event.
+    let summary = if attempt == 1 {
+        format!(
+            "Subtask {}/{}: {} is now implementing {} in isolated workspace {}.",
+            ctx.ordinal, ctx.total, card.id, card.title, isolated.root.display()
+        )
+    } else {
+        format!(
+            "Subtask {}/{}: {} needs another pass. Claude is fixing {} in isolated workspace {} using Codex findings from {}.",
+            ctx.ordinal, ctx.total, card.id, card.title, isolated.root.display(), BLACKBOARD_MD
+        )
+    };
+    emit_blackboard(ctx.workspace, ctx.app_handle, ctx.window_label, Some(card.id.clone()), "subtask_started", summary)?;
+
+    // Phase 1: Claude implementation.
+    let (implementation, acceptance) =
+        run_implementation_phase(ctx, &card, attempt, isolated).await?;
+
+    // Phase 2: Verification.
+    let verifier_passed =
+        run_verification_phase(ctx, &card, attempt, isolated, &acceptance, &implementation).await?;
+    if !verifier_passed {
+        return Ok(AttemptResolution::Retry);
+    }
+
+    // Phase 3: Codex review + merge.
+    run_review_and_merge_phase(ctx, &card, attempt, isolated, &acceptance).await
+}
+
+/// Phase 1 — Select vendored skill (if any), build prompt, run Claude, record implementation.
+async fn run_implementation_phase(
+    ctx: &AttemptContext<'_>,
+    card: &SubtaskCard,
+    attempt: u32,
+    isolated: &IsolatedWorkspace,
+) -> Result<(super::code_prompts::ImplementationReport, Option<SubtaskAcceptance>), String> {
+    let vendored_skill = resolve_vendored_skill(ctx, card)?;
+
+    sync_coordination_files(ctx.workspace, &isolated.root)?;
+    let acceptance = ctx.acceptance_by_subtask.get(&card.id).cloned();
+
+    let claude_prompt = if card.review_findings.is_empty() {
+        build_implement_prompt(ctx.base_prompt, ctx.task, card, acceptance.as_ref(), vendored_skill.as_ref())
+    } else {
+        build_fix_prompt(ctx.base_prompt, ctx.task, card, acceptance.as_ref(), vendored_skill.as_ref())
+    };
+    let claude_prompt = super::inject_context(ctx.context, claude_prompt);
+    // Inject evidence history for retries so Claude knows what failed before.
+    let claude_prompt = if attempt > 1 {
+        match evidence::build_subtask_context(ctx.workspace, &card.id) {
+            Some(evidence_ctx) => format!("{claude_prompt}\n\n---\n\n{evidence_ctx}"),
+            None => claude_prompt,
+        }
+    } else {
+        claude_prompt
+    };
+
+    let claude_output = runners::claude_quiet(
+        &claude_prompt,
+        Some(isolated.root.to_string_lossy().as_ref()),
+        ctx.window_label,
+        ctx.app_handle,
+        ctx.token.clone(),
+    )
+    .await?;
+
+    let isolated_after = snapshot_workspace(&isolated.root);
+    let isolated_changes = workspace_changes(&isolated.base_snapshot, &isolated_after);
+    let observed_files = relative_paths_from_root(&isolated.root, &isolated_changes.changed_or_created);
+    let implementation = parse_implementation_report(&claude_output, &observed_files, &card.id);
+
+    mutate_board(&ctx.board, ctx.workspace, |board| {
+        board.record_implementation(&card.id, implementation.summary.clone(), implementation.files_touched.clone())
+    })
+    .await?;
+
+    emit_blackboard(
+        ctx.workspace, ctx.app_handle, ctx.window_label,
+        Some(card.id.clone()), "implemented",
+        format!("Claude finished {} attempt {} in isolation. Verifier is now checking the subtask.", card.id, attempt),
+    )?;
+
+    Ok((implementation, acceptance))
+}
+
+/// Resolve the vendored skill for a subtask, emitting appropriate events.
+fn resolve_vendored_skill(
+    ctx: &AttemptContext<'_>,
+    card: &SubtaskCard,
+) -> Result<Option<super::vendored::VendoredSkill>, String> {
+    match (ctx.config.features.vendored_skills, select_for_subtask(card)) {
+        (true, Some(skill_id)) => match load_vendored_skill(skill_id, ctx.app_handle) {
+            Ok(skill) => {
+                emit_vendored_skill_log(ctx.app_handle, ctx.window_label, "claude", &skill, card)?;
+                emit_blackboard(
+                    ctx.workspace, ctx.app_handle, ctx.window_label,
+                    Some(card.id.clone()), "vendored_skill_selected",
+                    format!("Subtask {} is using packaged helper skill {}.", card.id, skill.id.label()),
+                )?;
+                Ok(Some(skill))
+            }
+            Err(err) => {
+                emit_blackboard(
+                    ctx.workspace, ctx.app_handle, ctx.window_label,
+                    Some(card.id.clone()), "vendored_skill_unavailable",
+                    format!("Packaged helper skill for {} is unavailable, continuing without it: {}", card.id, err),
+                )?;
+                Ok(None)
+            }
+        },
+        (false, Some(_)) => {
+            emit_blackboard(
+                ctx.workspace, ctx.app_handle, ctx.window_label,
+                Some(card.id.clone()), "vendored_skill_disabled",
+                format!("Packaged helper skills are disabled in config. Subtask {} is continuing without them.", card.id),
+            )?;
+            Ok(None)
+        }
+        (_, None) => Ok(None),
+    }
+}
+
+/// Phase 2 — Run verifier; on failure, record and possibly abort. Returns whether verification passed.
+async fn run_verification_phase(
+    ctx: &AttemptContext<'_>,
+    card: &SubtaskCard,
+    attempt: u32,
+    isolated: &IsolatedWorkspace,
+    acceptance: &Option<SubtaskAcceptance>,
+    implementation: &super::code_prompts::ImplementationReport,
+) -> Result<bool, String> {
+    let verifier_result = verifier::run_and_persist(
+        ctx.workspace, &isolated.root, card, acceptance.as_ref(),
+        &implementation.files_touched, &implementation.summary,
+    )?;
+
+    if verifier_result.passed {
+        emit_blackboard(
+            ctx.workspace, ctx.app_handle, ctx.window_label,
+            Some(card.id.clone()), "verifier_passed",
+            format!("Verifier passed {} attempt {}. Codex is now reviewing the subtask.", card.id, attempt),
+        )?;
+        return Ok(true);
+    }
+
+    // Verifier failed — record findings and decide whether to retry or abort.
+    mutate_board(&ctx.board, ctx.workspace, |board| {
+        board.record_review(&card.id, false, verifier_result.summary.clone(), verifier_result.findings.clone())?;
+        board.finish_active_subtask(&card.id);
+        Ok(())
+    })
+    .await?;
+    emit_blackboard(
+        ctx.workspace, ctx.app_handle, ctx.window_label,
+        Some(card.id.clone()), "verifier_failed",
+        format!("Verifier blocked {} attempt {} before Codex review: {}", card.id, attempt, verifier_result.summary),
+    )?;
+
+    if attempt >= MAX_SUBTASK_ATTEMPTS {
+        let reason = format!(
+            "Subtask {} failed verifier after {} attempts: {}", card.id, MAX_SUBTASK_ATTEMPTS, verifier_result.summary
+        );
+        mutate_board(&ctx.board, ctx.workspace, |board| board.mark_failed(&card.id, reason.clone())).await?;
+        emit_blackboard(ctx.workspace, ctx.app_handle, ctx.window_label, Some(card.id.clone()), "failed", reason.clone())?;
+        return Err(reason);
+    }
+
+    emit_blackboard(
+        ctx.workspace, ctx.app_handle, ctx.window_label,
+        Some(card.id.clone()), "needs_fix",
+        format!("Verifier rejected {} on attempt {}. Claude will retry in a fresh isolated workspace using the verifier findings.", card.id, attempt),
+    )?;
+    Ok(false)
+}
+
+/// Phase 3 — Run Codex review, then merge on success.
+async fn run_review_and_merge_phase(
+    ctx: &AttemptContext<'_>,
+    card: &SubtaskCard,
+    attempt: u32,
+    isolated: &IsolatedWorkspace,
+    acceptance: &Option<SubtaskAcceptance>,
+) -> Result<AttemptResolution, String> {
+    let review_card = read_card(&ctx.board, &card.id).await?;
+    sync_coordination_files(ctx.workspace, &isolated.root)?;
+    let review_prompt = super::inject_context(
+        ctx.context,
+        build_review_prompt(ctx.task, &review_card, acceptance.as_ref()),
+    );
+    let review_output = runners::codex_read_only_quiet(
+        &review_prompt,
+        Some(isolated.root.to_string_lossy().as_ref()),
+        ctx.window_label, ctx.app_handle, ctx.token.clone(),
+    )
+    .await?;
+    let review = parse_review_report(&review_output);
+
+    if review.passed {
+        return apply_merge(ctx, card, &review_card, attempt, isolated, &review).await;
+    }
+
+    // Review rejected — record and decide whether to retry or abort.
+    mutate_board(&ctx.board, ctx.workspace, |board| {
+        board.record_review(&card.id, false, review.summary.clone(), review.findings.clone())?;
+        board.finish_active_subtask(&card.id);
+        Ok(())
+    })
+    .await?;
+
+    if attempt >= MAX_SUBTASK_ATTEMPTS {
+        let reason = format!(
+            "Subtask {} failed inline review after {} attempts: {}", card.id, MAX_SUBTASK_ATTEMPTS, review.summary
+        );
+        mutate_board(&ctx.board, ctx.workspace, |board| board.mark_failed(&card.id, reason.clone())).await?;
+        emit_blackboard(ctx.workspace, ctx.app_handle, ctx.window_label, Some(card.id.clone()), "failed", reason.clone())?;
+        return Err(reason);
+    }
+
+    emit_blackboard(
+        ctx.workspace, ctx.app_handle, ctx.window_label,
+        Some(card.id.clone()), "needs_fix",
+        format!("Codex rejected {} on attempt {}. Claude will retry in a fresh isolated workspace using the shared blackboard findings.", card.id, attempt),
+    )?;
+    Ok(AttemptResolution::Retry)
+}
+
+/// Merge the isolated workspace back to main, handling conflicts.
+async fn apply_merge(
+    ctx: &AttemptContext<'_>,
+    card: &SubtaskCard,
+    review_card: &SubtaskCard,
+    attempt: u32,
+    isolated: &IsolatedWorkspace,
+    review: &super::code_prompts::ReviewReport,
+) -> Result<AttemptResolution, String> {
+    // Serialize merges so parallel subtasks don't race on the main workspace.
+    let _merge_guard = ctx.merge_lock.lock().await;
+    match merge_isolated_workspace(ctx.workspace, isolated) {
+        Ok(merged_files) => {
+            mutate_board(&ctx.board, ctx.workspace, |board| {
+                board.record_implementation(
+                    &card.id,
+                    review_card.latest_implementation.clone()
+                        .unwrap_or_else(|| "Implementation merged from isolated workspace.".to_string()),
+                    merged_files.clone(),
+                )?;
+                board.record_review(&card.id, true, review.summary.clone(), Vec::new())?;
+                board.finish_active_subtask(&card.id);
+                board.complete_if_finished();
+                Ok(())
+            })
+            .await?;
+            tick_plan_checkbox(ctx.workspace, &card.id)?;
+            emit_blackboard(
+                ctx.workspace, ctx.app_handle, ctx.window_label,
+                Some(card.id.clone()), "passed",
+                format!("Subtask {} passed Codex review and merged cleanly from isolated workspace.", card.id),
+            )?;
+            Ok(AttemptResolution::Completed)
+        }
+        Err(conflict) => {
+            let mut findings = review.findings.clone();
+            findings.push(conflict.clone());
+
+            if attempt >= MAX_SUBTASK_ATTEMPTS {
+                let reason = format!(
+                    "Subtask {} hit merge conflicts after {} attempts: {}", card.id, MAX_SUBTASK_ATTEMPTS, conflict
+                );
+                mutate_board(&ctx.board, ctx.workspace, |board| board.mark_failed(&card.id, reason.clone())).await?;
+                emit_blackboard(ctx.workspace, ctx.app_handle, ctx.window_label, Some(card.id.clone()), "failed", reason.clone())?;
+                return Err(reason);
+            }
+
+            mutate_board(&ctx.board, ctx.workspace, |board| {
+                board.record_merge_conflict(
+                    &card.id,
+                    "Codex approved the isolated implementation, but the merge back to the main workspace conflicted.".to_string(),
+                    findings.clone(),
+                    conflict.clone(),
+                )?;
+                board.finish_active_subtask(&card.id);
+                Ok(())
+            })
+            .await?;
+            emit_blackboard(
+                ctx.workspace, ctx.app_handle, ctx.window_label,
+                Some(card.id.clone()), "needs_fix",
+                format!("Subtask {} passed review but hit merge conflicts. Claude will retry from a fresh isolated workspace.", card.id),
+            )?;
+            Ok(AttemptResolution::Retry)
+        }
+    }
+}
+
 async fn mutate_board<T, F>(
-    board: &std::sync::Arc<Mutex<Blackboard>>,
+    board: &Arc<Mutex<Blackboard>>,
     workspace: &str,
     mutator: F,
 ) -> Result<T, String>
@@ -760,7 +753,7 @@ where
 }
 
 async fn read_card(
-    board: &std::sync::Arc<Mutex<Blackboard>>,
+    board: &Arc<Mutex<Blackboard>>,
     subtask_id: &str,
 ) -> Result<SubtaskCard, String> {
     let board = board.lock().await;
@@ -779,7 +772,7 @@ pub(super) enum AttemptResolution {
 }
 
 async fn ordinal_for_subtask(
-    board: &std::sync::Arc<Mutex<Blackboard>>,
+    board: &Arc<Mutex<Blackboard>>,
     subtask_id: &str,
 ) -> Result<usize, String> {
     let board = board.lock().await;

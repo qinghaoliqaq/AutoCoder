@@ -24,6 +24,7 @@ mod qa;
 mod review;
 mod runner_claude;
 mod runner_codex;
+mod runner_lifecycle;
 mod runner_process;
 mod runner_workspace;
 pub(crate) mod runners;

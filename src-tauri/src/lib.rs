@@ -323,59 +323,42 @@ async fn test_api_connection(
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
     let is_anthropic = api_format == "anthropic";
+    let base = base_url.trim_end_matches('/');
 
-    if is_anthropic {
-        let url = format!("{}/messages", base_url.trim_end_matches('/'));
-        let body = serde_json::json!({
-            "model": model,
-            "max_tokens": 8,
-            "messages": [{"role": "user", "content": "Hi"}],
-        });
-        let resp = client
-            .post(&url)
+    let body = serde_json::json!({
+        "model": model,
+        "max_tokens": 8,
+        "messages": [{"role": "user", "content": "Hi"}],
+    });
+
+    let request = if is_anthropic {
+        client
+            .post(format!("{base}/messages"))
             .header("x-api-key", &api_key)
             .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("连接失败: {e}"))?;
-
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        if status.is_success() {
-            Ok(format!("连接成功 (Anthropic {})", model))
-        } else if status.as_u16() == 401 {
-            Err("API Key 无效 (401 Unauthorized)".to_string())
-        } else {
-            Err(format!("API 返回 {status}: {}", truncate_error(&text)))
-        }
     } else {
-        // OpenAI-compatible
-        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-        let body = serde_json::json!({
-            "model": model,
-            "max_tokens": 8,
-            "messages": [{"role": "user", "content": "Hi"}],
-        });
-        let resp = client
-            .post(&url)
+        client
+            .post(format!("{base}/chat/completions"))
             .header("Authorization", format!("Bearer {api_key}"))
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("连接失败: {e}"))?;
+    };
 
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        if status.is_success() {
-            Ok(format!("连接成功 (OpenAI-compatible {})", model))
-        } else if status.as_u16() == 401 {
-            Err("API Key 无效 (401 Unauthorized)".to_string())
-        } else {
-            Err(format!("API 返回 {status}: {}", truncate_error(&text)))
-        }
+    let resp = request
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("连接失败: {e}"))?;
+
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+
+    if status.is_success() {
+        let provider = if is_anthropic { "Anthropic" } else { "OpenAI-compatible" };
+        Ok(format!("连接成功 ({provider} {model})"))
+    } else if status.as_u16() == 401 {
+        Err("API Key 无效 (401 Unauthorized)".to_string())
+    } else {
+        Err(format!("API 返回 {status}: {}", truncate_error(&text)))
     }
 }
 
