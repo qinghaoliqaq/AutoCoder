@@ -44,7 +44,7 @@ function FieldGroup({ label, hint, children }: { label: string; hint?: string; c
 }
 
 const inputClass =
-  'rounded-xl border border-zinc-200/80 bg-white/70 px-3 py-2.5 text-sm text-zinc-800 outline-none transition-colors focus:border-violet-400 focus:ring-2 focus:ring-violet-500/10 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-100 dark:focus:border-violet-500';
+  'w-full rounded-xl border border-edge-primary/60 bg-surface-input px-3 py-2.5 text-sm text-content-primary outline-none transition-all duration-200 placeholder:text-content-tertiary focus:border-themed-accent/50 focus:ring-2 focus:ring-themed-accent/10 focus:shadow-[0_0_0_3px_rgb(var(--accent)/0.06)]';
 
 // ── Main component ───────────────────────────────────────────────────────────
 
@@ -412,7 +412,7 @@ function AgentTab({
           />
         </FieldGroup>
 
-        <FieldGroup label="Model" hint="留空用默认">
+        <FieldGroup label="Model" hint="主身份 (Claude)：编码 / 方案起草">
           <input
             type="text"
             value={draft.agent_model}
@@ -423,47 +423,58 @@ function AgentTab({
           />
         </FieldGroup>
 
-        <FieldGroup label="Base URL" hint="留空用默认">
+        <FieldGroup label="Second Model" hint="副身份 (Codex)：审阅 / 诊断 / 测试">
           <input
             type="text"
-            value={draft.agent_base_url}
-            onChange={(e) => update('agent_base_url', e.target.value)}
-            placeholder="使用供应商默认端点"
+            value={draft.agent_second_model}
+            onChange={(e) => update('agent_second_model', e.target.value)}
+            placeholder="留空则使用主身份模型"
             disabled={!draft.agent_provider}
             className={`${inputClass} disabled:opacity-50 disabled:cursor-not-allowed`}
           />
         </FieldGroup>
+
+        <div className="sm:col-span-2">
+          <FieldGroup label="Base URL" hint="留空用默认">
+            <input
+              type="text"
+              value={draft.agent_base_url}
+              onChange={(e) => update('agent_base_url', e.target.value)}
+              placeholder="使用供应商默认端点"
+              disabled={!draft.agent_provider}
+              className={`${inputClass} disabled:opacity-50 disabled:cursor-not-allowed`}
+            />
+          </FieldGroup>
+        </div>
       </div>
 
       {/* Connectivity Test */}
-      {draft.agent_provider && draft.agent_api_key && (
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={handleTestConnection}
-            disabled={testStatus === 'testing'}
-            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-violet-600 glass-button dark:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {testStatus === 'testing' ? (
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Zap className="h-3.5 w-3.5" />
-            )}
-            {testStatus === 'testing' ? '测试中...' : '测试连通性'}
-          </button>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleTestConnection}
+          disabled={testStatus === 'testing' || !draft.agent_provider || !draft.agent_api_key}
+          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-violet-600 glass-button dark:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {testStatus === 'testing' ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Zap className="h-3.5 w-3.5" />
+          )}
+          {testStatus === 'testing' ? '测试中...' : '测试连通性'}
+        </button>
 
-          {testStatus === 'success' && (
-            <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 className="h-3.5 w-3.5" /> {testMessage}
-            </span>
-          )}
-          {testStatus === 'error' && (
-            <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
-              <AlertTriangle className="h-3.5 w-3.5" /> {testMessage}
-            </span>
-          )}
-        </div>
-      )}
+        {testStatus === 'success' && (
+          <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="h-3.5 w-3.5" /> {testMessage}
+          </span>
+        )}
+        {testStatus === 'error' && (
+          <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+            <AlertTriangle className="h-3.5 w-3.5" /> {testMessage}
+          </span>
+        )}
+      </div>
 
       {/* Status banners */}
       {draft.agent_provider && !draft.agent_api_key && (

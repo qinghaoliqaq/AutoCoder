@@ -370,6 +370,58 @@ fn truncate_error(text: &str) -> String {
     }
 }
 
+// ── System tray ───────────────────────────────────────────────────────────────
+
+fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::tray::TrayIconBuilder;
+    use tauri::menu::{MenuBuilder, MenuItemBuilder};
+    use tauri::Manager;
+
+    let show = MenuItemBuilder::with_id("show", "Show FlowForge").build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+    let menu = MenuBuilder::new(app)
+        .item(&show)
+        .separator()
+        .item(&quit)
+        .build()?;
+
+    TrayIconBuilder::new()
+        .icon(app.default_window_icon().cloned().expect("default icon must be set in tauri.conf.json"))
+        .tooltip("FlowForge")
+        .menu(&menu)
+        .on_menu_event(|app, event| {
+            match event.id().as_ref() {
+                "show" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
+            }
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let tauri::tray::TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
 // ── Entry point ────────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -390,6 +442,10 @@ pub fn run() {
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            setup_tray(app)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             detect_tools,
             get_config,

@@ -1,18 +1,17 @@
 use super::{
+    emit_skill_event, record_skill_evidence,
     plan_board::{PlanBoard, PlanBoardMode, PLAN_BOARD_MD},
-    runners, BlackboardEvent,
+    runners,
 };
 /// Plan skill — shared-blackboard orchestration for both scratch planning and
 /// document-review planning.
 use crate::{
-    evidence::{self, EvidenceEvent},
     planning_schema::{
         parse_plan_acceptance, parse_plan_graph, validate_acceptance_matches_graph,
         PLAN_ACCEPTANCE_JSON, PLAN_GRAPH_JSON,
     },
     prompts::Prompts,
 };
-use chrono::Utc;
 use dirs;
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
@@ -55,7 +54,7 @@ pub(super) async fn run(
     };
 
     if let Some(reason) = naming_fallback_reason {
-        emit_plan_event(app_handle, window_label, "plan_name_fallback", reason)?;
+        emit_skill_event(app_handle, window_label, "plan_name_fallback", reason)?;
     }
 
     let ws_path = create_plan_workspace_unique(&base_name)?;
@@ -74,7 +73,7 @@ pub(super) async fn run(
             &ws_str,
         )
         .map_err(|e| format!("Emit error: {e}"))?;
-    record_plan_evidence(
+    record_skill_evidence(
         Some(&ws_str),
         "plan_started",
         &format!("Planning started for task: {task}"),
@@ -114,7 +113,7 @@ pub(super) async fn run(
     let plan_doc =
         validate_or_repair_plan_artifacts(task, &ws_path, window_label, app_handle, token).await?;
 
-    record_plan_evidence(
+    record_skill_evidence(
         Some(&ws_str),
         "plan_completed",
         &format!("Planning completed. PLAN.md, {PLAN_GRAPH_JSON}, and {PLAN_ACCEPTANCE_JSON} validated."),
@@ -151,7 +150,7 @@ async fn run_scratch_mode(
 ) -> Result<String, String> {
     let mut board = PlanBoard::new(task, PlanBoardMode::Scratch, false);
     board.persist(ws_dir)?;
-    emit_plan_event(
+    emit_skill_event(
         app_handle,
         window_label,
         "initialized",
@@ -167,13 +166,13 @@ async fn run_scratch_mode(
         .map_err(|err| stage_error("scratch_round_1_claude", "claude", Some(ws_dir), &r1, err))?;
     board.set_round_1(proposals);
     board.persist(ws_dir)?;
-    emit_plan_event(
+    emit_skill_event(
         app_handle,
         window_label,
         "round_1",
         "Claude recorded proposal candidates on the shared plan blackboard.".to_string(),
     )?;
-    record_plan_evidence(
+    record_skill_evidence(
         Some(ws_dir),
         "plan_round_1",
         "Claude recorded proposal candidates on the shared plan blackboard.",
@@ -199,13 +198,13 @@ async fn run_scratch_mode(
             })?;
     board.set_round_2(evaluation);
     board.persist(ws_dir)?;
-    emit_plan_event(
+    emit_skill_event(
         app_handle,
         window_label,
         "round_2",
         "Codex evaluated the proposals by reading the shared plan blackboard.".to_string(),
     )?;
-    record_plan_evidence(
+    record_skill_evidence(
         Some(ws_dir),
         "plan_round_2",
         "Codex evaluated the proposals by reading the shared plan blackboard.",
@@ -225,13 +224,13 @@ async fn run_scratch_mode(
             })?;
     board.set_round_3(claude_rebuttal);
     board.persist(ws_dir)?;
-    emit_plan_event(
+    emit_skill_event(
         app_handle,
         window_label,
         "round_3",
         "Claude updated the shared plan blackboard with rebuttals and refinements.".to_string(),
     )?;
-    record_plan_evidence(
+    record_skill_evidence(
         Some(ws_dir),
         "plan_round_3",
         "Claude updated the shared plan blackboard with rebuttals and refinements.",
@@ -257,13 +256,13 @@ async fn run_scratch_mode(
             })?;
     board.set_round_4(verdict);
     board.persist(ws_dir)?;
-    emit_plan_event(
+    emit_skill_event(
         app_handle,
         window_label,
         "round_4",
         "Codex wrote the final planning verdict to the shared plan blackboard.".to_string(),
     )?;
-    record_plan_evidence(
+    record_skill_evidence(
         Some(ws_dir),
         "plan_round_4",
         "Codex wrote the final planning verdict to the shared plan blackboard.",
@@ -300,7 +299,7 @@ async fn run_review_mode(
 ) -> Result<String, String> {
     let mut board = PlanBoard::new(task, PlanBoardMode::Review, true);
     board.persist(ws_dir)?;
-    emit_plan_event(
+    emit_skill_event(
         app_handle,
         window_label,
         "initialized",
@@ -323,13 +322,13 @@ async fn run_review_mode(
             })?;
     board.set_round_1(claude_analysis);
     board.persist(ws_dir)?;
-    emit_plan_event(
+    emit_skill_event(
         app_handle,
         window_label,
         "round_1",
         "Claude wrote the initial document analysis onto the shared plan blackboard.".to_string(),
     )?;
-    record_plan_evidence(
+    record_skill_evidence(
         Some(ws_dir),
         "plan_review_round_1",
         "Claude wrote the initial document analysis onto the shared plan blackboard.",
@@ -359,13 +358,13 @@ async fn run_review_mode(
             })?;
     board.set_round_2(codex_analysis);
     board.persist(ws_dir)?;
-    emit_plan_event(
+    emit_skill_event(
         app_handle,
         window_label,
         "round_2",
         "Codex added its review perspective via the shared plan blackboard.".to_string(),
     )?;
-    record_plan_evidence(
+    record_skill_evidence(
         Some(ws_dir),
         "plan_review_round_2",
         "Codex added its review perspective via the shared plan blackboard.",
@@ -386,13 +385,13 @@ async fn run_review_mode(
         .map_err(|err| stage_error("review_round_3_claude", "claude", Some(ws_dir), &r3, err))?;
     board.set_round_3(change_list);
     board.persist(ws_dir)?;
-    emit_plan_event(
+    emit_skill_event(
         app_handle,
         window_label,
         "round_3",
         "Claude consolidated the change list on the shared plan blackboard.".to_string(),
     )?;
-    record_plan_evidence(
+    record_skill_evidence(
         Some(ws_dir),
         "plan_review_round_3",
         "Claude consolidated the change list on the shared plan blackboard.",
@@ -422,13 +421,13 @@ async fn run_review_mode(
             })?;
     board.set_round_4(final_changes);
     board.persist(ws_dir)?;
-    emit_plan_event(
+    emit_skill_event(
         app_handle,
         window_label,
         "round_4",
         "Codex finalized the approved changes on the shared plan blackboard.".to_string(),
     )?;
-    record_plan_evidence(
+    record_skill_evidence(
         Some(ws_dir),
         "plan_review_round_4",
         "Codex finalized the approved changes on the shared plan blackboard.",
@@ -462,7 +461,7 @@ async fn validate_or_repair_plan_artifacts(
     match validate_plan_artifacts(workspace) {
         Ok(plan_doc) => Ok(plan_doc),
         Err(validation_err) => {
-            emit_plan_event(
+            emit_skill_event(
                 app_handle,
                 window_label,
                 "structured_plan_repair",
@@ -550,46 +549,6 @@ fn validate_plan_artifacts(workspace: &std::path::Path) -> Result<String, String
     validate_acceptance_matches_graph(&graph, &acceptance)?;
 
     Ok(plan_doc)
-}
-
-fn emit_plan_event(
-    app_handle: &tauri::AppHandle,
-    window_label: &str,
-    status: &str,
-    summary: String,
-) -> Result<(), String> {
-    app_handle
-        .emit_to(
-            EventTarget::webview_window(window_label),
-            "blackboard-updated",
-            BlackboardEvent {
-                subtask_id: None,
-                status: status.to_string(),
-                summary,
-            },
-        )
-        .map_err(|e| format!("Emit error: {e}"))
-}
-
-fn record_plan_evidence(
-    workspace: Option<&str>,
-    event_type: &str,
-    summary: &str,
-    agent: &str,
-    artifacts: Vec<String>,
-) {
-    let Some(ws) = workspace else { return };
-    let _ = evidence::record_event(
-        ws,
-        EvidenceEvent {
-            ts: Utc::now().timestamp_millis() as u64,
-            event_type: event_type.to_string(),
-            agent: agent.to_string(),
-            subtask_id: None,
-            summary: summary.to_string(),
-            artifacts,
-        },
-    );
 }
 
 fn create_plan_workspace_unique(base_name: &str) -> Result<std::path::PathBuf, String> {

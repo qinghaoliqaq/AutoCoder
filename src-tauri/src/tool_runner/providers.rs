@@ -28,6 +28,16 @@ pub struct ProviderConfig {
 impl ProviderConfig {
     /// Build a ProviderConfig from app config, resolving defaults.
     pub fn from_app_config(config: &crate::config::AppConfig) -> Self {
+        Self::resolve(config, false)
+    }
+
+    /// Build a ProviderConfig for review / read-only phases.
+    /// Uses `second_model` if configured, otherwise falls back to `model`.
+    pub fn from_app_config_second(config: &crate::config::AppConfig) -> Self {
+        Self::resolve(config, true)
+    }
+
+    fn resolve(config: &crate::config::AppConfig, use_second_model: bool) -> Self {
         let agent = &config.agent;
 
         if agent.is_configured() {
@@ -37,10 +47,16 @@ impl ProviderConfig {
             } else {
                 agent.base_url.clone()
             };
-            let model = if agent.model.is_empty() {
+            // For review phases, prefer second_model; fall back to model.
+            let model_source = if use_second_model && !agent.second_model.is_empty() {
+                &agent.second_model
+            } else {
+                &agent.model
+            };
+            let model = if model_source.is_empty() {
                 info.default_model.to_string()
             } else {
-                agent.model.clone()
+                model_source.clone()
             };
             Self {
                 name: agent.provider.to_lowercase(),

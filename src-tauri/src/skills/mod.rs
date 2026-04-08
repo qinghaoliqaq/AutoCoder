@@ -5,8 +5,9 @@
 ///   2. Add `mod <name>;` below
 ///   3. Add a match arm in `execute()`
 ///   4. Optionally add a new prompt file in src-tauri/prompts/
-use crate::{config::AppConfig, prompts::Prompts};
+use crate::{config::AppConfig, evidence::{self, EvidenceEvent}, prompts::Prompts};
 use serde::{Deserialize, Serialize};
+use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
 
 pub(crate) mod blackboard;
@@ -112,6 +113,52 @@ pub(super) fn merge_context_sections(sections: &[Option<String>]) -> Option<Stri
     } else {
         Some(merged.join("\n\n---\n\n"))
     }
+}
+
+// ── Shared event / evidence helpers (used by plan, debug, etc.) ───────────────
+
+/// Emit a "blackboard-updated" event to the frontend.
+/// Shared replacement for the identical `emit_plan_event` / `emit_debug_event`.
+pub(super) fn emit_skill_event(
+    app_handle: &tauri::AppHandle,
+    window_label: &str,
+    status: &str,
+    summary: String,
+) -> Result<(), String> {
+    app_handle
+        .emit_to(
+            EventTarget::webview_window(window_label),
+            "blackboard-updated",
+            BlackboardEvent {
+                subtask_id: None,
+                status: status.to_string(),
+                summary,
+            },
+        )
+        .map_err(|e| format!("Emit error: {e}"))
+}
+
+/// Record an evidence event for a skill phase.
+/// Shared replacement for `record_plan_evidence` / `record_debug_evidence`.
+pub(super) fn record_skill_evidence(
+    workspace: Option<&str>,
+    event_type: &str,
+    summary: &str,
+    agent: &str,
+    artifacts: Vec<String>,
+) {
+    let Some(ws) = workspace else { return };
+    let _ = evidence::record_event(
+        ws,
+        EvidenceEvent {
+            ts: chrono::Utc::now().timestamp_millis() as u64,
+            event_type: event_type.to_string(),
+            agent: agent.to_string(),
+            subtask_id: None,
+            summary: summary.to_string(),
+            artifacts,
+        },
+    );
 }
 
 // ── Dispatch ──────────────────────────────────────────────────────────────────
