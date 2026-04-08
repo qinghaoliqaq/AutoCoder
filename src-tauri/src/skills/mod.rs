@@ -28,12 +28,6 @@ mod plan;
 mod plan_board;
 mod qa;
 mod review;
-mod runner_claude;
-mod runner_codex;
-mod runner_lifecycle;
-mod runner_process;
-mod runner_workspace;
-pub(crate) mod runners;
 pub(crate) mod test_skill;
 mod vendored;
 

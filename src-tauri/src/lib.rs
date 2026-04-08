@@ -213,7 +213,6 @@ fn cancel_skill(window: tauri::WebviewWindow, state: tauri::State<'_, AppState>)
     if let Some(token) = state.cancel_tokens.lock().unwrap().get(window_label) {
         token.cancel();
     }
-    skills::runners::kill_registered_processes(window_label);
     let cleanup_workspace = state.test_workspaces.lock().unwrap().remove(window_label);
     let _ =
         skills::test_skill::cleanup_runtime_for_window(window_label, cleanup_workspace.as_deref());
