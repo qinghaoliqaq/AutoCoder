@@ -122,7 +122,26 @@ fn npx_cmd() -> String {
 // ── Execution ────────────────────────────────────────────────────────────
 
 /// Run all detected build commands sequentially, stopping on first failure.
+/// If Node dependencies are missing (node_modules absent), installs them first.
 pub(crate) async fn run_build_gate(workspace: &Path, commands: &[BuildCommand]) -> BuildGateResult {
+    // Ensure Node dependencies are available before running TS/JS checks.
+    // The isolated workspace is created by copying the main workspace but
+    // skipping node_modules (too large).  If Claude didn't run `npm install`
+    // during implementation, every Node-based check would fail.
+    let needs_node = commands
+        .iter()
+        .any(|c| c.program.starts_with("npm") || c.program.starts_with("npx"));
+    if needs_node && !workspace.join("node_modules").exists() {
+        if let Some(install_result) = ensure_node_deps(workspace).await {
+            if !install_result.passed {
+                return BuildGateResult {
+                    passed: false,
+                    results: vec![install_result],
+                };
+            }
+        }
+    }
+
     let mut results = Vec::new();
     let mut all_passed = true;
 
@@ -143,6 +162,34 @@ pub(crate) async fn run_build_gate(workspace: &Path, commands: &[BuildCommand]) 
         passed: all_passed,
         results,
     }
+}
+
+/// Detect the package manager and install dependencies.
+/// Returns None if no lock file is found (nothing to install).
+async fn ensure_node_deps(workspace: &Path) -> Option<CommandResult> {
+    let (program, args, label) = if workspace.join("pnpm-lock.yaml").exists() {
+        ("pnpm", vec!["install", "--frozen-lockfile"], "pnpm install")
+    } else if workspace.join("yarn.lock").exists() {
+        ("yarn", vec!["install", "--frozen-lockfile"], "yarn install")
+    } else if workspace.join("bun.lockb").exists()
+        || workspace.join("bun.lock").exists()
+    {
+        ("bun", vec!["install", "--frozen-lockfile"], "bun install")
+    } else if workspace.join("package-lock.json").exists() {
+        ("npm", vec!["ci"], "npm ci")
+    } else {
+        // No lock file — use plain npm install as fallback.
+        ("npm", vec!["install"], "npm install")
+    };
+
+    tracing::info!(workspace = %workspace.display(), label, "Installing Node dependencies for build gate");
+
+    let install_cmd = BuildCommand {
+        label: label.to_string(),
+        program: program.to_string(),
+        args: args.into_iter().map(|s| s.to_string()).collect(),
+    };
+    Some(run_command(workspace, &install_cmd).await)
 }
 
 async fn run_command(workspace: &Path, cmd: &BuildCommand) -> CommandResult {
