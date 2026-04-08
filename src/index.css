@@ -199,30 +199,27 @@
   animation: smoke 12s infinite cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 3D Particle Animations */
-@keyframes particleFloat {
+/* Aurora orb animation — smooth drifting gradient blobs */
+@keyframes auroraOrb {
   0% {
-    transform: translate3d(0, 0, 0) scale(1);
-    opacity: 0;
+    transform: translate(-50%, -50%) translate(0px, 0px) scale(1);
   }
-
-  20% {
-    opacity: 0.8;
+  25% {
+    transform: translate(-50%, -50%) translate(var(--orb-x), calc(var(--orb-y) * -0.5)) scale(1.08);
   }
-
-  80% {
-    opacity: 0.8;
+  50% {
+    transform: translate(-50%, -50%) translate(calc(var(--orb-x) * -0.6), var(--orb-y)) scale(0.95);
   }
-
+  75% {
+    transform: translate(-50%, -50%) translate(calc(var(--orb-x) * 0.4), calc(var(--orb-y) * -0.8)) scale(1.05);
+  }
   100% {
-    transform: translate3d(var(--tx), var(--ty), var(--tz)) scale(var(--s));
-    opacity: 0;
+    transform: translate(-50%, -50%) translate(0px, 0px) scale(1);
   }
 }
 
-.animate-particle {
-  animation: particleFloat var(--d) infinite ease-in-out;
-  animation-delay: var(--del);
+.animate-aurora-orb {
+  animation: auroraOrb 20s infinite ease-in-out;
 }
 
 /* Elegant Text Entrance Animation */

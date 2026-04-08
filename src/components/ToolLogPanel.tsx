@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from 'react';
+import { Terminal, FileText, FilePen, Pencil, Search, SearchCode, Sparkles, CheckCircle2, Wrench } from 'lucide-react';
 import { ToolLog } from '../types';
 
 interface Props {
@@ -24,18 +25,20 @@ const AGENT_CONFIG: Record<string, { color: string; bg: string; label: string }>
   },
 };
 
-const TOOL_META: Record<string, { icon: string; color: string }> = {
-  Shell: { icon: '>', color: 'text-emerald-500' },
-  Bash: { icon: '$', color: 'text-emerald-500' },
-  bash: { icon: '$', color: 'text-emerald-500' },
-  VendoredSkill: { icon: '\u2726', color: 'text-violet-500' },
-  Read: { icon: '\u2687', color: 'text-sky-500' },
-  Write: { icon: '\u270E', color: 'text-amber-500' },
-  Edit: { icon: '\u0394', color: 'text-amber-500' },
-  Glob: { icon: '*', color: 'text-pink-500' },
-  Grep: { icon: '/', color: 'text-pink-500' },
-  StructuredAcceptance: { icon: '\u2713', color: 'text-violet-500' },
+const TOOL_META: Record<string, { icon: React.ReactNode; color: string }> = {
+  Shell:    { icon: <Terminal className="h-3.5 w-3.5" />, color: 'text-emerald-500' },
+  Bash:     { icon: <Terminal className="h-3.5 w-3.5" />, color: 'text-emerald-500' },
+  bash:     { icon: <Terminal className="h-3.5 w-3.5" />, color: 'text-emerald-500' },
+  VendoredSkill: { icon: <Sparkles className="h-3.5 w-3.5" />, color: 'text-themed-accent-text' },
+  Read:     { icon: <FileText className="h-3.5 w-3.5" />, color: 'text-sky-500' },
+  Write:    { icon: <FilePen className="h-3.5 w-3.5" />, color: 'text-amber-500' },
+  Edit:     { icon: <Pencil className="h-3.5 w-3.5" />, color: 'text-amber-500' },
+  Glob:     { icon: <Search className="h-3.5 w-3.5" />, color: 'text-pink-500' },
+  Grep:     { icon: <SearchCode className="h-3.5 w-3.5" />, color: 'text-pink-500' },
+  StructuredAcceptance: { icon: <CheckCircle2 className="h-3.5 w-3.5" />, color: 'text-themed-accent-text' },
 };
+
+const DEFAULT_TOOL_META = { icon: <Wrench className="h-3.5 w-3.5" />, color: 'text-content-tertiary' };
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString('en-US', {
@@ -49,7 +52,7 @@ function formatTime(ts: number): string {
 function ToolLogEntry({ log, index }: { log: ToolLog; index: number }) {
   const [expanded, setExpanded] = useState(false);
   const agentCfg = AGENT_CONFIG[log.agent] ?? { color: 'text-zinc-500', bg: 'bg-zinc-500/10 border-zinc-500/20', label: '?' };
-  const toolMeta = TOOL_META[log.tool] ?? { icon: '\u2699', color: 'text-zinc-400' };
+  const toolMeta = TOOL_META[log.tool] ?? DEFAULT_TOOL_META;
   const isLong = (log.input?.length ?? 0) > 120;
 
   return (
@@ -68,7 +71,7 @@ function ToolLogEntry({ log, index }: { log: ToolLog; index: number }) {
         <div className="min-w-0 flex-1">
           {/* Header row */}
           <div className="flex items-center gap-2">
-            <span className={`text-sm font-bold leading-none ${toolMeta.color}`}>
+            <span className={`flex items-center ${toolMeta.color}`}>
               {toolMeta.icon}
             </span>
             <span className="text-[11px] font-semibold text-content-primary">
@@ -91,7 +94,7 @@ function ToolLogEntry({ log, index }: { log: ToolLog; index: number }) {
               {isLong && (
                 <button
                   onClick={() => setExpanded(v => !v)}
-                  className="mt-1 text-[10px] font-medium text-violet-500 transition-colors hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300"
+                  className="mt-1 text-[10px] font-medium text-themed-accent-text/80 transition-colors hover:text-themed-accent-text"
                 >
                   {expanded ? 'Collapse' : 'Show more...'}
                 </button>
@@ -142,12 +145,12 @@ export default function ToolLogPanel({ logs, onClose }: Props) {
       <div className="flex-1 overflow-y-auto px-3 py-2.5 space-y-2 min-h-0 custom-scrollbar">
         {logs.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full px-4 text-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200/60 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/60">
-              <span className="text-lg text-zinc-400 dark:text-zinc-600">$</span>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-edge-primary/60 bg-surface-tertiary/60">
+              <Terminal className="h-5 w-5 text-content-tertiary" />
             </div>
             <div>
-              <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-500">No tool calls yet</p>
-              <p className="mt-0.5 text-[10px] text-zinc-400 dark:text-zinc-600">
+              <p className="text-[11px] font-medium text-content-secondary">No tool calls yet</p>
+              <p className="mt-0.5 text-[10px] text-content-tertiary">
                 Tool executions will appear here in real-time
               </p>
             </div>

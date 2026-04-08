@@ -44,7 +44,7 @@ function FieldGroup({ label, hint, children }: { label: string; hint?: string; c
 }
 
 const inputClass =
-  'rounded-xl border border-zinc-200/80 bg-white/70 px-3 py-2.5 text-sm text-zinc-800 outline-none transition-colors focus:border-violet-400 focus:ring-2 focus:ring-violet-500/10 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-100 dark:focus:border-violet-500';
+  'w-full rounded-xl border border-edge-primary/60 bg-surface-input px-3 py-2.5 text-sm text-content-primary outline-none transition-all duration-200 placeholder:text-content-tertiary focus:border-themed-accent/50 focus:ring-2 focus:ring-themed-accent/10 focus:shadow-[0_0_0_3px_rgb(var(--accent)/0.06)]';
 
 // ── Main component ───────────────────────────────────────────────────────────
 
