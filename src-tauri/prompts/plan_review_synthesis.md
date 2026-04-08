@@ -104,4 +104,6 @@ Additional structured artifact requirements:
 - Allowed `category` values: `frontend`, `backend`, `fullstack`, `infra`, `docs`
 - Allowed `suggested_skill` values: `frontend-dev`, `fullstack-dev`, or `null`
 - `depends_on` must only reference real subtask ids and must not form cycles
+- **Maximize parallelism**: only add a `depends_on` entry when there is a genuine technical dependency (e.g. a feature needs a database table created by another subtask). Do NOT make every subtask depend on an infra/setup task unless it truly cannot start without it. Independent features, screens, and API endpoints should have empty `depends_on` so they can run concurrently
+- Set `can_run_in_parallel` to `false` only for tasks that mutate shared project scaffolding (e.g. initial project init). Most feature and screen subtasks should be `true`
 - Output valid JSON only, no comments

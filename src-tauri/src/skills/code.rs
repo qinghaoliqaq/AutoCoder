@@ -278,15 +278,13 @@ fn can_spawn_subtask(
     if active_subtasks.is_empty() {
         return true;
     }
-    if active_subtasks
-        .values()
-        .any(|active| !active.can_run_in_parallel)
-    {
-        return false;
-    }
+    // A non-parallel subtask must run alone — block if anything else is active.
     if !card.can_run_in_parallel {
         return false;
     }
+    // If any active subtask is non-parallel, only block new non-parallel tasks;
+    // parallel tasks can still proceed alongside it.
+    // (Previously this blocked ALL new spawns, starving the pipeline.)
     if let Some(group) = &card.parallel_group {
         if active_subtasks
             .values()
@@ -1091,7 +1089,9 @@ mod tests {
     }
 
     #[test]
-    fn can_spawn_subtask_blocks_when_active_task_requires_exclusive_lane() {
+    fn can_spawn_subtask_allows_parallel_task_alongside_exclusive() {
+        // Parallel tasks can proceed alongside a non-parallel task because each
+        // subtask runs in an isolated workspace; merges are serialized separately.
         let card = test_card("F2", true, Some("ui"));
         let active = HashMap::from([(
             "F1".to_string(),
@@ -1101,7 +1101,7 @@ mod tests {
             },
         )]);
 
-        assert!(!can_spawn_subtask(&card, &active));
+        assert!(can_spawn_subtask(&card, &active));
     }
 
     #[test]
