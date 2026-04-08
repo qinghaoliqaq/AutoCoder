@@ -69,10 +69,7 @@ impl Tool for WebFetchTool {
             None => return ToolResult::err("Missing required parameter: url"),
         };
 
-        let _prompt = input
-            .get("prompt")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let _prompt = input.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
 
         // Validate URL (basic check without the url crate)
         if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -122,10 +119,7 @@ impl Tool for WebFetchTool {
 
         let status = response.status();
         let status_code = status.as_u16();
-        let status_text = status
-            .canonical_reason()
-            .unwrap_or("Unknown")
-            .to_string();
+        let status_text = status.canonical_reason().unwrap_or("Unknown").to_string();
 
         let content_type = response
             .headers()
@@ -146,11 +140,12 @@ impl Tool for WebFetchTool {
         let body_text = String::from_utf8_lossy(&body_bytes).to_string();
 
         // If HTML content, strip tags to extract text
-        let content = if content_type.contains("text/html") || body_text.trim_start().starts_with('<') {
-            strip_html_tags(&body_text)
-        } else {
-            body_text
-        };
+        let content =
+            if content_type.contains("text/html") || body_text.trim_start().starts_with('<') {
+                strip_html_tags(&body_text)
+            } else {
+                body_text
+            };
 
         // Build result
         let result = format!(
@@ -173,10 +168,7 @@ impl Tool for WebFetchTool {
 }
 
 /// Read the response body up to `limit` bytes.
-async fn read_limited_body(
-    response: reqwest::Response,
-    limit: usize,
-) -> Result<Vec<u8>, String> {
+async fn read_limited_body(response: reqwest::Response, limit: usize) -> Result<Vec<u8>, String> {
     // Use content_length hint if available for early rejection
     if let Some(len) = response.content_length() {
         if len as usize > limit {

@@ -2,48 +2,29 @@
 ///
 /// ```text
 /// tools/
-///   mod.rs           ← Tool trait, ToolRegistry, helpers (this file)
-///   bash.rs          ← BashTool
-///   file_read.rs     ← FileReadTool
-///   file_edit.rs     ← FileEditTool
-///   file_write.rs    ← FileWriteTool
-///   grep.rs          ← GrepTool
-///   glob.rs          ← GlobTool
-///   web_fetch.rs     ← WebFetchTool
-///   web_search.rs    ← WebSearchTool
-///   notebook_edit.rs ← NotebookEditTool
-///   lsp.rs           ← LSPTool
-///   agent.rs         ← AgentTool
-///   ask_user.rs      ← AskUserQuestionTool
-///   send_message.rs  ← SendMessageTool
-///   sleep.rs         ← SleepTool
-///   todo_write.rs    ← TodoWriteTool
-///   skill.rs         ← SkillTool
-///   tool_search.rs   ← ToolSearchTool
-///   task_create.rs   ← TaskCreateTool
-///   task_get.rs      ← TaskGetTool
-///   task_list.rs     ← TaskListTool
-///   task_update.rs   ← TaskUpdateTool
-///   task_stop.rs     ← TaskStopTool
-///   task_output.rs   ← TaskOutputTool
-///   enter_plan.rs    ← EnterPlanModeTool
-///   exit_plan.rs     ← ExitPlanModeTool
-///   enter_worktree.rs← EnterWorktreeTool
-///   exit_worktree.rs ← ExitWorktreeTool
-///   team_create.rs   ← TeamCreateTool
-///   team_delete.rs   ← TeamDeleteTool
-///   mcp.rs           ← MCPTool
-///   mcp_auth.rs      ← McpAuthTool
-///   list_mcp.rs      ← ListMcpResourcesTool
-///   read_mcp.rs      ← ReadMcpResourceTool
-///   powershell.rs    ← PowerShellTool
-///   repl.rs          ← REPLTool
-///   config.rs        ← ConfigTool
-///   brief.rs         ← BriefTool
-///   remote_trigger.rs← RemoteTriggerTool
-///   schedule_cron.rs ← ScheduleCronTool (create/delete/list)
-///   synthetic_output.rs ← SyntheticOutputTool
-///   path_utils.rs    ← Shared path resolution & security helpers
+///   mod.rs            ← Tool trait, ToolRegistry, helpers (this file)
+///   path_utils.rs     ← Shared path resolution & security helpers
+///   bash/             ← BashTool (shell execution)
+///   file_read/        ← FileReadTool
+///   file_edit/        ← FileEditTool
+///   file_write/       ← FileWriteTool
+///   grep/             ← GrepTool (ripgrep)
+///   glob_tool/        ← GlobTool (file pattern matching)
+///   web_fetch/        ← WebFetchTool
+///   notebook_edit/    ← NotebookEditTool
+///   sleep/            ← SleepTool
+///   todo_write/       ← TodoWriteTool (task tracking)
+///   skill/            ← SkillTool (skill/slash command invocation)
+///   enter_worktree/   ← EnterWorktreeTool (git worktree)
+///   exit_worktree/    ← ExitWorktreeTool (git worktree)
+///   mcp/              ← MCPTool (MCP server tools)
+///   mcp_auth/         ← McpAuthTool (MCP authentication)
+///   list_mcp/         ← ListMcpResourcesTool
+///   read_mcp/         ← ReadMcpResourceTool
+///   powershell/       ← PowerShellTool (Windows)
+///   repl/             ← REPLTool (Python/Node/Ruby)
+///   config_tool/      ← ConfigTool (view/modify config)
+///   schedule_cron/    ← ScheduleCronTool (scheduled tasks)
 /// ```
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -53,46 +34,27 @@ use tokio_util::sync::CancellationToken;
 
 // ── Tool submodules ──────────────────────────────────────────────────────────
 pub mod bash;
-pub mod file_read;
-pub mod file_edit;
-pub mod file_write;
-pub mod grep;
-pub mod glob_tool;
-pub mod web_fetch;
-pub mod web_search;
-pub mod notebook_edit;
-pub mod lsp;
-pub mod agent;
-pub mod ask_user;
-pub mod send_message;
-pub mod sleep;
-pub mod todo_write;
-pub mod skill;
-pub mod tool_search;
-pub mod task_create;
-pub mod task_get;
-pub mod task_list;
-pub mod task_update;
-pub mod task_stop;
-pub mod task_output;
-pub mod enter_plan;
-pub mod exit_plan;
+pub mod config_tool;
 pub mod enter_worktree;
 pub mod exit_worktree;
-pub mod team_create;
-pub mod team_delete;
+pub mod file_edit;
+pub mod file_read;
+pub mod file_write;
+pub mod glob_tool;
+pub mod grep;
+pub mod list_mcp;
 pub mod mcp;
 pub mod mcp_auth;
-pub mod list_mcp;
-pub mod read_mcp;
-pub mod powershell;
-pub mod repl;
-pub mod config_tool;
-pub mod brief;
-pub mod remote_trigger;
-pub mod schedule_cron;
-pub mod synthetic_output;
+pub mod notebook_edit;
 pub mod path_utils;
+pub mod powershell;
+pub mod read_mcp;
+pub mod repl;
+pub mod schedule_cron;
+pub mod skill;
+pub mod sleep;
+pub mod todo_write;
+pub mod web_fetch;
 
 use crate::tool_runner::providers::WireFormat;
 
@@ -259,23 +221,18 @@ impl ToolRegistry {
 
     /// Check if a tool call is read-only.
     pub fn is_read_only(&self, name: &str, input: &Value) -> bool {
-        self.get(name).map(|t| t.is_read_only(input)).unwrap_or(false)
+        self.get(name)
+            .map(|t| t.is_read_only(input))
+            .unwrap_or(false)
     }
 
     /// Execute a tool by name.
-    pub async fn execute(
-        &self,
-        name: &str,
-        input: Value,
-        ctx: &ToolContext<'_>,
-    ) -> ToolResult {
+    pub async fn execute(&self, name: &str, input: Value, ctx: &ToolContext<'_>) -> ToolResult {
         match self.get(name) {
             Some(tool) => {
                 // Read-only enforcement: reject write tools in read-only mode
                 if ctx.read_only && !tool.is_read_only(&input) {
-                    return ToolResult::err(format!(
-                        "{name}: blocked in read-only mode"
-                    ));
+                    return ToolResult::err(format!("{name}: blocked in read-only mode"));
                 }
                 tool.execute(input, ctx).await
             }
@@ -362,17 +319,14 @@ fn tool_to_definition(tool: &dyn Tool, format: WireFormat) -> Value {
 fn tool_to_read_only_definition(tool: &dyn Tool, format: WireFormat) -> Option<Value> {
     let name = tool.name();
     match name {
-        // Bash is excluded in read-only mode
-        "Bash" | "PowerShell" => None,
+        // Shell execution excluded in read-only mode
+        "Bash" | "PowerShell" | "REPL" => None,
         // Write tools excluded
         "Write" | "NotebookEdit" => None,
         // Edit becomes read-only (view only)
         "Edit" => Some(tool_to_definition(tool, format)),
-        // Agent/task tools excluded in read-only
-        "Agent" | "TaskCreate" | "TaskUpdate" | "TaskStop" | "TeamCreate" | "TeamDelete"
-        | "EnterPlanMode" | "ExitPlanMode" | "EnterWorktree" | "ExitWorktree"
-        | "ScheduleCron" | "RemoteTrigger" | "McpAuth" | "Brief" | "Config"
-        | "SyntheticOutput" | "REPL" => None,
+        // Mutating tools excluded in read-only
+        "EnterWorktree" | "ExitWorktree" | "ScheduleCron" | "McpAuth" | "Config" => None,
         // Everything else is allowed (search, read, info tools)
         _ => Some(tool_to_definition(tool, format)),
     }
@@ -380,7 +334,7 @@ fn tool_to_read_only_definition(tool: &dyn Tool, format: WireFormat) -> Option<V
 
 // ── Default registry builder ─────────────────────────────────────────────────
 
-/// Build the default tool registry with all 43 tools.
+/// Build the default tool registry with all tools.
 pub fn default_registry() -> ToolRegistry {
     let mut reg = ToolRegistry::new();
 
@@ -398,55 +352,28 @@ pub fn default_registry() -> ToolRegistry {
     reg.register(Box::new(powershell::PowerShellTool));
     reg.register(Box::new(repl::REPLTool));
 
-    // Web tools
+    // Web
     reg.register(Box::new(web_fetch::WebFetchTool));
-    reg.register(Box::new(web_search::WebSearchTool));
 
     // Editor / notebook
     reg.register(Box::new(notebook_edit::NotebookEditTool));
 
-    // LSP
-    reg.register(Box::new(lsp::LSPTool));
-
-    // Agent + communication
-    reg.register(Box::new(agent::AgentTool));
-    reg.register(Box::new(ask_user::AskUserQuestionTool));
-    reg.register(Box::new(send_message::SendMessageTool));
+    // Session management
     reg.register(Box::new(sleep::SleepTool));
     reg.register(Box::new(todo_write::TodoWriteTool));
     reg.register(Box::new(skill::SkillTool));
-    reg.register(Box::new(tool_search::ToolSearchTool));
+    reg.register(Box::new(config_tool::ConfigTool));
+    reg.register(Box::new(schedule_cron::ScheduleCronTool));
 
-    // Task management
-    reg.register(Box::new(task_create::TaskCreateTool));
-    reg.register(Box::new(task_get::TaskGetTool));
-    reg.register(Box::new(task_list::TaskListTool));
-    reg.register(Box::new(task_update::TaskUpdateTool));
-    reg.register(Box::new(task_stop::TaskStopTool));
-    reg.register(Box::new(task_output::TaskOutputTool));
-
-    // Plan mode + worktree
-    reg.register(Box::new(enter_plan::EnterPlanModeTool));
-    reg.register(Box::new(exit_plan::ExitPlanModeTool));
+    // Git worktree
     reg.register(Box::new(enter_worktree::EnterWorktreeTool));
     reg.register(Box::new(exit_worktree::ExitWorktreeTool));
 
-    // Team
-    reg.register(Box::new(team_create::TeamCreateTool));
-    reg.register(Box::new(team_delete::TeamDeleteTool));
-
-    // MCP
+    // MCP / Skills integration
     reg.register(Box::new(mcp::MCPTool));
     reg.register(Box::new(mcp_auth::McpAuthTool));
     reg.register(Box::new(list_mcp::ListMcpResourcesTool));
     reg.register(Box::new(read_mcp::ReadMcpResourceTool));
-
-    // Misc
-    reg.register(Box::new(config_tool::ConfigTool));
-    reg.register(Box::new(brief::BriefTool));
-    reg.register(Box::new(remote_trigger::RemoteTriggerTool));
-    reg.register(Box::new(schedule_cron::ScheduleCronTool));
-    reg.register(Box::new(synthetic_output::SyntheticOutputTool));
 
     reg
 }
@@ -482,7 +409,16 @@ pub async fn run_partitioned(
         }
         if *is_readonly && indices.len() > 1 {
             // Run read-only tools concurrently
-            run_concurrent_batch(registry, tool_calls, indices, workspace, token, read_only, &mut results).await?;
+            run_concurrent_batch(
+                registry,
+                tool_calls,
+                indices,
+                workspace,
+                token,
+                read_only,
+                &mut results,
+            )
+            .await?;
         } else {
             // Run write tools serially
             for &idx in indices {
@@ -631,6 +567,6 @@ mod tests {
     #[test]
     fn default_registry_has_all_tools() {
         let reg = default_registry();
-        assert!(reg.len() >= 40, "expected 40+ tools, got {}", reg.len());
+        assert!(reg.len() >= 21, "expected 21+ tools, got {}", reg.len());
     }
 }

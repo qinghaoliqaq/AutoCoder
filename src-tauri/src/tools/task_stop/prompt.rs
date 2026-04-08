@@ -1,8 +1,0 @@
-/// Tool usage prompt — injected into the system prompt so the model
-/// understands when and how to use this tool.
-pub const PROMPT: &str = r#"
-- Stops a running background task by its ID
-- Takes a task_id parameter identifying the task to stop
-- Returns a success or failure status
-- Use this tool when you need to terminate a long-running task
-"#;

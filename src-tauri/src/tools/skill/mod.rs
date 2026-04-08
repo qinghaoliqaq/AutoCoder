@@ -111,9 +111,7 @@ mod tests {
             read_only: false,
             token: &token,
         };
-        let result = tool
-            .execute(json!({"skill": "review-pr"}), &ctx)
-            .await;
+        let result = tool.execute(json!({"skill": "review-pr"}), &ctx).await;
         assert!(!result.is_error);
         assert!(result.content.contains("review-pr"));
         assert!(!result.content.contains("with args"));

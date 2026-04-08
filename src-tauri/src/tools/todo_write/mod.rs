@@ -83,14 +83,10 @@ impl Tool for TodoWriteTool {
             let active_form = todo["activeForm"].as_str().unwrap_or("");
 
             if content.is_empty() {
-                return ToolResult::err(format!(
-                    "Todo item {i}: content cannot be empty"
-                ));
+                return ToolResult::err(format!("Todo item {i}: content cannot be empty"));
             }
             if active_form.is_empty() {
-                return ToolResult::err(format!(
-                    "Todo item {i}: activeForm cannot be empty"
-                ));
+                return ToolResult::err(format!("Todo item {i}: activeForm cannot be empty"));
             }
             if !matches!(status, "pending" | "in_progress" | "completed") {
                 return ToolResult::err(format!(
@@ -102,18 +98,14 @@ impl Tool for TodoWriteTool {
         // Write todos to .autocoder/todos.json in the workspace
         let autocoder_dir = ctx.workspace.join(".autocoder");
         if let Err(e) = tokio::fs::create_dir_all(&autocoder_dir).await {
-            return ToolResult::err(format!(
-                "Failed to create .autocoder directory: {e}"
-            ));
+            return ToolResult::err(format!("Failed to create .autocoder directory: {e}"));
         }
 
         let todos_path = autocoder_dir.join("todos.json");
         let todos_json = match serde_json::to_string_pretty(&input["todos"]) {
             Ok(j) => j,
             Err(e) => {
-                return ToolResult::err(format!(
-                    "Failed to serialize todos: {e}"
-                ));
+                return ToolResult::err(format!("Failed to serialize todos: {e}"));
             }
         };
 

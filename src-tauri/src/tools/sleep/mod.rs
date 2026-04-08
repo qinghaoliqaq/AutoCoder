@@ -57,9 +57,7 @@ impl Tool for SleepTool {
                 // Try as i64 for negative / float cases
                 if let Some(d) = input["duration_ms"].as_i64() {
                     if d <= 0 {
-                        return ToolResult::err(
-                            "duration_ms must be a positive integer",
-                        );
+                        return ToolResult::err("duration_ms must be a positive integer");
                     }
                     d as u64
                 } else {
@@ -103,9 +101,7 @@ mod tests {
             read_only: false,
             token: &token,
         };
-        let result = tool
-            .execute(json!({"duration_ms": 10}), &ctx)
-            .await;
+        let result = tool.execute(json!({"duration_ms": 10}), &ctx).await;
         assert!(!result.is_error);
         assert_eq!(result.content, "Slept for 10ms");
     }
@@ -121,9 +117,7 @@ mod tests {
             read_only: false,
             token: &token,
         };
-        let result = tool
-            .execute(json!({"duration_ms": 999999}), &ctx)
-            .await;
+        let result = tool.execute(json!({"duration_ms": 999999}), &ctx).await;
         assert!(!result.is_error);
         // Should be interrupted immediately since token was cancelled
         assert!(result.content.contains("interrupted") || result.content.contains("Slept"));
@@ -139,9 +133,7 @@ mod tests {
             read_only: false,
             token: &token,
         };
-        let result = tool
-            .execute(json!({"duration_ms": 60000}), &ctx)
-            .await;
+        let result = tool.execute(json!({"duration_ms": 60000}), &ctx).await;
         assert!(!result.is_error);
         assert!(result.content.contains("interrupted"));
     }
@@ -169,9 +161,7 @@ mod tests {
             read_only: false,
             token: &token,
         };
-        let result = tool
-            .execute(json!({"duration_ms": -100}), &ctx)
-            .await;
+        let result = tool.execute(json!({"duration_ms": -100}), &ctx).await;
         assert!(result.is_error);
     }
 }

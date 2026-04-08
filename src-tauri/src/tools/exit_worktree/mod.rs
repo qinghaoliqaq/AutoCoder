@@ -87,9 +87,7 @@ impl Tool for ExitWorktreeTool {
                     } else {
                         ""
                     };
-                    ToolResult::err(format!(
-                        "git worktree remove failed: {stderr}{hint}"
-                    ))
+                    ToolResult::err(format!("git worktree remove failed: {stderr}{hint}"))
                 }
             }
             Err(e) => ToolResult::err(format!("Failed to run git: {e}")),

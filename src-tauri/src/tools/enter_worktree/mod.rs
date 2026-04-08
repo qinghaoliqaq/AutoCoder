@@ -77,9 +77,7 @@ impl Tool for EnterWorktreeTool {
         // Create parent directory if needed
         if let Some(parent) = worktree_path.parent() {
             if let Err(e) = tokio::fs::create_dir_all(parent).await {
-                return ToolResult::err(format!(
-                    "Failed to create worktree parent directory: {e}"
-                ));
+                return ToolResult::err(format!("Failed to create worktree parent directory: {e}"));
             }
         }
 
@@ -100,9 +98,7 @@ impl Tool for EnterWorktreeTool {
                     ))
                 } else {
                     let stderr = String::from_utf8_lossy(&out.stderr);
-                    ToolResult::err(format!(
-                        "git worktree add failed: {stderr}"
-                    ))
+                    ToolResult::err(format!("git worktree add failed: {stderr}"))
                 }
             }
             Err(e) => ToolResult::err(format!("Failed to run git: {e}")),

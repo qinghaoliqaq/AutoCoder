@@ -113,9 +113,7 @@ impl Tool for FileEditTool {
                                 Ok(()) => ToolResult::ok(format!(
                                     "File created successfully at: {file_path}"
                                 )),
-                                Err(e) => ToolResult::err(format!(
-                                    "Failed to create file: {e}"
-                                )),
+                                Err(e) => ToolResult::err(format!("Failed to create file: {e}")),
                             }
                         } else {
                             ToolResult::err(format!("File does not exist: {file_path}"))
@@ -261,7 +259,10 @@ mod tests {
         });
         let result = FileEditTool.execute(input, &ctx).await;
         assert!(!result.is_error, "error: {}", result.content);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "qux bar qux baz qux");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "qux bar qux baz qux"
+        );
     }
 
     #[tokio::test]

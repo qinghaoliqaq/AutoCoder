@@ -237,7 +237,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().canonicalize().unwrap();
         let file = ws.join("lines.txt");
-        let content: String = (1..=100).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let content: String = (1..=100)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         std::fs::write(&file, &content).unwrap();
         let ctx = make_ctx(&ws);
         let input = json!({

@@ -146,10 +146,7 @@ impl Tool for NotebookEditTool {
                     ));
                 }
 
-                let content = input
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let content = input.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
                 let new_cell = make_cell(cell_type, content);
 
@@ -180,7 +177,11 @@ impl Tool for NotebookEditTool {
             "edit_cell" => {
                 let cell_index = match input.get("cell_index").and_then(|v| v.as_u64()) {
                     Some(idx) => idx as usize,
-                    None => return ToolResult::err("Missing required parameter: cell_index for edit_cell"),
+                    None => {
+                        return ToolResult::err(
+                            "Missing required parameter: cell_index for edit_cell",
+                        )
+                    }
                 };
 
                 if cell_index >= cell_count {
@@ -191,7 +192,9 @@ impl Tool for NotebookEditTool {
 
                 let content = match input.get("content").and_then(|v| v.as_str()) {
                     Some(c) => c,
-                    None => return ToolResult::err("Missing required parameter: content for edit_cell"),
+                    None => {
+                        return ToolResult::err("Missing required parameter: content for edit_cell")
+                    }
                 };
 
                 // Update the cell source
@@ -299,19 +302,13 @@ fn source_to_value(content: &str) -> Value {
 }
 
 /// Create a brand new notebook with a single cell.
-async fn create_new_notebook(
-    full_path: &std::path::Path,
-    input: &Value,
-) -> ToolResult {
+async fn create_new_notebook(full_path: &std::path::Path, input: &Value) -> ToolResult {
     let cell_type = input
         .get("cell_type")
         .and_then(|v| v.as_str())
         .unwrap_or("code");
 
-    let content = input
-        .get("content")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let content = input.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
     let cell = make_cell(cell_type, content);
 
@@ -383,9 +380,7 @@ mod tests {
     fn schema_command_enum() {
         let tool = NotebookEditTool;
         let schema = tool.input_schema();
-        let command_enum = schema["properties"]["command"]["enum"]
-            .as_array()
-            .unwrap();
+        let command_enum = schema["properties"]["command"]["enum"].as_array().unwrap();
         assert!(command_enum.contains(&json!("add_cell")));
         assert!(command_enum.contains(&json!("edit_cell")));
         assert!(command_enum.contains(&json!("delete_cell")));

@@ -89,9 +89,7 @@ impl Tool for FileWriteTool {
         if let Some(parent) = resolved.parent() {
             if !parent.exists() {
                 if let Err(e) = tokio::fs::create_dir_all(parent).await {
-                    return ToolResult::err(format!(
-                        "Failed to create parent directories: {e}"
-                    ));
+                    return ToolResult::err(format!("Failed to create parent directories: {e}"));
                 }
             }
         }
