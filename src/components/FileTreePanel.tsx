@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { FileNode } from '../types';
 import {
   SiTypescript, SiJavascript, SiReact, SiPython, SiRust, SiGo, SiOpenjdk,
@@ -52,17 +53,17 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
       <div>
         <button
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-1.5 w-full text-left py-0.5 px-2 rounded outline-none
-                     hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors group"
+          className="flex items-center gap-1.5 w-full text-left py-[3px] px-2 rounded-md outline-none
+                     hover:bg-surface-tertiary/50 transition-all duration-150 group"
           style={{ paddingLeft: `${indent + 6}px` }}
         >
-          <span className="text-zinc-400 dark:text-zinc-500 w-3 flex-shrink-0 flex items-center justify-center transition-transform group-hover:text-zinc-600 dark:group-hover:text-zinc-300">
-            {open ? <VscChevronDown className="w-3.5 h-3.5" /> : <VscChevronRight className="w-3.5 h-3.5" />}
+          <span className="text-content-tertiary w-3 flex-shrink-0 flex items-center justify-center transition-all group-hover:text-content-secondary">
+            {open ? <VscChevronDown className="w-3 h-3" /> : <VscChevronRight className="w-3 h-3" />}
           </span>
-          <span className="text-amber-500 dark:text-amber-400/80 transition-transform group-hover:scale-110 flex items-center justify-center">
-            {open ? <VscFolderOpened className="w-4 h-4" /> : <VscFolder className="w-4 h-4" />}
+          <span className="text-amber-500 dark:text-amber-400/80 transition-transform duration-200 group-hover:scale-110 flex items-center justify-center">
+            {open ? <VscFolderOpened className="w-[15px] h-[15px]" /> : <VscFolder className="w-[15px] h-[15px]" />}
           </span>
-          <span className="text-[12px] font-medium text-zinc-700 dark:text-zinc-300 truncate">
+          <span className="text-[12px] font-medium text-content-primary truncate group-hover:text-content-primary transition-colors">
             {node.name}
           </span>
         </button>
@@ -75,13 +76,13 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
 
   return (
     <div
-      className="flex items-center gap-1.5 py-0.5 px-2 rounded group
-                 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors cursor-default"
+      className="flex items-center gap-1.5 py-[3px] px-2 rounded-md group
+                 hover:bg-surface-tertiary/50 transition-all duration-150 cursor-default"
       style={{ paddingLeft: `${indent + 6 + 18}px` }}
       title={node.path}
     >
       <span className="flex items-center justify-center">{fileIcon(node.name)}</span>
-      <span className="text-[12px] text-zinc-600 dark:text-zinc-400 truncate group-hover:text-zinc-800 dark:group-hover:text-zinc-200 transition-colors">{node.name}</span>
+      <span className="text-[12px] text-content-secondary truncate group-hover:text-content-primary transition-colors">{node.name}</span>
     </div>
   );
 }
@@ -94,10 +95,20 @@ interface FileTreePanelProps {
   onClose: () => void;
 }
 
+/** Tool-log inputs that indicate a file mutation happened. */
+function isMutatingTool(tool: string, input: string): boolean {
+  if (tool === 'bash') return true; // bash may create/modify files
+  if (tool === 'str_replace_based_edit_tool') {
+    return input.startsWith('create ') || input.startsWith('str_replace ') || input.startsWith('insert ');
+  }
+  return false;
+}
+
 export default function FileTreePanel({ workspacePath, onOpenProject, onClose }: FileTreePanelProps) {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async () => {
     if (!workspacePath) return;
@@ -113,10 +124,40 @@ export default function FileTreePanel({ workspacePath, onOpenProject, onClose }:
     }
   }, [workspacePath]);
 
+  // Initial load when workspace changes
   useEffect(() => {
     setTree([]);
     refresh();
   }, [refresh]);
+
+  // Auto-refresh: listen for tool-log events that indicate file mutations
+  useEffect(() => {
+    if (!workspacePath) return;
+    const appWindow = getCurrentWebviewWindow();
+    let unlisten: (() => void) | null = null;
+
+    const setup = async () => {
+      unlisten = await appWindow.listen<{ tool: string; input: string }>(
+        'tool-log',
+        (event) => {
+          const { tool, input } = event.payload;
+          if (!isMutatingTool(tool, input)) return;
+          // Debounce: wait 800ms after the last mutation before refreshing,
+          // so rapid consecutive tool calls don't spam workspace_tree.
+          if (debounceRef.current) clearTimeout(debounceRef.current);
+          debounceRef.current = setTimeout(() => {
+            refresh();
+          }, 800);
+        },
+      );
+    };
+    setup();
+
+    return () => {
+      unlisten?.();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [workspacePath, refresh]);
 
   const displayName = workspacePath ? workspacePath.split('/').pop() ?? workspacePath : null;
 
@@ -126,18 +167,19 @@ export default function FileTreePanel({ workspacePath, onOpenProject, onClose }:
     >
       <div className="w-full h-full flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 flex-shrink-0
-                        border-b border-zinc-200/40 dark:border-zinc-700/40 min-h-[52px]">
-          <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-800 dark:text-zinc-200 select-none">
-            EXPLORER
+        <div className="flex items-center justify-between px-5 py-3 flex-shrink-0
+                        border-b border-edge-primary/40 min-h-[48px]"
+             style={{ backgroundColor: 'rgb(var(--bg-secondary) / 0.2)' }}>
+          <span className="text-[11px] font-bold uppercase tracking-widest text-content-primary select-none">
+            Explorer
           </span>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-0.5 flex-shrink-0">
             {workspacePath && (
               <button
                 onClick={refresh}
                 disabled={loading}
-                className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200
-                           hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50 transition-colors disabled:opacity-40"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-content-tertiary
+                           transition-colors hover:bg-surface-tertiary/50 hover:text-content-primary disabled:opacity-40"
                 title="刷新文件树"
               >
                 <VscRefresh className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -145,16 +187,16 @@ export default function FileTreePanel({ workspacePath, onOpenProject, onClose }:
             )}
             <button
               onClick={onOpenProject}
-              className="p-1.5 rounded-md text-zinc-400 hover:text-violet-600 dark:text-zinc-500 dark:hover:text-violet-400
-                         hover:bg-violet-100 dark:hover:bg-violet-500/20 transition-colors"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-content-tertiary
+                         transition-colors hover:bg-surface-tertiary/50 hover:text-content-primary"
               title="切换工作区"
             >
               <VscFolderActive className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-md text-zinc-400 hover:text-rose-600 dark:text-zinc-500 dark:hover:text-rose-400
-                         hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-colors"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-content-tertiary
+                         transition-colors hover:bg-surface-tertiary/50 hover:text-content-primary"
               title="收起"
             >
               <VscLayoutSidebarLeftOff className="w-3.5 h-3.5" />
@@ -164,10 +206,9 @@ export default function FileTreePanel({ workspacePath, onOpenProject, onClose }:
 
         {/* Project name row */}
         {displayName && (
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800
-                        bg-zinc-100/60 dark:bg-zinc-800/40">
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-edge-primary/40 bg-surface-tertiary/30">
             <VscFolder className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-            <span className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300 truncate uppercase tracking-wide"
+            <span className="text-[11px] font-semibold text-content-secondary truncate uppercase tracking-wide"
               title={workspacePath ?? ''}>
               {displayName}
             </span>

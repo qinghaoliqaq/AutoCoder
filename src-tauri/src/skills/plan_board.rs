@@ -96,7 +96,11 @@ impl PlanBoard {
         out.push_str(&format!("- State: {}\n", state_label(&self.state)));
         out.push_str(&format!(
             "- Source document provided: {}\n",
-            if self.source_document_present { "yes" } else { "no" }
+            if self.source_document_present {
+                "yes"
+            } else {
+                "no"
+            }
         ));
         out.push_str(&format!("- Last updated: {}\n\n", self.updated_at));
 

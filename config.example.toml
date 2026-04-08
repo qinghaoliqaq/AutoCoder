@@ -1,4 +1,4 @@
-# AI Dev Hub — Director Configuration
+# AI Dev Hub — Configuration
 #
 # Copy this file to config.toml and fill in your values.
 # config.toml is git-ignored so your API key stays private.
@@ -9,45 +9,8 @@
 #   DIRECTOR_MODEL        or  AGENT_MINIMAX_MODEL
 #   DIRECTOR_API_FORMAT                               ("openai" | "anthropic")
 #   AI_DEV_HUB_VENDORED_SKILLS                       ("true" | "false")
-#
-# ── api_format options ────────────────────────────────────────────────────────
-#
-#   "openai"     OpenAI-compatible wire format
-#                  endpoint : {base_url}/chat/completions
-#                  auth     : Authorization: Bearer <api_key>
-#                  providers: OpenAI, Groq, Ollama, Azure OpenAI, etc.
-#
-#   "anthropic"  Anthropic-compatible wire format
-#                  endpoint : {base_url}/messages
-#                  auth     : x-api-key: <api_key>
-#                  providers: Anthropic Claude, MiniMax, and compatible proxies
-#
-# ── Provider examples ─────────────────────────────────────────────────────────
-#
-#   OpenAI
-#     base_url   = "https://api.openai.com/v1"
-#     model      = "gpt-4o"
-#     api_format = "openai"
-#
-#   Anthropic Claude
-#     base_url   = "https://api.anthropic.com/v1"
-#     model      = "claude-sonnet-4-6"
-#     api_format = "anthropic"
-#
-#   MiniMax (Anthropic-compatible proxy)
-#     base_url   = "http://<host>/api"
-#     model      = "MiniMax-M2.5"
-#     api_format = "anthropic"
-#
-#   Groq
-#     base_url   = "https://api.groq.com/openai/v1"
-#     model      = "llama-3.3-70b-versatile"
-#     api_format = "openai"
-#
-#   Ollama (local)
-#     base_url   = "http://localhost:11434/v1"
-#     model      = "llama3.2"
-#     api_format = "openai"
+#   AI_DEV_HUB_MAX_PARALLEL_SUBTASKS                 (1-8)
+#   AI_DEV_HUB_EXECUTION_ACCESS_MODE                 ("sandbox" | "full_access")
 
 [director]
 api_key    = "your-api-key-here"
@@ -55,7 +18,103 @@ base_url   = "https://api.openai.com/v1"
 model      = "gpt-4o"
 api_format = "openai"
 
+# Token budget for history. Older messages compacted when exceeded.
+# context_budget = 24000
+
+# ── Agent layer (skill execution with tool_use) ─────────────────────────────
+#
+# When configured, skills run through direct API calls with tool_use.
+# Tools (Bash, TextEditor, Grep, Glob) execute locally in Rust — free.
+# No CLI installation needed — just an API key from any provider.
+#
+# The provider field auto-selects the correct wire format and default endpoint.
+# All OpenAI-compatible providers use the same protocol — only the endpoint differs.
+#
+# Environment variable overrides:
+#   AGENT_API_KEY      API key
+#   AGENT_BASE_URL     Custom base URL (overrides provider default)
+#   AGENT_MODEL        Model name (overrides provider default)
+#   AGENT_PROVIDER     Provider name (see list below)
+#
+# ── Supported providers ──────────────────────────────────────────────────────
+#
+#   provider       | default endpoint                              | default model          | wire format
+#   ───────────────┼───────────────────────────────────────────────┼────────────────────────┼───────────
+#   anthropic      | https://api.anthropic.com/v1                  | claude-sonnet-4-6      | Anthropic
+#   openai / codex | https://api.openai.com/v1                     | gpt-4o                 | OpenAI
+#   deepseek       | https://api.deepseek.com                      | deepseek-chat          | OpenAI
+#   zhipu / glm    | https://open.bigmodel.cn/api/paas/v4          | glm-4-plus             | OpenAI
+#   minimax        | https://api.minimax.chat/v1                   | MiniMax-Text-01        | OpenAI
+#   moonshot / kimi| https://api.moonshot.cn/v1                    | moonshot-v1-128k       | OpenAI
+#   yi / 01ai      | https://api.lingyiwanwu.com/v1                | yi-large               | OpenAI
+#   baichuan       | https://api.baichuan-ai.com/v1                | Baichuan4              | OpenAI
+#   qwen/dashscope | https://dashscope.aliyuncs.com/compatible-mode/v1 | qwen-max           | OpenAI
+#   groq           | https://api.groq.com/openai/v1                | llama-3.3-70b-versatile| OpenAI
+#   together       | https://api.together.xyz/v1                   | Meta-Llama-3.1-70B-... | OpenAI
+#   fireworks      | https://api.fireworks.ai/inference/v1          | llama-v3p1-70b-instruct| OpenAI
+#   siliconflow    | https://api.siliconflow.cn/v1                 | Qwen/Qwen2.5-72B-...  | OpenAI
+#
+# If base_url is empty, the provider's default endpoint is used.
+# If model is empty, the provider's default model is used.
+# Unknown providers default to OpenAI-compatible format.
+#
+# ── Examples ─────────────────────────────────────────────────────────────────
+#
+#   # Anthropic Claude (built-in tool schemas, best performance)
+#   [agent]
+#   api_key  = "sk-ant-..."
+#   provider = "anthropic"
+#
+#   # OpenAI GPT-4o
+#   [agent]
+#   api_key  = "sk-..."
+#   provider = "openai"
+#
+#   # 智谱 GLM-4
+#   [agent]
+#   api_key  = "your-zhipu-key"
+#   provider = "zhipu"
+#
+#   # MiniMax
+#   [agent]
+#   api_key  = "your-minimax-key"
+#   provider = "minimax"
+#
+#   # DeepSeek
+#   [agent]
+#   api_key  = "sk-..."
+#   provider = "deepseek"
+#
+#   # 通义千问 (Qwen via DashScope)
+#   [agent]
+#   api_key  = "sk-..."
+#   provider = "qwen"
+#
+#   # 月之暗面 Moonshot
+#   [agent]
+#   api_key  = "sk-..."
+#   provider = "moonshot"
+#
+#   # 硅基流动 SiliconFlow (多种开源模型)
+#   [agent]
+#   api_key  = "sk-..."
+#   provider = "siliconflow"
+#   model    = "Qwen/Qwen2.5-72B-Instruct"
+#
+#   # Custom / self-hosted (OpenAI-compatible)
+#   [agent]
+#   api_key  = "any-key"
+#   provider = "custom"
+#   base_url = "http://localhost:8080/v1"
+#   model    = "my-model"
+
+[agent]
+# api_key  = ""
+# provider = "anthropic"
+# base_url = ""
+# model    = ""
+
 [features]
-# Enable packaged vendored helper skills such as MiniMax frontend-dev/fullstack-dev.
-# These are injected by the app orchestrator and never written to user-global skill dirs.
 vendored_skills = true
+max_parallel_subtasks = 5
+execution_access_mode = "sandbox"

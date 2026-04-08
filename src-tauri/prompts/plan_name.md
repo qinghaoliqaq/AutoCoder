@@ -10,10 +10,10 @@ Rules:
 
 Examples:
   Task: 智能招聘系统，含简历解析和面试调度        → PROJECT_DIR: smart-recruitment
-  Task: 图库管理系统                              → PROJECT_DIR: gallery-manager
-  Task: 用户认证 JWT + React 前端                 → PROJECT_DIR: jwt-auth
-  Task: Build a todo app with SQLite backend      → PROJECT_DIR: todo-app
-  Task: 电商平台商品管理后台                       → PROJECT_DIR: ecommerce-admin
+  Task: 餐饮外卖平台，用户下单、商家接单、骑手配送 → PROJECT_DIR: food-delivery
+  Task: 苍穹外卖系统，完整餐饮外卖平台，多端功能  → PROJECT_DIR: cangqiong-food-delivery
+  Task: Build a todo app with SQLite backend      → PROJECT_DIR: task-tracker
+  Task: 电商平台商品管理后台                       → PROJECT_DIR: product-admin
 
 Output exactly one line. No explanation, no markdown, nothing else.
 

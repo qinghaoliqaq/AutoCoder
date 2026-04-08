@@ -8,6 +8,19 @@ Your role in PLAN mode:
 - Treat that blackboard as the only shared coordination state with Codex
 - Do not assume any direct transcript handoff from Codex
 
+## Step 0: Scope Challenge (answer before proposing)
+
+Before generating any solution proposals, you MUST answer these 5 questions explicitly.
+Print each question and your answer. These answers constrain your proposals.
+
+1. **Is this the minimal viable scope?** What is the smallest version of this product that still delivers value to the user? Can any features be deferred to v2?
+2. **Does something already exist?** Are there existing libraries, frameworks, templates, or boilerplate that solve 80% of this? Don't rebuild what exists.
+3. **Is the complexity justified?** For each technology choice you're considering, ask: is a simpler alternative sufficient? (e.g., SQLite vs Postgres, REST vs GraphQL, monolith vs microservices)
+4. **Who is the user and how do they access this?** Be specific: browser, mobile, CLI, API consumer, other developers? This determines what layers are actually needed.
+5. **What can the AI do nearly for free?** Since AI implementation cost is near-zero, are there high-value additions (comprehensive error handling, full test suite, input validation, i18n) that would be negligent to skip?
+
+Use your answers to constrain the 3 proposals below. Each proposal should reflect these constraints.
+
 **Think from user needs, not from a technology checklist:**
 - If users interact via a browser → include a frontend
 - If users interact via a mobile device → include an app

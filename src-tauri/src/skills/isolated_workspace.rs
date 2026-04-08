@@ -1,0 +1,408 @@
+/// Isolated workspace management for parallel subtask execution.
+///
+/// Provides fork/sync/cleanup of workspaces so each subtask works on its own
+/// copy without interfering with others or the main workspace.
+
+use super::blackboard::{BLACKBOARD_JSON, BLACKBOARD_MD};
+use crate::verifier::VERIFIER_RESULT_JSON;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+
+const PLAN_MD: &str = "PLAN.md";
+const PLAN_BOARD_MD: &str = "PLAN_BLACKBOARD.md";
+const PLAN_BOARD_JSON: &str = "PLAN_BLACKBOARD.json";
+pub(crate) const SCRATCH_ROOT_DIR: &str = ".ai-dev-hub/subtasks";
+
+// ── Data types ─────────────────────────────────────────────────────────────
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FileFingerprint {
+    pub len: u64,
+    pub modified_unix_nanos: u128,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct IsolatedWorkspace {
+    pub root: PathBuf,
+    /// Read-only copy of the workspace at fork time, used as the common
+    /// ancestor for three-way merges when parallel subtasks modify the same file.
+    pub base_dir: PathBuf,
+    pub base_snapshot: HashMap<PathBuf, FileFingerprint>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct WorkspaceChanges {
+    pub changed_or_created: Vec<PathBuf>,
+    pub deleted: Vec<PathBuf>,
+}
+
+// ── Create / cleanup ───────────────────────────────────────────────────────
+
+pub(crate) fn create_isolated_workspace(
+    workspace: &str,
+    subtask_id: &str,
+    attempt: u32,
+) -> Result<IsolatedWorkspace, String> {
+    let workspace_root = Path::new(workspace);
+    let scratch_root = workspace_root.join(SCRATCH_ROOT_DIR).join(subtask_id);
+    let attempt_root = scratch_root.join(format!("attempt-{attempt}"));
+
+    if attempt_root.exists() {
+        std::fs::remove_dir_all(&attempt_root).map_err(|e| {
+            format!(
+                "Cannot reset isolated workspace {}: {e}",
+                attempt_root.display()
+            )
+        })?;
+    }
+    std::fs::create_dir_all(&attempt_root).map_err(|e| {
+        format!(
+            "Cannot create isolated workspace {}: {e}",
+            attempt_root.display()
+        )
+    })?;
+
+    copy_workspace_tree(workspace_root, &attempt_root, workspace_root)?;
+    let base_snapshot = snapshot_workspace(&attempt_root);
+
+    // Keep a frozen copy of the workspace as-is at fork time so we can use it
+    // as the common ancestor for three-way merges.
+    let base_dir = scratch_root.join(format!("base-{attempt}"));
+    if base_dir.exists() {
+        std::fs::remove_dir_all(&base_dir).ok();
+    }
+    copy_workspace_tree(workspace_root, &base_dir, workspace_root)?;
+
+    Ok(IsolatedWorkspace {
+        root: attempt_root,
+        base_dir,
+        base_snapshot,
+    })
+}
+
+pub(crate) fn cleanup_isolated_workspace(root: &Path) -> Result<(), String> {
+    if root.exists() {
+        std::fs::remove_dir_all(root)
+            .map_err(|e| format!("Cannot remove isolated workspace {}: {e}", root.display()))?;
+    }
+
+    let mut current = root.parent();
+    for _ in 0..2 {
+        let Some(dir) = current else {
+            break;
+        };
+        let is_empty = std::fs::read_dir(dir)
+            .map_err(|e| format!("Cannot inspect {} for cleanup: {e}", dir.display()))?
+            .next()
+            .is_none();
+        if !is_empty {
+            break;
+        }
+        std::fs::remove_dir(dir)
+            .map_err(|e| format!("Cannot prune empty directory {}: {e}", dir.display()))?;
+        current = dir.parent();
+    }
+
+    Ok(())
+}
+
+// ── Sync coordination files ────────────────────────────────────────────────
+
+pub(crate) fn sync_coordination_files(
+    main_workspace: &str,
+    isolated_workspace: &Path,
+) -> Result<(), String> {
+    for relative in [
+        PLAN_MD,
+        PLAN_BOARD_MD,
+        PLAN_BOARD_JSON,
+        BLACKBOARD_MD,
+        BLACKBOARD_JSON,
+    ] {
+        let source = Path::new(main_workspace).join(relative);
+        if !source.exists() {
+            continue;
+        }
+        let target = isolated_workspace.join(relative);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+        }
+        std::fs::copy(&source, &target).map_err(|e| {
+            format!(
+                "Cannot sync {} -> {}: {e}",
+                source.display(),
+                target.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+// ── Copy workspace tree ────────────────────────────────────────────────────
+
+fn copy_workspace_tree(
+    source_root: &Path,
+    target_root: &Path,
+    current: &Path,
+) -> Result<(), String> {
+    let entries = std::fs::read_dir(current)
+        .map_err(|e| format!("Cannot read {}: {e}", current.display()))?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let relative = path
+            .strip_prefix(source_root)
+            .map_err(|e| format!("Cannot relativize {}: {e}", path.display()))?;
+        let target = target_root.join(relative);
+
+        if path.is_dir() {
+            if should_skip_workspace_dir(&name) {
+                continue;
+            }
+            std::fs::create_dir_all(&target)
+                .map_err(|e| format!("Cannot create {}: {e}", target.display()))?;
+            copy_workspace_tree(source_root, target_root, &path)?;
+            continue;
+        }
+
+        if !path.is_file() || should_skip_workspace_file(&name) {
+            continue;
+        }
+
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+        }
+        std::fs::copy(&path, &target).map_err(|e| {
+            format!(
+                "Cannot copy {} -> {}: {e}",
+                path.display(),
+                target.display()
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+// ── Snapshot & diff ────────────────────────────────────────────────────────
+
+pub(crate) fn snapshot_workspace(root: &Path) -> HashMap<PathBuf, FileFingerprint> {
+    let mut files = HashMap::new();
+    collect_workspace_files(root, root, &mut files);
+    files
+}
+
+fn collect_workspace_files(
+    root: &Path,
+    dir: &Path,
+    files: &mut HashMap<PathBuf, FileFingerprint>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+
+        if path.is_dir() {
+            if should_skip_workspace_dir(&name) {
+                continue;
+            }
+            collect_workspace_files(root, &path, files);
+            continue;
+        }
+
+        if !path.is_file() || should_skip_workspace_file(&name) {
+            continue;
+        }
+
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let modified_unix_nanos = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+
+        let Ok(relative) = path.strip_prefix(root) else {
+            continue;
+        };
+        files.insert(
+            relative.to_path_buf(),
+            FileFingerprint {
+                len: metadata.len(),
+                modified_unix_nanos,
+            },
+        );
+    }
+}
+
+pub(crate) fn workspace_changes(
+    before: &HashMap<PathBuf, FileFingerprint>,
+    after: &HashMap<PathBuf, FileFingerprint>,
+) -> WorkspaceChanges {
+    let mut changed_or_created = Vec::new();
+    let mut deleted = Vec::new();
+
+    for (path, fingerprint) in after {
+        match before.get(path) {
+            None => changed_or_created.push(path.clone()),
+            Some(previous) if previous != fingerprint => changed_or_created.push(path.clone()),
+            Some(_) => {}
+        }
+    }
+
+    for path in before.keys() {
+        if !after.contains_key(path) {
+            deleted.push(path.clone());
+        }
+    }
+
+    changed_or_created.sort();
+    deleted.sort();
+    WorkspaceChanges {
+        changed_or_created,
+        deleted,
+    }
+}
+
+pub(crate) fn relative_paths_from_root(root: &Path, paths: &[PathBuf]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut relative = Vec::new();
+
+    for path in paths {
+        let display = root
+            .join(path)
+            .strip_prefix(root)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| path.to_string_lossy().into_owned());
+        if seen.insert(display.clone()) {
+            relative.push(display);
+        }
+    }
+
+    relative
+}
+
+// ── Filters ────────────────────────────────────────────────────────────────
+
+pub(crate) fn should_skip_workspace_dir(name: &str) -> bool {
+    matches!(
+        name,
+        ".git"
+            | ".ai-dev-hub"
+            | "node_modules"
+            | "__pycache__"
+            | "target"
+            | "dist"
+            | ".next"
+            | ".aws"
+            | ".ssh"
+            | ".gnupg"
+    )
+}
+
+pub(crate) fn should_skip_workspace_file(name: &str) -> bool {
+    if matches!(
+        name,
+        "change.log"
+            | BLACKBOARD_MD
+            | BLACKBOARD_JSON
+            | PLAN_MD
+            | PLAN_BOARD_MD
+            | PLAN_BOARD_JSON
+            | VERIFIER_RESULT_JSON
+    ) {
+        return true;
+    }
+
+    let lower = name.to_ascii_lowercase();
+    lower == ".env"
+        || lower.starts_with(".env.")
+        || matches!(
+            lower.as_str(),
+            ".npmrc"
+                | ".yarnrc"
+                | ".yarnrc.yml"
+                | ".pypirc"
+                | ".netrc"
+                | "service-account.json"
+                | "credentials.json"
+        )
+        || lower.ends_with(".pem")
+        || lower.ends_with(".key")
+        || lower.ends_with(".p12")
+        || lower.ends_with(".pfx")
+        || lower.ends_with(".crt")
+        || lower.ends_with(".cer")
+        || lower.ends_with(".der")
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_changes_detects_create_modify_delete() {
+        let before = HashMap::from([
+            (
+                PathBuf::from("a.txt"),
+                FileFingerprint {
+                    len: 1,
+                    modified_unix_nanos: 1,
+                },
+            ),
+            (
+                PathBuf::from("b.txt"),
+                FileFingerprint {
+                    len: 1,
+                    modified_unix_nanos: 1,
+                },
+            ),
+        ]);
+        let after = HashMap::from([
+            (
+                PathBuf::from("a.txt"),
+                FileFingerprint {
+                    len: 2,
+                    modified_unix_nanos: 2,
+                },
+            ),
+            (
+                PathBuf::from("c.txt"),
+                FileFingerprint {
+                    len: 3,
+                    modified_unix_nanos: 3,
+                },
+            ),
+        ]);
+
+        let changes = workspace_changes(&before, &after);
+        assert_eq!(
+            changes.changed_or_created,
+            vec![PathBuf::from("a.txt"), PathBuf::from("c.txt")]
+        );
+        assert_eq!(changes.deleted, vec![PathBuf::from("b.txt")]);
+    }
+
+    #[test]
+    fn relative_paths_from_root_dedupes() {
+        let root = Path::new("/tmp/demo");
+        let paths = vec![PathBuf::from("src/app.ts"), PathBuf::from("src/app.ts")];
+        let result = relative_paths_from_root(root, &paths);
+        assert_eq!(result, vec!["src/app.ts".to_string()]);
+    }
+
+    #[test]
+    fn should_skip_verifier_result_artifact() {
+        assert!(should_skip_workspace_file(VERIFIER_RESULT_JSON));
+    }
+}

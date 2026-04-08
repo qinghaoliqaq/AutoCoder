@@ -1,3 +1,4 @@
+use super::{runners, ReviewPhaseResult, ToolLog};
 /// Test skill — full integration test pipeline.
 ///
 /// Phases (orchestrated by the frontend runTest()):
@@ -10,8 +11,11 @@
 ///
 /// Each phase emits "review-phase-result" when it finishes.
 /// The "document" phase additionally emits "completion-report" with the full markdown.
-
-use super::{ReviewPhaseResult, runners};
+use crate::{
+    evidence::{self, EvidenceEvent},
+    planning_schema::{read_plan_acceptance_lenient, PLAN_ACCEPTANCE_JSON},
+};
+use chrono::Utc;
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
 
@@ -22,19 +26,39 @@ pub(crate) struct TestRuntimePaths {
 }
 
 pub(super) async fn run_phase(
-    phase:        &str,
-    task:         &str,
-    issue:        Option<&str>,
-    workspace:    Option<&str>,
-    context:      Option<&str>,
+    phase: &str,
+    task: &str,
+    issue: Option<&str>,
+    workspace: Option<&str>,
+    context: Option<&str>,
     window_label: &str,
-    app_handle:   &tauri::AppHandle,
-    token:        CancellationToken,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
 ) -> Result<(), String> {
     let runtime = prepare_runtime_paths(window_label, workspace)?;
+    let (acceptance, acceptance_warning) = workspace
+        .map(read_plan_acceptance_lenient)
+        .unwrap_or((None, None));
+    let acceptance_section = acceptance.map(|acceptance| {
+        let json = serde_json::to_string_pretty(&acceptance).unwrap_or_else(|_| "{}".to_string());
+        format!("## Structured Acceptance ({PLAN_ACCEPTANCE_JSON})\n\n```json\n{json}\n```")
+    });
+    if let Some(warning) = &acceptance_warning {
+        emit_acceptance_warning_log(app_handle, window_label, warning)?;
+    }
+    let warning_section = acceptance_warning.map(|warning| {
+        format!(
+            "## Structured Acceptance Warning\n\n{PLAN_ACCEPTANCE_JSON} could not be used. Continue with fallback test criteria only.\n\nReason: {warning}"
+        )
+    });
+    let merged_context = super::merge_context_sections(&[
+        context.map(ToOwned::to_owned),
+        warning_section,
+        acceptance_section,
+    ]);
+    let context = merged_context.as_deref();
 
     let (passed, found_issue) = match phase {
-
         // ── Phase 0: Generate test.md — Claude + Codex parallel ───────────────
         "gen_test_plan" => {
             let claude_prompt = format!(
@@ -80,15 +104,27 @@ pub(super) async fn run_phase(
 
             // Inject plan context into both prompts
             let claude_prompt = super::inject_context(context, claude_prompt);
-            let codex_prompt  = super::inject_context(context, codex_prompt);
+            let codex_prompt = super::inject_context(context, codex_prompt);
 
             // Run both in parallel
             let (claude_res, codex_res) = tokio::join!(
-                runners::claude(&claude_prompt, workspace, window_label, app_handle, token.clone()),
-                runners::codex_read_only(&codex_prompt,  workspace, window_label, app_handle, token.clone()),
+                runners::claude(
+                    &claude_prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone()
+                ),
+                runners::codex_read_only(
+                    &codex_prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone()
+                ),
             );
             let claude_out = claude_res?;
-            let codex_out  = codex_res?;
+            let codex_out = codex_res?;
 
             // Merge Codex additions into test.md
             let merge_prompt = format!(
@@ -101,7 +137,16 @@ pub(super) async fn run_phase(
                  At the very end output: [RESULT:PASS]"
             );
             let merge_prompt = super::inject_context(context, merge_prompt);
-            parse_result(&runners::claude(&merge_prompt, workspace, window_label, app_handle, token.clone()).await?)
+            parse_result(
+                &runners::claude(
+                    &merge_prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone(),
+                )
+                .await?,
+            )
         }
 
         // ── Phase 1: UI tests — project-type-aware ────────────────────────────
@@ -172,7 +217,10 @@ pub(super) async fn run_phase(
                  [RESULT:FAIL:<TC-ID> reason, <TC-ID> reason] list only automated failures"
             );
             let prompt = super::inject_context(context, prompt);
-            parse_result(&runners::claude(&prompt, workspace, window_label, app_handle, token.clone()).await?)
+            parse_result(
+                &runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
+                    .await?,
+            )
         }
 
         // ── Full integration test suite ───────────────────────────────────────
@@ -314,7 +362,10 @@ pub(super) async fn run_phase(
                 server_pid_path = runtime.pid_path,
             );
             let prompt = super::inject_context(context, prompt);
-            parse_result(&runners::claude(&prompt, workspace, window_label, app_handle, token.clone()).await?)
+            parse_result(
+                &runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
+                    .await?,
+            )
         }
 
         // ── Runtime fix (Claude) — reads full bugs.md ────────────────────────
@@ -341,7 +392,10 @@ pub(super) async fn run_phase(
                 server_log_path = runtime.log_path,
             );
             let prompt = super::inject_context(context, prompt);
-            parse_result(&runners::claude(&prompt, workspace, window_label, app_handle, token.clone()).await?)
+            parse_result(
+                &runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
+                    .await?,
+            )
         }
 
         // ── Runtime fix escalation (Codex) — reads full bugs.md ──────────────
@@ -358,7 +412,10 @@ pub(super) async fn run_phase(
                  At the very end append: [RESULT:PASS] or [RESULT:FAIL:remaining items]"
             );
             let prompt = super::inject_context(context, prompt);
-            parse_result(&runners::codex(&prompt, workspace, window_label, app_handle, token.clone()).await?)
+            parse_result(
+                &runners::codex(&prompt, workspace, window_label, app_handle, token.clone())
+                    .await?,
+            )
         }
 
         // ── Project completion document ────────────────────────────────────────
@@ -384,7 +441,7 @@ pub(super) async fn run_phase(
                  > 任务: {task}\n\
                  > 生成时间: (当前日期时间)\n\n\
                  ---\n\n\
-                 ## 🚀 立即使用\n\
+                 ## 立即使用\n\
                  根据你对本项目的实际了解，写出真实的访问方式（不要套用模板，只写适用的内容）。\n\n\
                  ---\n\n\
                  ## 一、项目概述\n\
@@ -420,11 +477,12 @@ pub(super) async fn run_phase(
 
             // Run Claude — it writes the report to disk, text output is just [RESULT:PASS]
             let prompt = super::inject_context(context, prompt);
-            let result_line = runners::claude(&prompt, workspace, window_label, app_handle, token.clone()).await?;
+            let result_line =
+                runners::claude(&prompt, workspace, window_label, app_handle, token.clone())
+                    .await?;
 
             // Read the file Claude wrote; fall back to empty if somehow not written
-            let report_content = std::fs::read_to_string(&report_path)
-                .unwrap_or_default();
+            let report_content = std::fs::read_to_string(&report_path).unwrap_or_default();
 
             // Emit to UI so it appears in the chat (scoped to the requesting window)
             if !report_content.is_empty() {
@@ -448,14 +506,61 @@ pub(super) async fn run_phase(
             EventTarget::webview_window(window_label),
             "review-phase-result",
             ReviewPhaseResult {
-                phase:  phase.to_string(),
+                phase: phase.to_string(),
                 passed,
-                issue:  found_issue,
+                issue: found_issue.clone(),
             },
         )
         .map_err(|e| e.to_string())?;
+    if let Some(workspace) = workspace {
+        evidence::record_event(
+            workspace,
+            EvidenceEvent {
+                ts: Utc::now().timestamp_millis() as u64,
+                event_type: format!("test_{phase}_{}", if passed { "passed" } else { "failed" }),
+                agent: "system".to_string(),
+                subtask_id: None,
+                summary: if found_issue.trim().is_empty() {
+                    format!("Test phase {phase} completed successfully.")
+                } else {
+                    format!("Test phase {phase} completed with issue: {found_issue}")
+                },
+                artifacts: artifacts_for_test_phase(phase),
+            },
+        )?;
+    }
 
     Ok(())
+}
+
+fn emit_acceptance_warning_log(
+    app_handle: &tauri::AppHandle,
+    window_label: &str,
+    warning: &str,
+) -> Result<(), String> {
+    app_handle
+        .emit_to(
+            EventTarget::webview_window(window_label),
+            "tool-log",
+            ToolLog {
+                agent: "system".to_string(),
+                tool: "StructuredAcceptance".to_string(),
+                input: format!("Fallback active: {warning}"),
+                timestamp: Utc::now().timestamp_millis() as u64,
+            },
+        )
+        .map_err(|e| e.to_string())
+}
+
+fn artifacts_for_test_phase(phase: &str) -> Vec<String> {
+    match phase {
+        "gen_test_plan" => vec!["test.md".to_string(), "PLAN.md".to_string()],
+        "frontend_test" | "integration_test" | "fix" | "codex_fix" => {
+            vec!["test.md".to_string(), "bugs.md".to_string()]
+        }
+        "document" => vec!["PROJECT_REPORT.md".to_string(), "test.md".to_string()],
+        _ => Vec::new(),
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -465,7 +570,9 @@ pub(crate) fn prepare_runtime_paths(
     workspace: Option<&str>,
 ) -> Result<TestRuntimePaths, String> {
     let base_dir = match workspace.filter(|path| !path.trim().is_empty()) {
-        Some(ws) => std::path::PathBuf::from(ws).join(".ai-dev-hub").join("runtime"),
+        Some(ws) => std::path::PathBuf::from(ws)
+            .join(".ai-dev-hub")
+            .join("runtime"),
         None => std::env::temp_dir().join("ai-dev-hub-runtime"),
     };
     std::fs::create_dir_all(&base_dir)
@@ -473,12 +580,21 @@ pub(crate) fn prepare_runtime_paths(
 
     let label = sanitize_runtime_label(window_label);
     Ok(TestRuntimePaths {
-        pid_path: base_dir.join(format!("{label}.server.pid")).to_string_lossy().into_owned(),
-        log_path: base_dir.join(format!("{label}.server.log")).to_string_lossy().into_owned(),
+        pid_path: base_dir
+            .join(format!("{label}.server.pid"))
+            .to_string_lossy()
+            .into_owned(),
+        log_path: base_dir
+            .join(format!("{label}.server.log"))
+            .to_string_lossy()
+            .into_owned(),
     })
 }
 
-pub(crate) fn cleanup_runtime_for_window(window_label: &str, workspace: Option<&str>) -> Result<(), String> {
+pub(crate) fn cleanup_runtime_for_window(
+    window_label: &str,
+    workspace: Option<&str>,
+) -> Result<(), String> {
     let runtime = prepare_runtime_paths(window_label, workspace)?;
     cleanup_runtime_process(&runtime);
     Ok(())
@@ -538,10 +654,19 @@ fn parse_result(text: &str) -> (bool, String) {
             return (false, issue);
         }
         // [RESULT:...] found but neither PASS nor FAIL:reason — treat as failure
-        return (false, format!("malformed result marker: {}", &suffix[..suffix.len().min(40)]));
+        return (
+            false,
+            format!(
+                "malformed result marker: {}",
+                &suffix[..suffix.len().min(40)]
+            ),
+        );
     }
     // No marker at all — output was likely truncated or agent skipped it
-    (false, "no [RESULT:*] marker found — output may be truncated".to_string())
+    (
+        false,
+        "no [RESULT:*] marker found — output may be truncated".to_string(),
+    )
 }
 
 #[cfg(test)]
@@ -551,13 +676,17 @@ mod tests {
     #[test]
     fn prepare_runtime_paths_uses_hidden_workspace_runtime_dir() {
         let dir = tempfile::tempdir().unwrap();
-        let runtime = prepare_runtime_paths("aidevchat-123", Some(dir.path().to_str().unwrap())).unwrap();
+        let runtime =
+            prepare_runtime_paths("aidevchat-123", Some(dir.path().to_str().unwrap())).unwrap();
         assert!(runtime.pid_path.contains(".ai-dev-hub/runtime"));
         assert!(runtime.log_path.ends_with("aidevchat-123.server.log"));
     }
 
     #[test]
     fn sanitize_runtime_label_replaces_special_chars() {
-        assert_eq!(sanitize_runtime_label("aidevchat:demo/1"), "aidevchat-demo-1");
+        assert_eq!(
+            sanitize_runtime_label("aidevchat:demo/1"),
+            "aidevchat-demo-1"
+        );
     }
 }

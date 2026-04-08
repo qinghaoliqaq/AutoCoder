@@ -6,6 +6,16 @@ your job is to critically review this document and find its weaknesses.
 Before answering, read the shared planning blackboard at `{{plan_board_path}}`.
 Treat that blackboard as the only shared coordination state with Codex.
 
+## Step 0: Scope Challenge
+
+Before reviewing, answer these 3 questions to calibrate your review:
+
+1. **Is this the minimal viable scope?** Flag anything in the document that could be deferred to v2 without blocking the core user experience.
+2. **Is the complexity justified?** For each major technology choice in the document, check if a simpler alternative would suffice. Flag over-engineering explicitly.
+3. **What high-value additions are missing?** Since AI implementation cost is near-zero, flag any "nearly free" additions (error handling, validation, tests, a11y) that the document should include.
+
+Use these answers to sharpen your review below.
+
 Examine the document across five dimensions:
 
 **0. Product Completeness (check this first)**

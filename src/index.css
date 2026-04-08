@@ -32,6 +32,22 @@
 
 @layer base {
 
+  :root {
+    --bg-primary: 250 250 249;
+    --bg-secondary: 255 255 255;
+    --bg-tertiary: 244 244 245;
+    --bg-elevated: 255 255 255;
+    --bg-input: 250 250 249;
+    --text-primary: 24 24 27;
+    --text-secondary: 113 113 122;
+    --text-tertiary: 161 161 170;
+    --border-primary: 228 228 231;
+    --border-secondary: 244 244 245;
+    --accent: 124 58 237;
+    --accent-soft: 237 233 254;
+    --accent-text: 109 40 217;
+  }
+
   html,
   body,
   #root {
@@ -39,10 +55,13 @@
     width: 100%;
     margin: 0;
     padding: 0;
+    overflow: hidden;
   }
 
   body {
-    @apply bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100;
+    background-color: rgb(var(--bg-primary));
+    color: rgb(var(--text-primary));
+    overscroll-behavior: none;
   }
 
   * {
@@ -63,83 +82,98 @@
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-zinc-300 dark:bg-zinc-700 rounded-full;
+    background-color: rgb(var(--border-primary));
+    @apply rounded-full;
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    @apply bg-zinc-400 dark:bg-zinc-600;
+    background-color: rgb(var(--text-tertiary));
   }
 
-  /* Core Layout Components */
+  /* Core Layout Components — driven by theme CSS variables */
   .glass-panel {
-    @apply bg-white/60 dark:bg-zinc-900/40 backdrop-blur-xl border border-white/40 dark:border-zinc-700/30 rounded-2xl shadow-[0_8px_32px_0_rgba(0,0,0,0.05)] dark:shadow-[0_8px_32px_0_rgba(0,0,0,0.3)];
+    background-color: rgb(var(--bg-secondary) / 0.6);
+    border: 1px solid rgb(var(--border-primary) / 0.5);
+    @apply backdrop-blur-2xl rounded-2xl;
+    box-shadow: 0 18px 48px rgb(var(--bg-primary) / 0.12);
   }
-  
+
   .glass-container {
-    @apply bg-zinc-50/70 dark:bg-zinc-950/60 backdrop-blur-2xl;
+    background-color: rgb(var(--bg-primary) / 0.7);
+    @apply backdrop-blur-2xl;
   }
-  
+
   .glass-header {
-    @apply bg-white/40 dark:bg-zinc-900/30 backdrop-blur-md border-b border-zinc-200/50 dark:border-zinc-800/50 shadow-[0_4px_30px_rgba(0,0,0,0.03)];
+    background-color: rgb(var(--bg-secondary) / 0.3);
+    border-bottom: 1px solid rgb(var(--border-primary) / 0.4);
+    @apply backdrop-blur-xl;
+    box-shadow: 0 8px 24px rgb(var(--bg-primary) / 0.06);
   }
-  
+
   .glass-button {
-    @apply bg-white/50 dark:bg-zinc-800/50 backdrop-blur-sm border border-zinc-200/50 dark:border-zinc-700/50 shadow-sm hover:bg-white/80 dark:hover:bg-zinc-700/70 transition-all;
+    background-color: rgb(var(--bg-secondary) / 0.5);
+    border: 1px solid rgb(var(--border-primary) / 0.5);
+    @apply backdrop-blur-xl transition-all;
+    box-shadow: 0 8px 20px rgb(var(--bg-primary) / 0.06);
   }
 
-  /* Status Badges */
-  .status-badge {
-    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
+  .glass-button:hover {
+    background-color: rgb(var(--bg-tertiary) / 0.7);
   }
 
-  .status-badge.installed {
-    @apply bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/30;
+  /* Chat message prose — clean, Cursor-style */
+
+
+
+  /* Timeline dot with ring */
+  .timeline-dot {
+    @apply relative flex h-4 w-4 items-center justify-center rounded-full shadow-sm;
+    border: 2px solid rgb(var(--bg-primary));
+    background-color: rgb(var(--bg-primary));
   }
 
-  .status-badge.missing {
-    @apply bg-red-100 text-red-700 border border-red-200 dark:bg-red-500/15 dark:text-red-400 dark:border-red-500/30;
+  .timeline-dot::after {
+    content: '';
+    @apply absolute h-2 w-2 rounded-full;
   }
 
-  .status-badge.checking {
-    @apply bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-500/15 dark:text-amber-400 dark:border-amber-500/30;
+  .timeline-dot.success::after { @apply bg-emerald-500; }
+  .timeline-dot.error::after { @apply bg-rose-500; }
+  .timeline-dot.warning::after { @apply bg-amber-500; }
+  .timeline-dot.info::after { @apply bg-blue-500; }
+
+  /* Inline code in chat */
+  .chat-prose code:not(pre code) {
+    @apply rounded-md px-1.5 py-0.5 font-mono text-[0.85em];
+    background-color: rgb(var(--bg-tertiary) / 0.8);
+    color: rgb(var(--text-primary));
   }
 
-  /* Chat Bubbles - Floating & Elegant */
-  .chat-bubble {
-    @apply w-fit max-w-[90%] sm:max-w-[85%] rounded-2xl px-5 py-3 sm:px-6 sm:py-4 text-[15px] sm:text-[16px] leading-relaxed shadow-[0_4px_16px_rgba(0,0,0,0.03)] dark:shadow-[0_4px_16px_rgba(0,0,0,0.2)] transition-all backdrop-blur-xl;
-    animation: fade-up 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  .chat-prose pre {
+    @apply m-0 overflow-x-auto font-mono text-[12px] leading-relaxed;
   }
 
-  /* Role Colors */
-  .chat-bubble.claude {
-    @apply bg-orange-50/70 border border-orange-200/50 text-zinc-900 dark:bg-orange-500/10 dark:border-orange-500/20 dark:text-zinc-100;
+  .chat-prose a {
+    color: rgb(var(--accent-text));
+    @apply underline underline-offset-2 transition-colors;
+    text-decoration-color: rgb(var(--accent) / 0.4);
   }
 
-  .chat-bubble.codex {
-    @apply bg-emerald-50/70 border border-emerald-200/50 text-zinc-900 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-zinc-100;
+  .chat-prose a:hover {
+    color: rgb(var(--accent));
   }
 
-  .chat-bubble.director {
-    @apply bg-violet-50/70 border border-violet-200/50 text-zinc-900 dark:bg-violet-500/10 dark:border-violet-500/20 dark:text-zinc-100;
+  .chat-prose p + p { @apply mt-2; }
+  .chat-prose ul, .chat-prose ol { @apply my-1.5 pl-5; }
+  .chat-prose li { @apply mb-0.5; }
+  .chat-prose blockquote {
+    @apply my-2 border-l-2 pl-3;
+    border-color: rgb(var(--accent) / 0.4);
+    color: rgb(var(--text-secondary));
   }
-
-  .chat-bubble.user {
-    @apply bg-white/70 border border-zinc-200/50 text-zinc-900 dark:bg-zinc-800/60 dark:border-zinc-700/50 dark:text-zinc-100 shadow-sm;
-  }
-
-  /* Micro Animations */
-  .pulse-dot {
-    @apply w-2 h-2 rounded-full;
-    animation: pulse-glow 1.5s ease-in-out infinite;
-  }
-
-  /* Glassmorphism background utilities */
-  .animation-delay-2000 {
-    animation-delay: 2s;
-  }
-
-  .animation-delay-4000 {
-    animation-delay: 4s;
+  .chat-prose h1, .chat-prose h2, .chat-prose h3 {
+    @apply mt-3 mb-1 font-semibold;
+    color: rgb(var(--text-primary));
   }
 }
 
@@ -231,20 +265,6 @@
   }
 }
 
-@keyframes pulse-glow {
-
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-
-  50% {
-    opacity: 0.5;
-    transform: scale(0.85);
-  }
-}
-
 @keyframes slide-up {
   from {
     opacity: 0;
@@ -261,18 +281,128 @@
   animation: slide-up 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
-@keyframes slide-in-right {
-  from {
-    opacity: 0;
-    transform: translateX(100px) scale(0.95);
+.hero-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.hero-icon__halo {
+  position: absolute;
+  inset: 10%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0));
+  opacity: 0.6;
+  filter: blur(8px);
+}
+
+.dark .hero-icon__halo {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0));
+}
+
+.hero-icon__glyph {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+}
+
+.hero-icon-message .hero-icon__glyph {
+  animation: heroMessageFloat 4.6s ease-in-out infinite;
+}
+
+.hero-icon-folder .hero-icon__glyph {
+  animation: heroFolderSwing 4.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  transform-origin: 42% 42%;
+}
+
+.hero-icon-sparkles .hero-icon__glyph {
+  animation: heroSparklePulse 3.2s ease-in-out infinite;
+}
+
+.hero-icon__dots {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: inline-flex;
+  gap: 2px;
+  transform: translate(-50%, -10%);
+}
+
+.hero-icon__dots span {
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.3;
+  animation: heroTypingDot 1.5s ease-in-out infinite;
+}
+
+.hero-icon__dots span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.hero-icon__dots span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes heroMessageFloat {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
   }
 
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
+  50% {
+    transform: translateY(-1.5px) scale(1.03);
   }
 }
 
-.animate-slide-in-right {
-  animation: slide-in-right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+@keyframes heroTypingDot {
+  0%,
+  70%,
+  100% {
+    opacity: 0.28;
+    transform: translateY(0);
+  }
+
+  35% {
+    opacity: 1;
+    transform: translateY(-1.5px);
+  }
+}
+
+@keyframes heroFolderSwing {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  18% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  42% {
+    transform: translateY(-1px) rotate(-7deg);
+  }
+
+  68% {
+    transform: translateY(-0.5px) rotate(-3deg);
+  }
+}
+
+@keyframes heroSparklePulse {
+  0%,
+  100% {
+    transform: scale(0.96) rotate(0deg);
+    opacity: 0.9;
+  }
+
+  50% {
+    transform: scale(1.06) rotate(10deg);
+    opacity: 1;
+  }
 }

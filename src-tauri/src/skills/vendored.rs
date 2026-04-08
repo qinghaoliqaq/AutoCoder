@@ -1,4 +1,5 @@
 use super::blackboard::{SubtaskCard, SubtaskKind};
+use crate::planning_schema::SuggestedSkill;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -9,6 +10,7 @@ const MAX_EXCERPT_CHARS: usize = 4000;
 pub(crate) enum VendoredSkillId {
     FrontendDev,
     FullstackDev,
+    UiDesignSystem,
 }
 
 impl VendoredSkillId {
@@ -16,6 +18,7 @@ impl VendoredSkillId {
         match self {
             Self::FrontendDev => "frontend-dev",
             Self::FullstackDev => "fullstack-dev",
+            Self::UiDesignSystem => "ui-design-system",
         }
     }
 
@@ -23,6 +26,7 @@ impl VendoredSkillId {
         match self {
             Self::FrontendDev => "MiniMax frontend-dev",
             Self::FullstackDev => "MiniMax fullstack-dev",
+            Self::UiDesignSystem => "MiniMax ui-design-system",
         }
     }
 }
@@ -36,12 +40,41 @@ pub(crate) struct VendoredSkill {
 }
 
 pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> {
+    if let Some(skill) = &card.suggested_skill {
+        return Some(match skill {
+            SuggestedSkill::FrontendDev => VendoredSkillId::FrontendDev,
+            SuggestedSkill::FullstackDev => VendoredSkillId::FullstackDev,
+            SuggestedSkill::UiDesignSystem => VendoredSkillId::UiDesignSystem,
+        });
+    }
+
     if matches!(card.kind, SubtaskKind::Screen) {
         return Some(VendoredSkillId::FrontendDev);
     }
 
     let text = format!("{} {}", card.title, card.description).to_lowercase();
     let tokens = tokenize(&text);
+
+    // Check for design/polish subtasks first
+    let design_keywords = [
+        "beautify", "polish", "redesign", "visual", "spacing", "typography",
+    ];
+    let design_phrases = [
+        "design system",
+        "look and feel",
+        "ui polish",
+        "visual consistency",
+        "color palette",
+        "micro-interaction",
+    ];
+    let has_design = design_keywords
+        .iter()
+        .any(|kw| tokens.iter().any(|token| token == kw))
+        || design_phrases.iter().any(|phrase| text.contains(phrase));
+    if has_design {
+        return Some(VendoredSkillId::UiDesignSystem);
+    }
+
     let ui_keywords = [
         "screen",
         "page",
@@ -65,14 +98,11 @@ pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> 
         "crud",
         "integration",
     ];
-    let ui_phrases = [
-        "user interface",
-        "front end",
-        "front-end",
-        "ui layer",
-    ];
+    let ui_phrases = ["user interface", "front end", "front-end", "ui layer"];
 
-    let has_ui = ui_keywords.iter().any(|kw| tokens.iter().any(|token| token == kw))
+    let has_ui = ui_keywords
+        .iter()
+        .any(|kw| tokens.iter().any(|token| token == kw))
         || ui_phrases.iter().any(|phrase| text.contains(phrase));
     let has_backend = backend_keywords
         .iter()
@@ -85,7 +115,10 @@ pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> 
     }
 }
 
-pub(crate) fn load(skill_id: VendoredSkillId, app_handle: &AppHandle) -> Result<VendoredSkill, String> {
+pub(crate) fn load(
+    skill_id: VendoredSkillId,
+    app_handle: &AppHandle,
+) -> Result<VendoredSkill, String> {
     let skill_rel = Path::new("skills").join(skill_id.slug());
     let skill_file_rel = skill_rel.join("SKILL.md");
 
@@ -161,14 +194,24 @@ mod tests {
             title: "Dashboard".to_string(),
             description: "Build dashboard screen".to_string(),
             kind: SubtaskKind::Screen,
+            depends_on: Vec::new(),
+            can_run_in_parallel: true,
+            parallel_group: None,
+            suggested_skill: None,
+            expected_touch: Vec::new(),
             status: super::super::blackboard::SubtaskState::Pending,
             attempts: 0,
             latest_implementation: None,
             latest_review: None,
             review_findings: Vec::new(),
             files_touched: Vec::new(),
+            isolated_workspace: None,
+            merge_conflict: None,
         };
-        assert_eq!(select_for_subtask(&card), Some(VendoredSkillId::FrontendDev));
+        assert_eq!(
+            select_for_subtask(&card),
+            Some(VendoredSkillId::FrontendDev)
+        );
     }
 
     #[test]
@@ -178,14 +221,24 @@ mod tests {
             title: "Profile api integration".to_string(),
             description: "Wire dashboard form to backend API with auth".to_string(),
             kind: SubtaskKind::Feature,
+            depends_on: Vec::new(),
+            can_run_in_parallel: true,
+            parallel_group: None,
+            suggested_skill: None,
+            expected_touch: Vec::new(),
             status: super::super::blackboard::SubtaskState::Pending,
             attempts: 0,
             latest_implementation: None,
             latest_review: None,
             review_findings: Vec::new(),
             files_touched: Vec::new(),
+            isolated_workspace: None,
+            merge_conflict: None,
         };
-        assert_eq!(select_for_subtask(&card), Some(VendoredSkillId::FullstackDev));
+        assert_eq!(
+            select_for_subtask(&card),
+            Some(VendoredSkillId::FullstackDev)
+        );
     }
 
     #[test]
@@ -195,13 +248,101 @@ mod tests {
             title: "Build auth API endpoint".to_string(),
             description: "Create backend endpoint for login".to_string(),
             kind: SubtaskKind::Feature,
+            depends_on: Vec::new(),
+            can_run_in_parallel: true,
+            parallel_group: None,
+            suggested_skill: None,
+            expected_touch: Vec::new(),
             status: super::super::blackboard::SubtaskState::Pending,
             attempts: 0,
             latest_implementation: None,
             latest_review: None,
             review_findings: Vec::new(),
             files_touched: Vec::new(),
+            isolated_workspace: None,
+            merge_conflict: None,
         };
         assert_eq!(select_for_subtask(&card), None);
+    }
+
+    #[test]
+    fn select_design_skill_for_polish_subtask() {
+        let card = SubtaskCard {
+            id: "D1".to_string(),
+            title: "Polish dashboard".to_string(),
+            description: "Beautify the main dashboard with visual consistency".to_string(),
+            kind: SubtaskKind::Feature,
+            depends_on: Vec::new(),
+            can_run_in_parallel: true,
+            parallel_group: None,
+            suggested_skill: None,
+            expected_touch: Vec::new(),
+            status: super::super::blackboard::SubtaskState::Pending,
+            attempts: 0,
+            latest_implementation: None,
+            latest_review: None,
+            review_findings: Vec::new(),
+            files_touched: Vec::new(),
+            isolated_workspace: None,
+            merge_conflict: None,
+        };
+        assert_eq!(
+            select_for_subtask(&card),
+            Some(VendoredSkillId::UiDesignSystem)
+        );
+    }
+
+    #[test]
+    fn select_design_skill_via_suggested_skill() {
+        let card = SubtaskCard {
+            id: "D2".to_string(),
+            title: "Fix layout".to_string(),
+            description: "Fix spacing issues".to_string(),
+            kind: SubtaskKind::Feature,
+            depends_on: Vec::new(),
+            can_run_in_parallel: true,
+            parallel_group: None,
+            suggested_skill: Some(SuggestedSkill::UiDesignSystem),
+            expected_touch: Vec::new(),
+            status: super::super::blackboard::SubtaskState::Pending,
+            attempts: 0,
+            latest_implementation: None,
+            latest_review: None,
+            review_findings: Vec::new(),
+            files_touched: Vec::new(),
+            isolated_workspace: None,
+            merge_conflict: None,
+        };
+        assert_eq!(
+            select_for_subtask(&card),
+            Some(VendoredSkillId::UiDesignSystem)
+        );
+    }
+
+    #[test]
+    fn select_suggested_skill_before_keyword_heuristics() {
+        let card = SubtaskCard {
+            id: "F3".to_string(),
+            title: "Wire backend auth".to_string(),
+            description: "Mostly backend work".to_string(),
+            kind: SubtaskKind::Feature,
+            depends_on: Vec::new(),
+            can_run_in_parallel: true,
+            parallel_group: None,
+            suggested_skill: Some(SuggestedSkill::FrontendDev),
+            expected_touch: Vec::new(),
+            status: super::super::blackboard::SubtaskState::Pending,
+            attempts: 0,
+            latest_implementation: None,
+            latest_review: None,
+            review_findings: Vec::new(),
+            files_touched: Vec::new(),
+            isolated_workspace: None,
+            merge_conflict: None,
+        };
+        assert_eq!(
+            select_for_subtask(&card),
+            Some(VendoredSkillId::FrontendDev)
+        );
     }
 }
