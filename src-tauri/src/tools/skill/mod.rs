@@ -4,12 +4,13 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use super::{Tool, ToolContext, ToolResult};
+use crate::bundled_skills;
 
-/// Skill tool — executes a skill (slash command) within the main conversation.
+/// Skill tool — executes a bundled skill by name.
 ///
-/// Stub: actual skill invocation is handled by the orchestration layer which
-/// loads the skill prompt, runs it in a forked agent context, and returns
-/// the result.
+/// Skills are prompt-based contextual guides that provide domain-specific
+/// instructions for the coding agent. When invoked, the skill's full prompt
+/// is returned so the model can follow the specialized instructions.
 pub struct SkillTool;
 
 #[async_trait]
@@ -22,7 +23,7 @@ impl Tool for SkillTool {
         "Execute a skill within the main conversation. When users ask you to \
          perform tasks, check if any of the available skills match. Skills provide \
          specialized capabilities and domain knowledge. When users reference a \
-         \"slash command\" or \"/<something>\" (e.g., \"/commit\", \"/review-pr\"), \
+         \"slash command\" or \"/<something>\" (e.g., \"/simplify\", \"/verify\"), \
          they are referring to a skill. Use this tool to invoke it."
     }
 
@@ -37,7 +38,7 @@ impl Tool for SkillTool {
             "properties": {
                 "skill": {
                     "type": "string",
-                    "description": "The skill name. E.g., \"commit\", \"review-pr\", or \"pdf\""
+                    "description": "The skill name. E.g., \"simplify\", \"verify\", \"frontend-dev\""
                 },
                 "args": {
                     "type": "string",
@@ -53,26 +54,43 @@ impl Tool for SkillTool {
     }
 
     async fn execute(&self, input: Value, _ctx: &ToolContext<'_>) -> ToolResult {
-        let skill = match input["skill"].as_str() {
+        let skill_name = match input["skill"].as_str() {
             Some(s) if !s.is_empty() => s,
             _ => return ToolResult::err("Missing required parameter: skill"),
         };
 
-        let args_info = match input["args"].as_str() {
-            Some(a) if !a.is_empty() => format!(" with args: {a}"),
-            _ => String::new(),
-        };
+        let registry = bundled_skills::default_skill_registry();
 
-        // Stub: actual skill invocation is handled by the orchestration layer.
-        // In the real system, this would:
-        // 1. Look up the skill by name in the command registry
-        // 2. Load its prompt and configuration
-        // 3. Run it in a forked agent context
-        // 4. Return the skill's output
-        ToolResult::ok(format!(
-            "Skill invocation is handled by the orchestration layer. \
-             Requested skill: {skill}{args_info}"
-        ))
+        // Try exact match first, then try with common variations
+        let skill = registry
+            .get(skill_name)
+            .or_else(|| registry.get(&skill_name.replace('_', "-")))
+            .or_else(|| registry.get(&skill_name.to_lowercase()));
+
+        match skill {
+            Some(def) => {
+                let args_note = match input["args"].as_str() {
+                    Some(a) if !a.is_empty() => format!("\n\nUser arguments: {a}"),
+                    _ => String::new(),
+                };
+                ToolResult::ok(format!(
+                    "# Skill: {}\n\n{}{args_note}",
+                    def.label, def.prompt
+                ))
+            }
+            None => {
+                // List available skills
+                let available: Vec<String> = registry
+                    .list()
+                    .iter()
+                    .map(|(slug, label, desc, _)| format!("  - /{slug} — {label}: {desc}"))
+                    .collect();
+                ToolResult::err(format!(
+                    "Unknown skill: {skill_name}\n\nAvailable skills:\n{}",
+                    available.join("\n")
+                ))
+            }
+        }
     }
 }
 
@@ -82,51 +100,62 @@ mod tests {
     use std::path::Path;
     use tokio_util::sync::CancellationToken;
 
-    #[tokio::test]
-    async fn skill_returns_stub() {
-        let tool = SkillTool;
-        assert_eq!(tool.name(), "Skill");
-        assert!(!tool.is_read_only(&json!({})));
-
+    fn ctx() -> (CancellationToken, impl Fn() -> ToolContext<'static>) {
         let token = CancellationToken::new();
-        let ctx = ToolContext {
+        let token_ref = token.clone();
+        let make_ctx = move || ToolContext {
             workspace: Path::new("/tmp"),
             read_only: false,
-            token: &token,
+            token: Box::leak(Box::new(token_ref.clone())),
         };
+        (token, make_ctx)
+    }
+
+    #[tokio::test]
+    async fn invoke_known_skill() {
+        let tool = SkillTool;
+        let (_token, make_ctx) = ctx();
         let result = tool
-            .execute(json!({"skill": "commit", "args": "-m 'Fix bug'"}), &ctx)
+            .execute(json!({"skill": "simplify"}), &make_ctx())
+            .await;
+        assert!(!result.is_error, "error: {}", result.content);
+        assert!(result.content.contains("Simplify"));
+        assert!(result.content.contains("Code Reuse"));
+    }
+
+    #[tokio::test]
+    async fn invoke_with_args() {
+        let tool = SkillTool;
+        let (_token, make_ctx) = ctx();
+        let result = tool
+            .execute(
+                json!({"skill": "verify", "args": "check the login flow"}),
+                &make_ctx(),
+            )
             .await;
         assert!(!result.is_error);
-        assert!(result.content.contains("commit"));
-        assert!(result.content.contains("Fix bug"));
+        assert!(result.content.contains("Verify"));
+        assert!(result.content.contains("check the login flow"));
     }
 
     #[tokio::test]
-    async fn skill_without_args() {
+    async fn unknown_skill_lists_available() {
         let tool = SkillTool;
-        let token = CancellationToken::new();
-        let ctx = ToolContext {
-            workspace: Path::new("/tmp"),
-            read_only: false,
-            token: &token,
-        };
-        let result = tool.execute(json!({"skill": "review-pr"}), &ctx).await;
-        assert!(!result.is_error);
-        assert!(result.content.contains("review-pr"));
-        assert!(!result.content.contains("with args"));
+        let (_token, make_ctx) = ctx();
+        let result = tool
+            .execute(json!({"skill": "nonexistent"}), &make_ctx())
+            .await;
+        assert!(result.is_error);
+        assert!(result.content.contains("Unknown skill"));
+        assert!(result.content.contains("/simplify"));
+        assert!(result.content.contains("/frontend-dev"));
     }
 
     #[tokio::test]
-    async fn skill_missing_name() {
+    async fn missing_skill_name() {
         let tool = SkillTool;
-        let token = CancellationToken::new();
-        let ctx = ToolContext {
-            workspace: Path::new("/tmp"),
-            read_only: false,
-            token: &token,
-        };
-        let result = tool.execute(json!({}), &ctx).await;
+        let (_token, make_ctx) = ctx();
+        let result = tool.execute(json!({}), &make_ctx()).await;
         assert!(result.is_error);
         assert!(result.content.contains("skill"));
     }

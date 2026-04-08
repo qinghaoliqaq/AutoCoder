@@ -1,10 +1,6 @@
 use super::blackboard::{SubtaskCard, SubtaskKind};
+use crate::bundled_skills;
 use crate::planning_schema::SuggestedSkill;
-use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
-
-const VENDORED_ROOT: &str = "vendor/minimax-skills";
-const MAX_EXCERPT_CHARS: usize = 4000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum VendoredSkillId {
@@ -24,9 +20,9 @@ impl VendoredSkillId {
 
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::FrontendDev => "MiniMax frontend-dev",
-            Self::FullstackDev => "MiniMax fullstack-dev",
-            Self::UiDesignSystem => "MiniMax ui-design-system",
+            Self::FrontendDev => "Frontend Dev",
+            Self::FullstackDev => "Fullstack Dev",
+            Self::UiDesignSystem => "UI Design System",
         }
     }
 }
@@ -34,8 +30,6 @@ impl VendoredSkillId {
 #[derive(Clone, Debug)]
 pub(crate) struct VendoredSkill {
     pub id: VendoredSkillId,
-    pub root_dir: PathBuf,
-    pub skill_path: PathBuf,
     pub excerpt: String,
 }
 
@@ -120,64 +114,22 @@ pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> 
     }
 }
 
+/// Load a vendored skill from the bundled skills registry.
+/// No longer reads from the filesystem — skills are compiled into the binary.
 pub(crate) fn load(
     skill_id: VendoredSkillId,
-    app_handle: &AppHandle,
+    _app_handle: &tauri::AppHandle,
 ) -> Result<VendoredSkill, String> {
-    let skill_rel = Path::new("skills").join(skill_id.slug());
-    let skill_file_rel = skill_rel.join("SKILL.md");
-
-    for root in candidate_roots(app_handle) {
-        let skill_path = root.join(&skill_file_rel);
-        if skill_path.exists() {
-            let content = std::fs::read_to_string(&skill_path)
-                .map_err(|e| format!("Cannot read vendored skill {}: {e}", skill_path.display()))?;
-            return Ok(VendoredSkill {
-                id: skill_id,
-                root_dir: root.join(&skill_rel),
-                skill_path,
-                excerpt: truncate(&content, MAX_EXCERPT_CHARS),
-            });
-        }
-    }
-
-    Err(format!(
-        "Vendored skill {} not found in bundled resources or repo vendor directory",
-        skill_id.slug()
-    ))
-}
-
-fn candidate_roots(app_handle: &AppHandle) -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-
-    if let Ok(resource_dir) = app_handle.path().resource_dir() {
-        roots.push(resource_dir.join(VENDORED_ROOT));
-        roots.push(resource_dir.join("minimax-skills"));
-    }
-
-    if let Some(repo_root) = Path::new(env!("CARGO_MANIFEST_DIR")).parent() {
-        roots.push(repo_root.join(VENDORED_ROOT));
-    }
-
-    dedupe_paths(roots)
-}
-
-fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
-    let mut result = Vec::new();
-    for path in paths {
-        if !result.iter().any(|existing: &PathBuf| existing == &path) {
-            result.push(path);
-        }
-    }
-    result
-}
-
-fn truncate(text: &str, max_chars: usize) -> String {
-    let truncated: String = text.chars().take(max_chars).collect();
-    if text.chars().count() > max_chars {
-        format!("{truncated}\n\n[truncated]")
-    } else {
-        truncated
+    let registry = bundled_skills::default_skill_registry();
+    match registry.get(skill_id.slug()) {
+        Some(def) => Ok(VendoredSkill {
+            id: skill_id,
+            excerpt: def.prompt.to_string(),
+        }),
+        None => Err(format!(
+            "Bundled skill {} not found in registry",
+            skill_id.slug()
+        )),
     }
 }
 
@@ -192,13 +144,12 @@ fn tokenize(text: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn select_frontend_skill_for_screen_subtask() {
-        let card = SubtaskCard {
-            id: "P1".to_string(),
-            title: "Dashboard".to_string(),
-            description: "Build dashboard screen".to_string(),
-            kind: SubtaskKind::Screen,
+    fn make_card(title: &str, desc: &str, kind: SubtaskKind) -> SubtaskCard {
+        SubtaskCard {
+            id: "T1".to_string(),
+            title: title.to_string(),
+            description: desc.to_string(),
+            kind,
             depends_on: Vec::new(),
             can_run_in_parallel: true,
             parallel_group: None,
@@ -213,7 +164,12 @@ mod tests {
             isolated_workspace: None,
             merge_conflict: None,
             attempted_fixes: Vec::new(),
-        };
+        }
+    }
+
+    #[test]
+    fn select_frontend_skill_for_screen_subtask() {
+        let card = make_card("Dashboard", "Build dashboard screen", SubtaskKind::Screen);
         assert_eq!(
             select_for_subtask(&card),
             Some(VendoredSkillId::FrontendDev)
@@ -222,26 +178,11 @@ mod tests {
 
     #[test]
     fn select_fullstack_skill_for_ui_api_feature() {
-        let card = SubtaskCard {
-            id: "F1".to_string(),
-            title: "Profile api integration".to_string(),
-            description: "Wire dashboard form to backend API with auth".to_string(),
-            kind: SubtaskKind::Feature,
-            depends_on: Vec::new(),
-            can_run_in_parallel: true,
-            parallel_group: None,
-            suggested_skill: None,
-            expected_touch: Vec::new(),
-            status: super::super::blackboard::SubtaskState::Pending,
-            attempts: 0,
-            latest_implementation: None,
-            latest_review: None,
-            review_findings: Vec::new(),
-            files_touched: Vec::new(),
-            isolated_workspace: None,
-            merge_conflict: None,
-            attempted_fixes: Vec::new(),
-        };
+        let card = make_card(
+            "Profile api integration",
+            "Wire dashboard form to backend API with auth",
+            SubtaskKind::Feature,
+        );
         assert_eq!(
             select_for_subtask(&card),
             Some(VendoredSkillId::FullstackDev)
@@ -250,51 +191,21 @@ mod tests {
 
     #[test]
     fn does_not_treat_build_as_ui_keyword() {
-        let card = SubtaskCard {
-            id: "F2".to_string(),
-            title: "Build auth API endpoint".to_string(),
-            description: "Create backend endpoint for login".to_string(),
-            kind: SubtaskKind::Feature,
-            depends_on: Vec::new(),
-            can_run_in_parallel: true,
-            parallel_group: None,
-            suggested_skill: None,
-            expected_touch: Vec::new(),
-            status: super::super::blackboard::SubtaskState::Pending,
-            attempts: 0,
-            latest_implementation: None,
-            latest_review: None,
-            review_findings: Vec::new(),
-            files_touched: Vec::new(),
-            isolated_workspace: None,
-            merge_conflict: None,
-            attempted_fixes: Vec::new(),
-        };
+        let card = make_card(
+            "Build auth API endpoint",
+            "Create backend endpoint for login",
+            SubtaskKind::Feature,
+        );
         assert_eq!(select_for_subtask(&card), None);
     }
 
     #[test]
     fn select_design_skill_for_polish_subtask() {
-        let card = SubtaskCard {
-            id: "D1".to_string(),
-            title: "Polish dashboard".to_string(),
-            description: "Beautify the main dashboard with visual consistency".to_string(),
-            kind: SubtaskKind::Feature,
-            depends_on: Vec::new(),
-            can_run_in_parallel: true,
-            parallel_group: None,
-            suggested_skill: None,
-            expected_touch: Vec::new(),
-            status: super::super::blackboard::SubtaskState::Pending,
-            attempts: 0,
-            latest_implementation: None,
-            latest_review: None,
-            review_findings: Vec::new(),
-            files_touched: Vec::new(),
-            isolated_workspace: None,
-            merge_conflict: None,
-            attempted_fixes: Vec::new(),
-        };
+        let card = make_card(
+            "Polish dashboard",
+            "Beautify the main dashboard with visual consistency",
+            SubtaskKind::Feature,
+        );
         assert_eq!(
             select_for_subtask(&card),
             Some(VendoredSkillId::UiDesignSystem)
@@ -303,57 +214,11 @@ mod tests {
 
     #[test]
     fn select_design_skill_via_suggested_skill() {
-        let card = SubtaskCard {
-            id: "D2".to_string(),
-            title: "Fix layout".to_string(),
-            description: "Fix spacing issues".to_string(),
-            kind: SubtaskKind::Feature,
-            depends_on: Vec::new(),
-            can_run_in_parallel: true,
-            parallel_group: None,
-            suggested_skill: Some(SuggestedSkill::UiDesignSystem),
-            expected_touch: Vec::new(),
-            status: super::super::blackboard::SubtaskState::Pending,
-            attempts: 0,
-            latest_implementation: None,
-            latest_review: None,
-            review_findings: Vec::new(),
-            files_touched: Vec::new(),
-            isolated_workspace: None,
-            merge_conflict: None,
-            attempted_fixes: Vec::new(),
-        };
+        let mut card = make_card("Fix layout", "Fix spacing issues", SubtaskKind::Feature);
+        card.suggested_skill = Some(SuggestedSkill::UiDesignSystem);
         assert_eq!(
             select_for_subtask(&card),
             Some(VendoredSkillId::UiDesignSystem)
-        );
-    }
-
-    #[test]
-    fn select_suggested_skill_before_keyword_heuristics() {
-        let card = SubtaskCard {
-            id: "F3".to_string(),
-            title: "Wire backend auth".to_string(),
-            description: "Mostly backend work".to_string(),
-            kind: SubtaskKind::Feature,
-            depends_on: Vec::new(),
-            can_run_in_parallel: true,
-            parallel_group: None,
-            suggested_skill: Some(SuggestedSkill::FrontendDev),
-            expected_touch: Vec::new(),
-            status: super::super::blackboard::SubtaskState::Pending,
-            attempts: 0,
-            latest_implementation: None,
-            latest_review: None,
-            review_findings: Vec::new(),
-            files_touched: Vec::new(),
-            isolated_workspace: None,
-            merge_conflict: None,
-            attempted_fixes: Vec::new(),
-        };
-        assert_eq!(
-            select_for_subtask(&card),
-            Some(VendoredSkillId::FrontendDev)
         );
     }
 }

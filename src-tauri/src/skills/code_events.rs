@@ -58,7 +58,7 @@ pub(super) fn emit_vendored_skill_log(
             "tool-log",
             ToolLog {
                 agent: agent.to_string(),
-                tool: "VendoredSkill".to_string(),
+                tool: "BundledSkill".to_string(),
                 input: format!("{} -> {} {}", skill.id.slug(), card.id, card.title),
                 timestamp: ts,
             },

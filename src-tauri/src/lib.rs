@@ -1,3 +1,4 @@
+pub(crate) mod bundled_skills;
 mod config;
 mod detect;
 mod director;

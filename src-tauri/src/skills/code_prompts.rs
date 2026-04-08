@@ -263,20 +263,17 @@ pub(super) fn render_vendored_block(vendored_skill: Option<&VendoredSkill>) -> S
     };
 
     format!(
-        "Packaged vendored skill available:\n\
+        "Bundled skill available:\n\
 - ID: {id}\n\
-- Skill file: {skill_path}\n\
-- Skill root: {root_dir}\n\
-- Read the full vendored skill file before implementing if you need its detailed workflow.\n\
-- You may also read any references under the skill root if they help with this specific subtask.\n\
+- Label: {label}\n\
+- Follow the skill instructions below when implementing this subtask.\n\
 \n\
-Vendored skill excerpt:\n\
+Skill instructions:\n\
 ```markdown\n\
 {excerpt}\n\
 ```",
         id = skill.id.slug(),
-        skill_path = skill.skill_path.display(),
-        root_dir = skill.root_dir.display(),
+        label = skill.id.label(),
         excerpt = skill.excerpt
     )
 }
@@ -600,7 +597,8 @@ mod tests {
 
     #[test]
     fn parse_review_report_no_marker_with_fail_signal() {
-        let output = "Critical finding: the API endpoint has no authentication.\nMust fix before merging.\n";
+        let output =
+            "Critical finding: the API endpoint has no authentication.\nMust fix before merging.\n";
         let report = parse_review_report(output);
         assert!(!report.passed);
     }
