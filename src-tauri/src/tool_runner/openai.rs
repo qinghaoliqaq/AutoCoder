@@ -5,8 +5,9 @@
 ///
 /// Compatible with: OpenAI, DeepSeek, Zhipu/GLM, MiniMax, Moonshot,
 /// Yi, Baichuan, Qwen, Groq, Together, Fireworks, SiliconFlow, etc.
-use super::{emit_chunk, emit_tool_log, execute, tools, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
+use super::{emit_chunk, emit_tool_log, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
 use crate::errors::{self, AppError};
+use crate::tools::{self, ToolRegistry};
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -21,6 +22,7 @@ pub async fn run_loop(
     user_prompt: &str,
     tool_defs: &[Value],
     workspace: &Path,
+    registry: &ToolRegistry,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
@@ -28,7 +30,9 @@ pub async fn run_loop(
     subtask_id: Option<&str>,
 ) -> Result<String, String> {
     let endpoint = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-    let oai_tools = tools::to_openai_functions(tool_defs);
+    // OpenAI format: tool_defs are already in the right format from the registry
+    // (wrapped in {type: "function", function: {...}})
+    let oai_tools = tool_defs;
 
     let mut messages: Vec<Value> = vec![
         json!({ "role": "system", "content": system_prompt }),
@@ -105,7 +109,7 @@ pub async fn run_loop(
                 let name = call["function"]["name"].as_str().unwrap_or("").to_string();
                 let args_str = call["function"]["arguments"].as_str().unwrap_or("{}");
                 let input: Value = serde_json::from_str(args_str).unwrap_or(json!({}));
-                emit_tool_log(app_handle, window_label, &name, &input);
+                emit_tool_log(app_handle, window_label, &name, &input, registry);
                 tool_calls.push((id, name, input));
             }
         }
@@ -117,8 +121,9 @@ pub async fn run_loop(
             return Ok(full_text);
         }
 
-        // Execute tools and append results in OpenAI format
-        let results = execute::run_partitioned(&tool_calls, workspace, &token, read_only).await?;
+        // Execute tools via the new registry-based partitioned orchestration
+        let results =
+            tools::run_partitioned(registry, &tool_calls, workspace, &token, read_only).await?;
         for result in &results {
             let tool_call_id = result["tool_use_id"].as_str().unwrap_or("");
             let content = result["content"].as_str().unwrap_or("");

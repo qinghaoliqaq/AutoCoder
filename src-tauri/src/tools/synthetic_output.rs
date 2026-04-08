@@ -51,9 +51,7 @@ impl Tool for SyntheticOutputTool {
             None => return ToolResult::err("Missing required 'content' parameter"),
         };
 
-        let format = input["format"]
-            .as_str()
-            .unwrap_or("text");
+        let format = input["format"].as_str().unwrap_or("text");
 
         match format {
             "text" | "json" | "markdown" => {}
@@ -153,10 +151,7 @@ mod tests {
         let ws = dir.path().canonicalize().unwrap();
         let ctx = make_ctx(&ws);
         let result = SyntheticOutputTool
-            .execute(
-                json!({"content": "test", "format": "xml"}),
-                &ctx,
-            )
+            .execute(json!({"content": "test", "format": "xml"}), &ctx)
             .await;
         assert!(result.is_error);
         assert!(result.content.contains("Unsupported format"));

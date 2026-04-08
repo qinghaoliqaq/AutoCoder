@@ -162,9 +162,9 @@ impl Tool for REPLTool {
                     ToolResult::err(content)
                 }
             }
-            Ok(Err(e)) => ToolResult::err(format!(
-                "Failed to execute {language} ({interpreter}): {e}"
-            )),
+            Ok(Err(e)) => {
+                ToolResult::err(format!("Failed to execute {language} ({interpreter}): {e}"))
+            }
             Err(_) => ToolResult::err(format!(
                 "REPL execution timed out after {timeout_ms}ms. Consider increasing the timeout."
             )),
@@ -178,16 +178,10 @@ mod tests {
 
     #[test]
     fn test_interpreter_lookup() {
-        assert_eq!(
-            interpreter_for_language("python"),
-            Some(("python3", "-c"))
-        );
+        assert_eq!(interpreter_for_language("python"), Some(("python3", "-c")));
         assert_eq!(interpreter_for_language("node"), Some(("node", "-e")));
         assert_eq!(interpreter_for_language("ruby"), Some(("ruby", "-e")));
-        assert_eq!(
-            interpreter_for_language("Python"),
-            Some(("python3", "-c"))
-        );
+        assert_eq!(interpreter_for_language("Python"), Some(("python3", "-c")));
         assert_eq!(interpreter_for_language("rust"), None);
         assert_eq!(interpreter_for_language(""), None);
     }

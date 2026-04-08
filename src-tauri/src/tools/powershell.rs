@@ -143,7 +143,11 @@ impl Tool for PowerShellTool {
     }
 
     fn is_destructive(&self, input: &Value) -> bool {
-        let command = input["command"].as_str().unwrap_or("").trim().to_lowercase();
+        let command = input["command"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
         let destructive_patterns = [
             "remove-item",
             "rm ",
@@ -264,8 +268,12 @@ mod tests {
         assert!(is_read_only_command("pwd"));
 
         assert!(!is_read_only_command("Remove-Item foo.txt"));
-        assert!(!is_read_only_command("Set-Content -Path foo.txt -Value bar"));
-        assert!(!is_read_only_command("New-Item -ItemType File -Path foo.txt"));
+        assert!(!is_read_only_command(
+            "Set-Content -Path foo.txt -Value bar"
+        ));
+        assert!(!is_read_only_command(
+            "New-Item -ItemType File -Path foo.txt"
+        ));
         assert!(!is_read_only_command("npm install"));
     }
 

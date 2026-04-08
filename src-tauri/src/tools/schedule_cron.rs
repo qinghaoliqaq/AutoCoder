@@ -23,10 +23,10 @@ fn read_cron_entries(workspace: &std::path::Path) -> Result<Vec<Value>, String> 
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read cron file: {e}"))?;
-    let entries: Vec<Value> = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse cron file: {e}"))?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read cron file: {e}"))?;
+    let entries: Vec<Value> =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse cron file: {e}"))?;
     Ok(entries)
 }
 
@@ -39,8 +39,7 @@ fn write_cron_entries(workspace: &std::path::Path, entries: &[Value]) -> Result<
     }
     let content = serde_json::to_string_pretty(entries)
         .map_err(|e| format!("Failed to serialize cron entries: {e}"))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Failed to write cron file: {e}"))?;
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write cron file: {e}"))?;
     Ok(())
 }
 
@@ -129,15 +128,27 @@ impl Tool for ScheduleCronTool {
             "create" => {
                 let name = match input["name"].as_str() {
                     Some(n) if !n.trim().is_empty() => n,
-                    _ => return ToolResult::err("Missing or empty 'name' parameter for 'create' action"),
+                    _ => {
+                        return ToolResult::err(
+                            "Missing or empty 'name' parameter for 'create' action",
+                        )
+                    }
                 };
                 let schedule = match input["schedule"].as_str() {
                     Some(s) if !s.trim().is_empty() => s,
-                    _ => return ToolResult::err("Missing or empty 'schedule' parameter for 'create' action"),
+                    _ => {
+                        return ToolResult::err(
+                            "Missing or empty 'schedule' parameter for 'create' action",
+                        )
+                    }
                 };
                 let command = match input["command"].as_str() {
                     Some(c) if !c.trim().is_empty() => c,
-                    _ => return ToolResult::err("Missing or empty 'command' parameter for 'create' action"),
+                    _ => {
+                        return ToolResult::err(
+                            "Missing or empty 'command' parameter for 'create' action",
+                        )
+                    }
                 };
 
                 let mut entries = match read_cron_entries(ctx.workspace) {
@@ -172,7 +183,11 @@ impl Tool for ScheduleCronTool {
             "delete" => {
                 let name = match input["name"].as_str() {
                     Some(n) if !n.trim().is_empty() => n,
-                    _ => return ToolResult::err("Missing or empty 'name' parameter for 'delete' action"),
+                    _ => {
+                        return ToolResult::err(
+                            "Missing or empty 'name' parameter for 'delete' action",
+                        )
+                    }
                 };
 
                 let mut entries = match read_cron_entries(ctx.workspace) {
@@ -184,9 +199,7 @@ impl Tool for ScheduleCronTool {
                 entries.retain(|e| e["name"].as_str() != Some(name));
 
                 if entries.len() == original_len {
-                    return ToolResult::err(format!(
-                        "No scheduled task found with name '{name}'"
-                    ));
+                    return ToolResult::err(format!("No scheduled task found with name '{name}'"));
                 }
 
                 if let Err(e) = write_cron_entries(ctx.workspace, &entries) {

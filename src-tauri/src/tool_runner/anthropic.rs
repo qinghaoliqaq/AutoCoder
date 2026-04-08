@@ -2,8 +2,9 @@
 ///
 /// POST /messages with x-api-key header.
 /// Bash and editor use Anthropic built-in tool type shorthand.
-use super::{emit_chunk, emit_tool_log, execute, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
+use super::{emit_chunk, emit_tool_log, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
 use crate::errors::{self, AppError};
+use crate::tools::{self, ToolRegistry};
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -18,6 +19,7 @@ pub async fn run_loop(
     user_prompt: &str,
     tools: &[Value],
     workspace: &Path,
+    registry: &ToolRegistry,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
@@ -101,7 +103,7 @@ pub async fn run_loop(
                     let id = block["id"].as_str().unwrap_or("").to_string();
                     let name = block["name"].as_str().unwrap_or("").to_string();
                     let input = block["input"].clone();
-                    emit_tool_log(app_handle, window_label, &name, &input);
+                    emit_tool_log(app_handle, window_label, &name, &input, registry);
                     tool_calls.push((id, name, input));
                 }
                 _ => {}
@@ -114,8 +116,9 @@ pub async fn run_loop(
             return Ok(full_text);
         }
 
+        // Execute tools via the new registry-based partitioned orchestration
         let tool_results =
-            execute::run_partitioned(&tool_calls, workspace, &token, read_only).await?;
+            tools::run_partitioned(registry, &tool_calls, workspace, &token, read_only).await?;
         messages.push(json!({ "role": "user", "content": tool_results }));
     }
 

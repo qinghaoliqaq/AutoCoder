@@ -23,10 +23,9 @@ fn read_config(workspace: &std::path::Path) -> Result<Value, String> {
     if !path.exists() {
         return Ok(json!({}));
     }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read config file: {e}"))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config file: {e}"))
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {e}"))?;
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse config file: {e}"))
 }
 
 /// Write the config object back to the file, creating directories as needed.
@@ -38,8 +37,7 @@ fn write_config(workspace: &std::path::Path, config: &Value) -> Result<(), Strin
     }
     let content = serde_json::to_string_pretty(config)
         .map_err(|e| format!("Failed to serialize config: {e}"))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Failed to write config file: {e}"))?;
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write config file: {e}"))?;
     Ok(())
 }
 
@@ -112,7 +110,9 @@ impl Tool for ConfigTool {
             "get" => {
                 let key = match input["key"].as_str() {
                     Some(k) if !k.is_empty() => k,
-                    _ => return ToolResult::err("Missing or empty 'key' parameter for 'get' action"),
+                    _ => {
+                        return ToolResult::err("Missing or empty 'key' parameter for 'get' action")
+                    }
                 };
                 let config = match read_config(ctx.workspace) {
                     Ok(c) => c,
@@ -126,7 +126,9 @@ impl Tool for ConfigTool {
             "set" => {
                 let key = match input["key"].as_str() {
                     Some(k) if !k.is_empty() => k,
-                    _ => return ToolResult::err("Missing or empty 'key' parameter for 'set' action"),
+                    _ => {
+                        return ToolResult::err("Missing or empty 'key' parameter for 'set' action")
+                    }
                 };
                 let value = match input["value"].as_str() {
                     Some(v) => v,
@@ -152,9 +154,7 @@ impl Tool for ConfigTool {
                 }
 
                 match previous {
-                    Some(prev) => ToolResult::ok(format!(
-                        "Set {key} = {json_value} (was: {prev})"
-                    )),
+                    Some(prev) => ToolResult::ok(format!("Set {key} = {json_value} (was: {prev})")),
                     None => ToolResult::ok(format!("Set {key} = {json_value}")),
                 }
             }
@@ -195,9 +195,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().canonicalize().unwrap();
         let ctx = make_ctx(&ws);
-        let result = ConfigTool
-            .execute(json!({"action": "list"}), &ctx)
-            .await;
+        let result = ConfigTool.execute(json!({"action": "list"}), &ctx).await;
         assert!(!result.is_error);
         assert!(result.content.contains("No configuration"));
     }

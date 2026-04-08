@@ -9,6 +9,7 @@ mod planning_schema;
 mod prompts;
 mod skills;
 pub(crate) mod tool_runner;
+pub(crate) mod tools;
 mod verifier;
 mod workspace;
 

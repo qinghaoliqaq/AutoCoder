@@ -1,5 +1,4 @@
 mod anthropic;
-mod execute;
 mod openai;
 /// Tool-use agent loop — modular architecture.
 ///
@@ -7,19 +6,17 @@ mod openai;
 /// tool_runner/
 ///   mod.rs        ← public API (this file)
 ///   providers.rs  ← provider registry (Anthropic, OpenAI, Zhipu, MiniMax, ...)
-///   tools.rs      ← tool schemas + read-only detection
-///   execute.rs    ← local tool execution + partitioned orchestration
 ///   anthropic.rs  ← Anthropic Messages API loop
 ///   openai.rs     ← OpenAI-compatible Chat Completions loop
 /// ```
 ///
-/// All tool execution is 100% local Rust. Only the API wire format differs
-/// between providers. Adding a new provider = one entry in providers.rs.
+/// Tool definitions and execution are now provided by the `crate::tools` module.
+/// The tool_runner only handles the API loop and event emission.
 pub mod providers;
-mod tools;
 
 use crate::config::AppConfig;
 use crate::skills::{SkillChunk, ToolLog};
+use crate::tools::{self, ToolRegistry};
 use providers::{ProviderConfig, WireFormat};
 use reqwest::Client;
 use serde_json::Value;
@@ -156,10 +153,13 @@ async fn run_inner(
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
     let workspace = canonicalize_workspace(cwd)?;
+
+    // Build tool registry and generate definitions for the wire format
+    let registry = tools::default_registry();
     let tool_defs = if read_only {
-        tools::read_only_definitions(provider.wire)
+        registry.read_only_definitions(provider.wire)
     } else {
-        tools::definitions(provider.wire)
+        registry.definitions(provider.wire)
     };
 
     match provider.wire {
@@ -173,6 +173,7 @@ async fn run_inner(
                 user_prompt,
                 &tool_defs,
                 &workspace,
+                &registry,
                 window_label,
                 app_handle,
                 token,
@@ -191,6 +192,7 @@ async fn run_inner(
                 user_prompt,
                 &tool_defs,
                 &workspace,
+                &registry,
                 window_label,
                 app_handle,
                 token,
@@ -243,9 +245,15 @@ fn emit_chunk(
     );
 }
 
-fn emit_tool_log(app_handle: &tauri::AppHandle, window_label: &str, name: &str, input: &Value) {
+fn emit_tool_log(
+    app_handle: &tauri::AppHandle,
+    window_label: &str,
+    name: &str,
+    input: &Value,
+    registry: &ToolRegistry,
+) {
     let ts = chrono::Utc::now().timestamp_millis() as u64;
-    let summary = tools::summarize_input(name, input);
+    let summary = registry.summarize_input(name, input);
     let _ = app_handle.emit_to(
         EventTarget::webview_window(window_label),
         "tool-log",
