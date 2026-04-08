@@ -188,6 +188,109 @@ function extractText(node: React.ReactNode): string {
   return '';
 }
 
+// ── Subtask thread grouping ──────────────────────────────────────────────────
+
+type MessageGroup =
+  | { kind: 'flat'; message: ChatMessage }
+  | { kind: 'thread'; subtaskId: string; label: string; messages: ChatMessage[] };
+
+/**
+ * Group messages by subtaskId into threads. Non-subtask messages stay flat.
+ * Messages with the same subtaskId are collected into a single thread even if
+ * interleaved with other subtask messages (common during parallel execution).
+ * Threads are placed at the position of their first message in the stream,
+ * preserving chronological order for non-subtask (flat) messages.
+ */
+function groupBySubtask(messages: ChatMessage[]): MessageGroup[] {
+  const groups: MessageGroup[] = [];
+  const threadMap = new Map<string, { label: string; msgs: ChatMessage[]; index: number }>();
+
+  for (const msg of messages) {
+    if (msg.subtaskId) {
+      const existing = threadMap.get(msg.subtaskId);
+      if (existing) {
+        existing.msgs.push(msg);
+      } else {
+        const entry = { label: msg.subtaskLabel ?? msg.subtaskId, msgs: [msg], index: groups.length };
+        threadMap.set(msg.subtaskId, entry);
+        // Reserve a slot; will be filled after the loop
+        groups.push(null as unknown as MessageGroup);
+      }
+    } else {
+      groups.push({ kind: 'flat', message: msg });
+    }
+  }
+
+  // Fill reserved thread slots
+  for (const [subtaskId, entry] of threadMap) {
+    groups[entry.index] = { kind: 'thread', subtaskId, label: entry.label, messages: entry.msgs };
+  }
+
+  return groups;
+}
+
+/** Collapsible card that wraps all messages belonging to a single subtask. */
+function SubtaskThread({ group, isLast, defaultExpanded }: { group: Extract<MessageGroup, { kind: 'thread' }>; isLast: boolean; defaultExpanded: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const agentSet = [...new Set(group.messages.map(m => m.role))];
+  const previewMsg = group.messages[group.messages.length - 1];
+
+  return (
+    <div className={`animate-slide-up ${!isLast ? 'border-b border-edge-secondary' : ''}`}>
+      {/* Thread header */}
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="flex w-full items-center gap-2.5 px-5 py-3 text-left transition-colors hover:bg-surface-secondary/20"
+      >
+        {/* Expand chevron */}
+        <svg
+          className={`h-3.5 w-3.5 flex-shrink-0 text-content-tertiary transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+          fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+
+        {/* Subtask badge */}
+        <span className="inline-flex items-center gap-1.5 rounded-md border border-themed-accent/25 px-2 py-0.5 text-[10.5px] font-semibold text-themed-accent-text" style={{ backgroundColor: 'rgb(var(--accent-soft))' }}>
+          <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
+          {group.label}
+        </span>
+
+        {/* Agent avatars */}
+        <div className="flex -space-x-1">
+          {agentSet.map(role => {
+            const cfg = ROLE_CONFIG[role];
+            return (
+              <div key={role} className={`flex h-4.5 w-4.5 items-center justify-center rounded-md border text-[8px] font-bold ${cfg.borderColor} bg-surface-elevated/70`}>
+                <span className={cfg.color}>{cfg.icon}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Message count */}
+        <span className="text-[10px] text-content-tertiary">{group.messages.length} messages</span>
+
+        {/* Preview of latest message (when collapsed) */}
+        {!expanded && previewMsg && (
+          <span className="ml-auto max-w-[40%] truncate text-[11px] text-content-tertiary">
+            {previewMsg.content.slice(0, 80)}
+          </span>
+        )}
+      </button>
+
+      {/* Thread body */}
+      {expanded && (
+        <div className="border-l-2 border-themed-accent/20 ml-5">
+          {group.messages.map((msg, idx) => (
+            <Message key={msg.id} message={msg} isLast={idx === group.messages.length - 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── ChatPanel ────────────────────────────────────────────────────────────────
 
 interface ChatPanelProps {
@@ -291,9 +394,23 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
           </div>
         ) : (
           <div className="mx-auto w-full max-w-[52rem]">
-            {messages.map((msg, idx) => (
-              <Message key={msg.id} message={msg} isLast={idx === messages.length - 1} />
-            ))}
+            {(() => {
+              const groups = groupBySubtask(messages);
+              return groups.map((group, idx) => {
+                const isLast = idx === groups.length - 1;
+                if (group.kind === 'flat') {
+                  return <Message key={group.message.id} message={group.message} isLast={isLast} />;
+                }
+                return (
+                  <SubtaskThread
+                    key={`thread-${group.subtaskId}-${idx}`}
+                    group={group}
+                    isLast={isLast}
+                    defaultExpanded={isLast}
+                  />
+                );
+              });
+            })()}
             <div ref={bottomRef} className="h-px" />
           </div>
         )}

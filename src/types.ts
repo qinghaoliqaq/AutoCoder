@@ -69,6 +69,10 @@ export interface ChatMessage {
   timestamp: number;
   thinking?: boolean;
   isReport?: boolean; // plan report document
+  /** When set, this message belongs to a specific subtask (parallel code mode). */
+  subtaskId?: string;
+  /** Human-readable label for the subtask (e.g. "auth-module"). */
+  subtaskLabel?: string;
 }
 
 export interface ReviewPhaseResult {

@@ -119,16 +119,24 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     const agentMsgIds = new Map<string, string>();
     const agentContent = new Map<string, string>();
 
-    const unlistenChunks = await appWindow.listen<{ agent: string; text: string; reset: boolean }>('skill-chunk', (event) => {
-      const { agent, text, reset } = event.payload;
+    const unlistenChunks = await appWindow.listen<{ agent: string; text: string; reset: boolean; subtask_id?: string }>('skill-chunk', (event) => {
+      const { agent, text, reset, subtask_id } = event.payload;
       const role = agent as ChatMessage['role'];
-      if (reset || !agentMsgIds.has(agent)) {
-        agentMsgIds.set(agent, addMessage(role, ''));
-        agentContent.set(agent, '');
+      // Use composite key so parallel subtasks get separate message bubbles
+      const key = subtask_id ? `${agent}::${subtask_id}` : agent;
+      if (reset || !agentMsgIds.has(key)) {
+        const id = makeId();
+        const msg: ChatMessage = {
+          id, role, content: '', timestamp: Date.now(),
+          ...(subtask_id ? { subtaskId: subtask_id, subtaskLabel: subtask_id } : {}),
+        };
+        setMessages(prev => [...prev, msg]);
+        agentMsgIds.set(key, id);
+        agentContent.set(key, '');
       }
-      const id = agentMsgIds.get(agent)!;
-      const updated = agentContent.get(agent)! + text;
-      agentContent.set(agent, updated);
+      const id = agentMsgIds.get(key)!;
+      const updated = agentContent.get(key)! + text;
+      agentContent.set(key, updated);
       updateMessage(id, updated);
     });
 
@@ -146,6 +154,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
         role: 'director',
         content: event.payload.summary,
         timestamp: Date.now(),
+        ...(event.payload.subtask_id ? { subtaskId: event.payload.subtask_id, subtaskLabel: event.payload.subtask_id } : {}),
       }]);
     });
     const unlistenCompletionReport = await appWindow.listen<string>('completion-report', (event) => {
@@ -324,16 +333,23 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     const agentMsgIds = new Map<string, string>();
     const agentContent = new Map<string, string>();
 
-    const unlistenChunks = await appWindow.listen<{ agent: string; text: string; reset: boolean }>('skill-chunk', (event) => {
-      const { agent, text, reset } = event.payload;
+    const unlistenChunks = await appWindow.listen<{ agent: string; text: string; reset: boolean; subtask_id?: string }>('skill-chunk', (event) => {
+      const { agent, text, reset, subtask_id } = event.payload;
       const role = agent as ChatMessage['role'];
-      if (reset || !agentMsgIds.has(agent)) {
-        agentMsgIds.set(agent, addMessage(role, ''));
-        agentContent.set(agent, '');
+      const key = subtask_id ? `${agent}::${subtask_id}` : agent;
+      if (reset || !agentMsgIds.has(key)) {
+        const id = makeId();
+        const msg: ChatMessage = {
+          id, role, content: '', timestamp: Date.now(),
+          ...(subtask_id ? { subtaskId: subtask_id, subtaskLabel: subtask_id } : {}),
+        };
+        setMessages(prev => [...prev, msg]);
+        agentMsgIds.set(key, id);
+        agentContent.set(key, '');
       }
-      const id = agentMsgIds.get(agent)!;
-      const updated = agentContent.get(agent)! + text;
-      agentContent.set(agent, updated);
+      const id = agentMsgIds.get(key)!;
+      const updated = agentContent.get(key)! + text;
+      agentContent.set(key, updated);
       updateMessage(id, updated);
     });
 
@@ -380,16 +396,23 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     const agentMsgIds = new Map<string, string>();
     const agentContent = new Map<string, string>();
 
-    const unlistenChunks = await appWindow.listen<{ agent: string; text: string; reset: boolean }>('skill-chunk', (event) => {
-      const { agent, text, reset } = event.payload;
+    const unlistenChunks = await appWindow.listen<{ agent: string; text: string; reset: boolean; subtask_id?: string }>('skill-chunk', (event) => {
+      const { agent, text, reset, subtask_id } = event.payload;
       const role = agent as ChatMessage['role'];
-      if (reset || !agentMsgIds.has(agent)) {
-        agentMsgIds.set(agent, addMessage(role, ''));
-        agentContent.set(agent, '');
+      const key = subtask_id ? `${agent}::${subtask_id}` : agent;
+      if (reset || !agentMsgIds.has(key)) {
+        const id = makeId();
+        const msg: ChatMessage = {
+          id, role, content: '', timestamp: Date.now(),
+          ...(subtask_id ? { subtaskId: subtask_id, subtaskLabel: subtask_id } : {}),
+        };
+        setMessages(prev => [...prev, msg]);
+        agentMsgIds.set(key, id);
+        agentContent.set(key, '');
       }
-      const id = agentMsgIds.get(agent)!;
-      const updated = agentContent.get(agent)! + text;
-      agentContent.set(agent, updated);
+      const id = agentMsgIds.get(key)!;
+      const updated = agentContent.get(key)! + text;
+      agentContent.set(key, updated);
       updateMessage(id, updated);
     });
 
@@ -415,6 +438,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
         role: 'director',
         content: event.payload.summary,
         timestamp: Date.now(),
+        ...(event.payload.subtask_id ? { subtaskId: event.payload.subtask_id, subtaskLabel: event.payload.subtask_id } : {}),
       }]);
     });
 

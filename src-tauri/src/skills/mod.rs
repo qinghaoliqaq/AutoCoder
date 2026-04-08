@@ -41,6 +41,9 @@ pub struct SkillChunk {
     pub text: String,
     /// true = frontend should start a new message bubble for this agent
     pub reset: bool,
+    /// When set, this chunk belongs to a specific subtask (used in parallel code mode).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtask_id: Option<String>,
 }
 
 /// Outcome of a single review phase, emitted via "review-phase-result".

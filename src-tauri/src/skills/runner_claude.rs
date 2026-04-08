@@ -30,7 +30,7 @@ pub(crate) async fn claude(
 ) -> Result<String, String> {
     claude_with_streaming(
         prompt, cwd, window_label, app_handle, token,
-        ClaudeExecutionMode::WorkspaceWrite, true,
+        ClaudeExecutionMode::WorkspaceWrite, true, None,
     ).await
 }
 
@@ -43,7 +43,22 @@ pub(crate) async fn claude_quiet(
 ) -> Result<String, String> {
     claude_with_streaming(
         prompt, cwd, window_label, app_handle, token,
-        ClaudeExecutionMode::WorkspaceWrite, false,
+        ClaudeExecutionMode::WorkspaceWrite, false, None,
+    ).await
+}
+
+/// Like `claude_quiet`, but tags emitted `skill-chunk` events with a subtask ID.
+pub(crate) async fn claude_quiet_subtask(
+    prompt: &str,
+    cwd: Option<&str>,
+    window_label: &str,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+    subtask_id: &str,
+) -> Result<String, String> {
+    claude_with_streaming(
+        prompt, cwd, window_label, app_handle, token,
+        ClaudeExecutionMode::WorkspaceWrite, false, Some(subtask_id),
     ).await
 }
 
@@ -56,7 +71,7 @@ pub(crate) async fn claude_read_only(
 ) -> Result<String, String> {
     claude_with_streaming(
         prompt, cwd, window_label, app_handle, token,
-        ClaudeExecutionMode::ReadOnlyReview, true,
+        ClaudeExecutionMode::ReadOnlyReview, true, None,
     ).await
 }
 
@@ -69,7 +84,7 @@ pub(crate) async fn claude_read_only_quiet(
 ) -> Result<String, String> {
     claude_with_streaming(
         prompt, cwd, window_label, app_handle, token,
-        ClaudeExecutionMode::ReadOnlyReview, false,
+        ClaudeExecutionMode::ReadOnlyReview, false, None,
     ).await
 }
 
@@ -83,6 +98,7 @@ async fn claude_with_streaming(
     token: CancellationToken,
     mode: ClaudeExecutionMode,
     emit_chunks: bool,
+    subtask_id: Option<&str>,
 ) -> Result<String, String> {
     tracing::info!(mode = ?mode, cwd = ?cwd, "spawning claude");
     let mut cmd = Command::new("claude");
@@ -105,6 +121,7 @@ async fn claude_with_streaming(
     let mut is_first_chunk = true;
     let mut pending_tool_name: Option<String> = None;
     let mut pending_tool_input = String::new();
+    let owned_subtask_id = subtask_id.map(ToString::to_string);
 
     let process_result = run_cli_process(
         "claude",
@@ -126,12 +143,14 @@ async fn claude_with_streaming(
                     handle_assistant_message(
                         &v, emit_chunks, window_label, app_handle,
                         &mut full_text, &mut is_first_chunk,
+                        owned_subtask_id.as_deref(),
                     )
                 }
                 Some("result") => {
                     handle_result_event(
                         &v, emit_chunks, window_label, app_handle,
                         &mut full_text,
+                        owned_subtask_id.as_deref(),
                     )
                 }
                 _ => LineAction::Continue,
@@ -224,6 +243,7 @@ fn handle_assistant_message(
     app_handle: &tauri::AppHandle,
     full_text: &mut String,
     is_first_chunk: &mut bool,
+    subtask_id: Option<&str>,
 ) -> LineAction {
     if let Some(arr) = v["message"]["content"].as_array() {
         for item in arr {
@@ -241,6 +261,7 @@ fn handle_assistant_message(
                                     agent: "claude".to_string(),
                                     text: text.to_string(),
                                     reset,
+                                    subtask_id: subtask_id.map(ToString::to_string),
                                 },
                             );
                         }
@@ -258,6 +279,7 @@ fn handle_result_event(
     window_label: &str,
     app_handle: &tauri::AppHandle,
     full_text: &mut String,
+    subtask_id: Option<&str>,
 ) -> LineAction {
     if v["is_error"].as_bool() == Some(true) {
         let msg = v["result"].as_str().unwrap_or("unknown error").to_string();
@@ -274,6 +296,7 @@ fn handle_result_event(
                         agent: "claude".to_string(),
                         text: full_text.clone(),
                         reset: true,
+                        subtask_id: subtask_id.map(ToString::to_string),
                     },
                 );
             }

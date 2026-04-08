@@ -140,6 +140,7 @@ fn emit_chunk(
             agent: "claude".to_string(),
             text: text.to_string(),
             reset,
+            subtask_id: None,
         },
     );
 }

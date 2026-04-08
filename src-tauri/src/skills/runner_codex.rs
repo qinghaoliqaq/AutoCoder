@@ -27,7 +27,7 @@ pub(crate) async fn codex(
 ) -> Result<String, String> {
     run_codex(
         prompt, cwd, window_label, app_handle, token,
-        CodexExecutionMode::WorkspaceWrite, true,
+        CodexExecutionMode::WorkspaceWrite, true, None,
     ).await
 }
 
@@ -40,7 +40,7 @@ pub(crate) async fn codex_read_only(
 ) -> Result<String, String> {
     run_codex(
         prompt, cwd, window_label, app_handle, token,
-        CodexExecutionMode::ReadOnlyReview, true,
+        CodexExecutionMode::ReadOnlyReview, true, None,
     ).await
 }
 
@@ -53,7 +53,22 @@ pub(crate) async fn codex_read_only_quiet(
 ) -> Result<String, String> {
     run_codex(
         prompt, cwd, window_label, app_handle, token,
-        CodexExecutionMode::ReadOnlyReview, false,
+        CodexExecutionMode::ReadOnlyReview, false, None,
+    ).await
+}
+
+/// Like `codex_read_only_quiet`, but tags emitted `skill-chunk` events with a subtask ID.
+pub(crate) async fn codex_read_only_quiet_subtask(
+    prompt: &str,
+    cwd: Option<&str>,
+    window_label: &str,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+    subtask_id: &str,
+) -> Result<String, String> {
+    run_codex(
+        prompt, cwd, window_label, app_handle, token,
+        CodexExecutionMode::ReadOnlyReview, false, Some(subtask_id),
     ).await
 }
 
@@ -67,6 +82,7 @@ async fn run_codex(
     token: CancellationToken,
     mode: CodexExecutionMode,
     emit_chunks: bool,
+    subtask_id: Option<&str>,
 ) -> Result<String, String> {
     tracing::info!(mode = ?mode, cwd = ?cwd, "spawning codex");
     let mut cmd = Command::new("codex");
@@ -81,6 +97,7 @@ async fn run_codex(
     cmd.current_dir(&resolved_cwd);
 
     let mut output = String::new();
+    let owned_subtask_id = subtask_id.map(ToString::to_string);
 
     let process_result = run_cli_process(
         "codex",
@@ -104,6 +121,7 @@ async fn run_codex(
             if let Some(item) = v.get("item") {
                 handle_codex_item(
                     ev_type, item, emit_chunks, window_label, app_handle, &mut output,
+                    owned_subtask_id.as_deref(),
                 );
             }
             LineAction::Continue
@@ -134,6 +152,7 @@ fn handle_codex_item(
     window_label: &str,
     app_handle: &tauri::AppHandle,
     output: &mut String,
+    subtask_id: Option<&str>,
 ) {
     match (ev_type, item["type"].as_str().unwrap_or("")) {
         ("item.started", "command_execution") => {
@@ -164,6 +183,7 @@ fn handle_codex_item(
                             agent: "codex".to_string(),
                             text: chunk,
                             reset: true,
+                            subtask_id: subtask_id.map(ToString::to_string),
                         },
                     );
                 }

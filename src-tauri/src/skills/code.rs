@@ -501,12 +501,13 @@ async fn run_implementation_phase(
         claude_prompt
     };
 
-    let claude_output = runners::claude_quiet(
+    let claude_output = runners::claude_quiet_subtask(
         &claude_prompt,
         Some(isolated.root.to_string_lossy().as_ref()),
         ctx.window_label,
         ctx.app_handle,
         ctx.token.clone(),
+        &card.id,
     )
     .await?;
 
@@ -633,10 +634,11 @@ async fn run_review_and_merge_phase(
         ctx.context,
         build_review_prompt(ctx.task, &review_card, acceptance.as_ref()),
     );
-    let review_output = runners::codex_read_only_quiet(
+    let review_output = runners::codex_read_only_quiet_subtask(
         &review_prompt,
         Some(isolated.root.to_string_lossy().as_ref()),
         ctx.window_label, ctx.app_handle, ctx.token.clone(),
+        &card.id,
     )
     .await?;
     let review = parse_review_report(&review_output);
