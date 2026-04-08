@@ -70,6 +70,9 @@ pub(crate) fn create_isolated_workspace(
     if base_dir.exists() {
         std::fs::remove_dir_all(&base_dir).ok();
     }
+    std::fs::create_dir_all(&base_dir).map_err(|e| {
+        format!("Cannot create base dir {}: {e}", base_dir.display())
+    })?;
     copy_workspace_tree(workspace_root, &base_dir, workspace_root)?;
 
     Ok(IsolatedWorkspace {
@@ -90,15 +93,17 @@ pub(crate) fn cleanup_isolated_workspace(root: &Path) -> Result<(), String> {
         let Some(dir) = current else {
             break;
         };
-        let is_empty = std::fs::read_dir(dir)
-            .map_err(|e| format!("Cannot inspect {} for cleanup: {e}", dir.display()))?
-            .next()
-            .is_none();
+        // Parent may already be gone (e.g. cleaned up by a prior call).
+        let is_empty = match std::fs::read_dir(dir) {
+            Ok(mut entries) => entries.next().is_none(),
+            Err(_) => break,
+        };
         if !is_empty {
             break;
         }
-        std::fs::remove_dir(dir)
-            .map_err(|e| format!("Cannot prune empty directory {}: {e}", dir.display()))?;
+        if std::fs::remove_dir(dir).is_err() {
+            break;
+        }
         current = dir.parent();
     }
 
