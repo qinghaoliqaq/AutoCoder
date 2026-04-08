@@ -13,6 +13,7 @@ use crate::{
     prompts::Prompts,
 };
 use dirs;
+use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
 
 pub(super) async fn run(
