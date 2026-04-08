@@ -82,107 +82,99 @@ export default function ConfigEditorModal({
   }, [handleKeyDown]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-xl bg-surface-primary/30"
-      onClick={onClose}
-    >
-      <div
-        className="mx-4 flex w-full max-w-3xl flex-col overflow-hidden glass-panel"
-        style={{ height: 'min(580px, 88vh)' }}
-        onClick={(event) => event.stopPropagation()}
-      >
-        {/* ── Header ──────────────────────────────────────────────── */}
-        <div className="flex items-start justify-between gap-4 border-b border-edge-primary/30 bg-surface-secondary/10 px-5 py-4">
-          <div>
-            <h2 className="text-sm font-semibold text-content-primary">Settings</h2>
-            <p className="mt-0.5 text-xs leading-5 text-zinc-500">
-              模型配置与执行权限。保存后写入 <code className="text-[10px] rounded bg-surface-tertiary px-1 py-0.5">config.toml</code>
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1 text-content-tertiary transition-colors hover:bg-surface-tertiary hover:text-content-secondary"
-            title="关闭 (Esc)"
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+    <div className="fixed inset-0 z-50 flex flex-col bg-surface-primary">
+      {/* ── Top bar ──────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between border-b border-edge-primary/30 px-6 py-3">
+        <div className="flex items-center gap-3">
+          <Settings2 className="h-4 w-4 text-content-tertiary" />
+          <h1 className="text-sm font-semibold text-content-primary">Settings</h1>
+          <span className="text-[11px] text-content-tertiary">
+            保存后写入 <code className="rounded bg-surface-tertiary px-1 py-0.5 text-[10px]">config.toml</code>
+          </span>
         </div>
+        <button
+          onClick={onClose}
+          className="rounded-lg p-1.5 text-content-tertiary transition-colors hover:bg-surface-tertiary hover:text-content-primary"
+          title="关闭 (Esc)"
+        >
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
 
-        {/* ── Body: sidebar tabs + content ─────────────────────────── */}
-        <div className="flex flex-1 min-h-0">
-          {/* Tab sidebar */}
-          <nav className="w-40 flex-shrink-0 border-r border-edge-primary/30 bg-surface-secondary/5 py-2">
-            {TABS.map(({ id, label, icon }, idx) => (
-              <button
-                key={id}
-                onClick={() => setActiveTab(id)}
-                className={`group flex w-full items-center gap-2.5 px-4 py-2 text-left text-[12px] font-medium transition-colors ${
-                  activeTab === id
-                    ? 'bg-themed-accent-soft/70 text-themed-accent-text'
-                    : 'text-content-tertiary hover:bg-surface-tertiary/50 hover:text-content-primary'
-                }`}
-              >
-                {icon}
-                <span className="flex-1">{label}</span>
-                <kbd className="hidden group-hover:inline-block rounded border border-edge-primary/60 bg-surface-tertiary/60 px-1 py-0.5 font-mono text-[9px] text-content-tertiary">
-                  {'\u2318'}{idx + 1}
-                </kbd>
-              </button>
-            ))}
-          </nav>
+      {/* ── Body: sidebar tabs + content ─────────────────────────── */}
+      <div className="flex flex-1 min-h-0">
+        {/* Tab sidebar */}
+        <nav className="w-48 flex-shrink-0 border-r border-edge-primary/30 bg-surface-secondary/5 px-2 py-3 space-y-0.5">
+          {TABS.map(({ id, label, icon }, idx) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`group flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12.5px] font-medium transition-colors ${
+                activeTab === id
+                  ? 'bg-themed-accent-soft/70 text-themed-accent-text'
+                  : 'text-content-tertiary hover:bg-surface-tertiary/50 hover:text-content-primary'
+              }`}
+            >
+              {icon}
+              <span className="flex-1">{label}</span>
+              <kbd className="hidden group-hover:inline-block rounded border border-edge-primary/60 bg-surface-tertiary/60 px-1 py-0.5 font-mono text-[9px] text-content-tertiary">
+                {'\u2318'}{idx + 1}
+              </kbd>
+            </button>
+          ))}
+        </nav>
 
-          {/* Content area */}
-          <div className="flex-1 custom-scrollbar overflow-y-auto">
-            {draft ? (
-              <div className="p-5">
-                {activeTab === 'general' && <GeneralTab draft={draft} update={update} />}
-                {activeTab === 'agent' && <AgentTab draft={draft} update={update} />}
-                {activeTab === 'appearance' && <AppearanceTab />}
-                {activeTab === 'shortcuts' && <ShortcutsTab />}
+        {/* Content area */}
+        <div className="flex-1 custom-scrollbar overflow-y-auto">
+          {draft ? (
+            <div className="mx-auto max-w-2xl px-8 py-6">
+              {activeTab === 'general' && <GeneralTab draft={draft} update={update} />}
+              {activeTab === 'agent' && <AgentTab draft={draft} update={update} />}
+              {activeTab === 'appearance' && <AppearanceTab />}
+              {activeTab === 'shortcuts' && <ShortcutsTab />}
 
-                {error && (
-                  <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs leading-5 text-rose-600">
-                    {error}
-                  </div>
-                )}
-              </div>
-            ) : error ? (
-              <div className="p-5">
-                <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs leading-5 text-rose-600">
+              {error && (
+                <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs leading-5 text-rose-600">
                   {error}
                 </div>
+              )}
+            </div>
+          ) : error ? (
+            <div className="mx-auto max-w-2xl px-8 py-6">
+              <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs leading-5 text-rose-600">
+                {error}
               </div>
-            ) : (
-              <div className="flex items-center justify-center p-12">
-                <LoaderCircle className="h-5 w-5 animate-spin text-zinc-400" />
-                <span className="ml-2 text-sm text-zinc-500">正在读取配置...</span>
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center p-12">
+              <LoaderCircle className="h-5 w-5 animate-spin text-zinc-400" />
+              <span className="ml-2 text-sm text-zinc-500">正在读取配置...</span>
+            </div>
+          )}
         </div>
+      </div>
 
-        {/* ── Footer ──────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between gap-3 border-t border-edge-primary/30 bg-surface-secondary/10 px-5 py-3">
-          <div className="text-[11px] text-zinc-400">
-            保存后新对话将使用最新配置
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              className="rounded-lg px-4 py-1.5 text-xs font-medium text-content-secondary glass-button"
-            >
-              取消
-            </button>
-            <button
-              onClick={onSave}
-              disabled={!draft || saving}
-              className="rounded-lg bg-violet-600/90 px-4 py-1.5 text-xs font-medium text-white shadow-md shadow-violet-500/20 transition-all hover:bg-violet-600 hover:shadow-lg hover:shadow-violet-500/30 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {saving ? '保存中...' : '保存配置'}
-            </button>
-          </div>
+      {/* ── Footer ──────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-3 border-t border-edge-primary/30 px-6 py-3">
+        <div className="text-[11px] text-content-tertiary">
+          保存后新对话将使用最新配置
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg px-4 py-1.5 text-xs font-medium text-content-secondary glass-button"
+          >
+            取消
+          </button>
+          <button
+            onClick={onSave}
+            disabled={!draft || saving}
+            className="rounded-lg bg-violet-600/90 px-4 py-1.5 text-xs font-medium text-white shadow-md shadow-violet-500/20 transition-all hover:bg-violet-600 hover:shadow-lg hover:shadow-violet-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? '保存中...' : '保存配置'}
+          </button>
         </div>
       </div>
     </div>
