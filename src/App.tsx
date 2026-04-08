@@ -149,6 +149,15 @@ export default function App() {
       .catch(() => {});
   }, [workspace, projectContext]);
 
+  // On workspace open, sanitize any stale InProgress states left over from
+  // a previous crash.  This runs exactly once per workspace switch — before
+  // the user starts any new tasks — so it won't interfere with running ones.
+  useEffect(() => {
+    if (workspace) {
+      invoke('sanitize_blackboard_state', { path: workspace }).catch(() => {});
+    }
+  }, [workspace]);
+
   // Keep the cached PLAN.md aligned with the active workspace so switching
   // projects never leaks an old plan into a new code / review / test run.
   useEffect(() => {

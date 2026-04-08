@@ -114,11 +114,6 @@ export default function BlackboardPanel({
     window.addEventListener('mouseup', handleMouseUp);
   }, [activityHeight]);
 
-  // Sanitize once on mount to clean up stale InProgress states from a
-  // previous app crash.  Must NOT run on every reload — otherwise it
-  // resets genuinely-running subtasks back to Pending.
-  const hasSanitizedRef = useRef(false);
-
   const loadBoards = useCallback(async () => {
     if (!workspacePath) {
       setPlanMd(null);
@@ -130,15 +125,6 @@ export default function BlackboardPanel({
     setLoading(true);
 
     try {
-      if (!hasSanitizedRef.current) {
-        hasSanitizedRef.current = true;
-        try {
-          await invoke('sanitize_blackboard_state', { path: workspacePath });
-        } catch (err) {
-          console.warn('Error sanitizing blackboard state:', err);
-        }
-      }
-
       try {
         const pMd = await invoke<string>('read_workspace_file', {
           path: workspacePath,
