@@ -161,7 +161,7 @@ export default function App() {
 
     invoke<string>('read_workspace_file', {
       path: workspace,
-      relativePath: 'PLAN.md',
+      relativePath: '.ai-dev-hub/PLAN.md',
     })
       .then(plan => {
         if (!cancelled) {

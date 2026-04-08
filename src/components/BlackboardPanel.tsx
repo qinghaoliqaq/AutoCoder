@@ -114,6 +114,11 @@ export default function BlackboardPanel({
     window.addEventListener('mouseup', handleMouseUp);
   }, [activityHeight]);
 
+  // Sanitize once on mount to clean up stale InProgress states from a
+  // previous app crash.  Must NOT run on every reload — otherwise it
+  // resets genuinely-running subtasks back to Pending.
+  const hasSanitizedRef = useRef(false);
+
   const loadBoards = useCallback(async () => {
     if (!workspacePath) {
       setPlanMd(null);
@@ -125,23 +130,26 @@ export default function BlackboardPanel({
     setLoading(true);
 
     try {
-      try {
-        await invoke('sanitize_blackboard_state', { path: workspacePath });
-      } catch (err) {
-        console.warn('Error sanitizing blackboard state:', err);
+      if (!hasSanitizedRef.current) {
+        hasSanitizedRef.current = true;
+        try {
+          await invoke('sanitize_blackboard_state', { path: workspacePath });
+        } catch (err) {
+          console.warn('Error sanitizing blackboard state:', err);
+        }
       }
 
       try {
         const pMd = await invoke<string>('read_workspace_file', {
           path: workspacePath,
-          relativePath: 'PLAN_BLACKBOARD.md',
+          relativePath: '.ai-dev-hub/PLAN_BLACKBOARD.md',
         });
         setPlanMd(pMd);
       } catch {
         try {
           const pMd = await invoke<string>('read_workspace_file', {
             path: workspacePath,
-            relativePath: 'PLAN.md',
+            relativePath: '.ai-dev-hub/PLAN.md',
           });
           setPlanMd(pMd);
         } catch {
@@ -152,7 +160,7 @@ export default function BlackboardPanel({
       try {
         const eMd = await invoke<string>('read_workspace_file', {
           path: workspacePath,
-          relativePath: 'BLACKBOARD.md',
+          relativePath: '.ai-dev-hub/BLACKBOARD.md',
         });
         setExecMd(eMd);
       } catch {
@@ -162,7 +170,7 @@ export default function BlackboardPanel({
       try {
         const eJsonStr = await invoke<string>('read_workspace_file', {
           path: workspacePath,
-          relativePath: 'BLACKBOARD.json',
+          relativePath: '.ai-dev-hub/BLACKBOARD.json',
         });
         const parsed = JSON.parse(eJsonStr) as ExecBoard;
         setExecJson(parsed);
