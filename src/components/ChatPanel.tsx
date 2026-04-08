@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { AnimatedMessageIcon, AnimatedFolderIcon, AnimatedSparklesIcon } from './icons/AnimatedIcons';
 import { ChatMessage, AgentRole } from '../types';
 import ReactMarkdown from 'react-markdown';
@@ -203,27 +203,24 @@ type MessageGroup =
  */
 function groupBySubtask(messages: ChatMessage[]): MessageGroup[] {
   const groups: MessageGroup[] = [];
-  const threadMap = new Map<string, { label: string; msgs: ChatMessage[]; index: number }>();
+  const threadMap = new Map<string, Extract<MessageGroup, { kind: 'thread' }>>();
 
   for (const msg of messages) {
     if (msg.subtaskId) {
       const existing = threadMap.get(msg.subtaskId);
       if (existing) {
-        existing.msgs.push(msg);
+        existing.messages.push(msg);
       } else {
-        const entry = { label: msg.subtaskLabel ?? msg.subtaskId, msgs: [msg], index: groups.length };
-        threadMap.set(msg.subtaskId, entry);
-        // Reserve a slot; will be filled after the loop
-        groups.push(null as unknown as MessageGroup);
+        const thread: Extract<MessageGroup, { kind: 'thread' }> = {
+          kind: 'thread', subtaskId: msg.subtaskId,
+          label: msg.subtaskLabel ?? msg.subtaskId, messages: [msg],
+        };
+        threadMap.set(msg.subtaskId, thread);
+        groups.push(thread);
       }
     } else {
       groups.push({ kind: 'flat', message: msg });
     }
-  }
-
-  // Fill reserved thread slots
-  for (const [subtaskId, entry] of threadMap) {
-    groups[entry.index] = { kind: 'thread', subtaskId, label: entry.label, messages: entry.msgs };
   }
 
   return groups;
@@ -261,7 +258,7 @@ function SubtaskThread({ group, isLast, defaultExpanded }: { group: Extract<Mess
           {agentSet.map(role => {
             const cfg = ROLE_CONFIG[role];
             return (
-              <div key={role} className={`flex h-4.5 w-4.5 items-center justify-center rounded-md border text-[8px] font-bold ${cfg.borderColor} bg-surface-elevated/70`}>
+              <div key={role} className={`flex h-[1.125rem] w-[1.125rem] items-center justify-center rounded-md border text-[8px] font-bold ${cfg.borderColor} bg-surface-elevated/70`}>
                 <span className={cfg.color}>{cfg.icon}</span>
               </div>
             );
@@ -308,6 +305,8 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
     { id: 3, color: 'rgba(167,139,250,0.10)', size: 220, x: -180, y:  60, dur: '26s', del: '-9s' },
     { id: 4, color: 'rgba(244,114,182,0.08)', size: 260, x:  200, y:  80, dur: '18s', del: '-12s' },
   ]);
+
+  const messageGroups = useMemo(() => groupBySubtask(messages), [messages]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -394,23 +393,20 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
           </div>
         ) : (
           <div className="mx-auto w-full max-w-[52rem]">
-            {(() => {
-              const groups = groupBySubtask(messages);
-              return groups.map((group, idx) => {
-                const isLast = idx === groups.length - 1;
-                if (group.kind === 'flat') {
-                  return <Message key={group.message.id} message={group.message} isLast={isLast} />;
-                }
-                return (
-                  <SubtaskThread
-                    key={`thread-${group.subtaskId}-${idx}`}
-                    group={group}
-                    isLast={isLast}
-                    defaultExpanded={isLast}
-                  />
-                );
-              });
-            })()}
+            {messageGroups.map((group, idx) => {
+              const isLast = idx === messageGroups.length - 1;
+              if (group.kind === 'flat') {
+                return <Message key={group.message.id} message={group.message} isLast={isLast} />;
+              }
+              return (
+                <SubtaskThread
+                  key={`thread-${group.subtaskId}`}
+                  group={group}
+                  isLast={isLast}
+                  defaultExpanded={isLast}
+                />
+              );
+            })}
             <div ref={bottomRef} className="h-px" />
           </div>
         )}

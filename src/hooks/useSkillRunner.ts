@@ -106,23 +106,16 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     isRunning, isStopping,
   } = deps;
 
-  // ── Shared phase runner ─────────────────────────────────────────────────
+  // ── Shared chunk listener builder ─────────────────────────────────────────
+  // Extracted to avoid 3× copy-paste of the same subtask-aware handler.
 
-  const runPhase = async (
-    mode: AppMode,
-    phase: string,
-    task: string,
-    wsPath: string | null,
-    issue?: string,
-    contextOverride?: string | null,
-  ): Promise<ReviewPhaseResult> => {
+  function createChunkListener() {
     const agentMsgIds = new Map<string, string>();
     const agentContent = new Map<string, string>();
 
-    const unlistenChunks = await appWindow.listen<{ agent: string; text: string; reset: boolean; subtask_id?: string }>('skill-chunk', (event) => {
+    const handler = (event: { payload: { agent: string; text: string; reset: boolean; subtask_id?: string } }) => {
       const { agent, text, reset, subtask_id } = event.payload;
       const role = agent as ChatMessage['role'];
-      // Use composite key so parallel subtasks get separate message bubbles
       const key = subtask_id ? `${agent}::${subtask_id}` : agent;
       if (reset || !agentMsgIds.has(key)) {
         const id = makeId();
@@ -138,7 +131,23 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       const updated = agentContent.get(key)! + text;
       agentContent.set(key, updated);
       updateMessage(id, updated);
-    });
+    };
+
+    return { handler, agentMsgIds, agentContent };
+  }
+
+  // ── Shared phase runner ─────────────────────────────────────────────────
+
+  const runPhase = async (
+    mode: AppMode,
+    phase: string,
+    task: string,
+    wsPath: string | null,
+    issue?: string,
+    contextOverride?: string | null,
+  ): Promise<ReviewPhaseResult> => {
+    const { handler: chunkHandler } = createChunkListener();
+    const unlistenChunks = await appWindow.listen('skill-chunk', chunkHandler);
 
     let result: ReviewPhaseResult = { phase, passed: true, issue: '' };
     const unlistenResult = await appWindow.listen<ReviewPhaseResult>('review-phase-result', (event) => {
@@ -330,28 +339,8 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       ? qaSections.join('\n\n---\n\n')
       : null;
 
-    const agentMsgIds = new Map<string, string>();
-    const agentContent = new Map<string, string>();
-
-    const unlistenChunks = await appWindow.listen<{ agent: string; text: string; reset: boolean; subtask_id?: string }>('skill-chunk', (event) => {
-      const { agent, text, reset, subtask_id } = event.payload;
-      const role = agent as ChatMessage['role'];
-      const key = subtask_id ? `${agent}::${subtask_id}` : agent;
-      if (reset || !agentMsgIds.has(key)) {
-        const id = makeId();
-        const msg: ChatMessage = {
-          id, role, content: '', timestamp: Date.now(),
-          ...(subtask_id ? { subtaskId: subtask_id, subtaskLabel: subtask_id } : {}),
-        };
-        setMessages(prev => [...prev, msg]);
-        agentMsgIds.set(key, id);
-        agentContent.set(key, '');
-      }
-      const id = agentMsgIds.get(key)!;
-      const updated = agentContent.get(key)! + text;
-      agentContent.set(key, updated);
-      updateMessage(id, updated);
-    });
+    const { handler: chunkHandler } = createChunkListener();
+    const unlistenChunks = await appWindow.listen('skill-chunk', chunkHandler);
 
     let result: QaResult = {
       verdict: 'FAIL',
@@ -393,28 +382,8 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       return null;
     }
 
-    const agentMsgIds = new Map<string, string>();
-    const agentContent = new Map<string, string>();
-
-    const unlistenChunks = await appWindow.listen<{ agent: string; text: string; reset: boolean; subtask_id?: string }>('skill-chunk', (event) => {
-      const { agent, text, reset, subtask_id } = event.payload;
-      const role = agent as ChatMessage['role'];
-      const key = subtask_id ? `${agent}::${subtask_id}` : agent;
-      if (reset || !agentMsgIds.has(key)) {
-        const id = makeId();
-        const msg: ChatMessage = {
-          id, role, content: '', timestamp: Date.now(),
-          ...(subtask_id ? { subtaskId: subtask_id, subtaskLabel: subtask_id } : {}),
-        };
-        setMessages(prev => [...prev, msg]);
-        agentMsgIds.set(key, id);
-        agentContent.set(key, '');
-      }
-      const id = agentMsgIds.get(key)!;
-      const updated = agentContent.get(key)! + text;
-      agentContent.set(key, updated);
-      updateMessage(id, updated);
-    });
+    const { handler: chunkHandler } = createChunkListener();
+    const unlistenChunks = await appWindow.listen('skill-chunk', chunkHandler);
 
     let reportContent = '';
     const unlistenReport = await appWindow.listen<string>('plan-report', (event) => {
