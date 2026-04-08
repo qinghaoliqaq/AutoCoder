@@ -53,7 +53,7 @@ const TIPS = [
   'Sandbox 模式下优先使用受限权限，审查型任务保持只读，更安全。',
   'Plan 模式会自动将任务拆分为子任务，并行执行以提高效率。',
   'Build Gate 会在代码提交前自动进行编译/类型检查，提前发现错误。',
-  '可以在项目根目录放置 .autocoder/skills/ 来注入自定义 Vendored Skills。',
+  '内置 Bundled Skills 会自动为子任务注入前端/全栈/设计系统等专业指导。',
   'Director 支持 Anthropic 和 OpenAI 兼容 API，可切换不同模型。',
   '快捷键 Cmd+1~4 可以快速切换设置页面的标签。',
   '调整 Parallel Lanes 可以控制同时执行的子任务数量，推荐 2-4 个。',
@@ -290,7 +290,7 @@ function GeneralTab({
             type="text"
             value={draft.model}
             onChange={(e) => update('model', e.target.value)}
-            placeholder="gpt-4o / claude-sonnet-4-0 / MiniMax-M1"
+            placeholder="gpt-4o / claude-sonnet-4-0 / deepseek-chat"
             className={inputClass}
           />
         </FieldGroup>
@@ -360,19 +360,19 @@ function GeneralTab({
         </FieldGroup>
       </div>
 
-      {/* Vendored Skills */}
+      {/* Bundled Skills */}
       <div className="flex items-center justify-between rounded-xl border border-edge-primary/40 bg-surface-elevated/40 px-4 py-3">
         <div>
-          <div className="text-sm font-medium text-content-primary">Vendored Skills</div>
+          <div className="text-sm font-medium text-content-primary">Bundled Skills</div>
           <div className="mt-0.5 text-[11px] leading-4 text-content-tertiary">
-            自动为子任务注入仓库内置的 packaged skills
+            自动为子任务注入内置的专业技能指导（前端/全栈/设计系统等）
           </div>
         </div>
         <ToggleSwitch
           checked={draft.vendored_skills}
           onChange={(checked) => update('vendored_skills', checked)}
           accent="violet"
-          title="切换 vendored skills"
+          title="切换 bundled skills"
         />
       </div>
 
