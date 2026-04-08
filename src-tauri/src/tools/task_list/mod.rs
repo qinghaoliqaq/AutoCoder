@@ -1,3 +1,5 @@
+pub mod prompt;
+
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -33,6 +35,10 @@ impl Tool for TaskListTool {
         "List all tasks in the task list, optionally filtered by status. Returns a \
          summary of each task including id, description, status, and timestamps. Use \
          this to see overall progress, find available work, or check for blocked tasks."
+    }
+
+    fn prompt(&self) -> Option<&'static str> {
+        Some(prompt::PROMPT)
     }
 
     fn input_schema(&self) -> Value {
