@@ -412,7 +412,7 @@ function AgentTab({
           />
         </FieldGroup>
 
-        <FieldGroup label="Model" hint="留空用默认">
+        <FieldGroup label="Model" hint="执行身份（Claude）">
           <input
             type="text"
             value={draft.agent_model}
@@ -423,47 +423,58 @@ function AgentTab({
           />
         </FieldGroup>
 
-        <FieldGroup label="Base URL" hint="留空用默认">
+        <FieldGroup label="Review Model" hint="审阅身份（Codex），留空同上">
           <input
             type="text"
-            value={draft.agent_base_url}
-            onChange={(e) => update('agent_base_url', e.target.value)}
-            placeholder="使用供应商默认端点"
+            value={draft.agent_review_model}
+            onChange={(e) => update('agent_review_model', e.target.value)}
+            placeholder="留空则使用执行身份模型"
             disabled={!draft.agent_provider}
             className={`${inputClass} disabled:opacity-50 disabled:cursor-not-allowed`}
           />
         </FieldGroup>
+
+        <div className="sm:col-span-2">
+          <FieldGroup label="Base URL" hint="留空用默认">
+            <input
+              type="text"
+              value={draft.agent_base_url}
+              onChange={(e) => update('agent_base_url', e.target.value)}
+              placeholder="使用供应商默认端点"
+              disabled={!draft.agent_provider}
+              className={`${inputClass} disabled:opacity-50 disabled:cursor-not-allowed`}
+            />
+          </FieldGroup>
+        </div>
       </div>
 
       {/* Connectivity Test */}
-      {draft.agent_provider && draft.agent_api_key && (
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={handleTestConnection}
-            disabled={testStatus === 'testing'}
-            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-violet-600 glass-button dark:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {testStatus === 'testing' ? (
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Zap className="h-3.5 w-3.5" />
-            )}
-            {testStatus === 'testing' ? '测试中...' : '测试连通性'}
-          </button>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleTestConnection}
+          disabled={testStatus === 'testing' || !draft.agent_provider || !draft.agent_api_key}
+          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-violet-600 glass-button dark:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {testStatus === 'testing' ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Zap className="h-3.5 w-3.5" />
+          )}
+          {testStatus === 'testing' ? '测试中...' : '测试连通性'}
+        </button>
 
-          {testStatus === 'success' && (
-            <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 className="h-3.5 w-3.5" /> {testMessage}
-            </span>
-          )}
-          {testStatus === 'error' && (
-            <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
-              <AlertTriangle className="h-3.5 w-3.5" /> {testMessage}
-            </span>
-          )}
-        </div>
-      )}
+        {testStatus === 'success' && (
+          <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="h-3.5 w-3.5" /> {testMessage}
+          </span>
+        )}
+        {testStatus === 'error' && (
+          <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+            <AlertTriangle className="h-3.5 w-3.5" /> {testMessage}
+          </span>
+        )}
+      </div>
 
       {/* Status banners */}
       {draft.agent_provider && !draft.agent_api_key && (

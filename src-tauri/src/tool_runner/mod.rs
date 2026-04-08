@@ -71,7 +71,11 @@ async fn run_inner(
     token: CancellationToken,
     read_only: bool,
 ) -> Result<String, String> {
-    let provider = ProviderConfig::from_app_config(config);
+    let provider = if read_only {
+        ProviderConfig::from_app_config_review(config)
+    } else {
+        ProviderConfig::from_app_config(config)
+    };
 
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(300))

@@ -38,6 +38,7 @@ export interface ConfigDraft {
   agent_api_key: string;
   agent_base_url: string;
   agent_model: string;
+  agent_review_model: string;
 }
 
 /** Supported agent providers for the UI dropdown. */
