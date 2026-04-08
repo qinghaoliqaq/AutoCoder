@@ -43,34 +43,7 @@ pub async fn run(
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<String, String> {
-    let provider = ProviderConfig::from_app_config(config);
-
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .build()
-        .map_err(|e| format!("HTTP client error: {e}"))?;
-
-    let workspace = canonicalize_workspace(cwd)?;
-    let tool_defs = tools::definitions(provider.wire);
-
-    match provider.wire {
-        WireFormat::Anthropic => {
-            anthropic::run_loop(
-                &client, &provider.base_url, &provider.api_key, &provider.model,
-                system_prompt, user_prompt, &tool_defs, &workspace,
-                window_label, app_handle, token, false,
-            )
-            .await
-        }
-        WireFormat::OpenAI => {
-            openai::run_loop(
-                &client, &provider.base_url, &provider.api_key, &provider.model,
-                system_prompt, user_prompt, &tool_defs, &workspace,
-                window_label, app_handle, token, false,
-            )
-            .await
-        }
-    }
+    run_inner(config, system_prompt, user_prompt, cwd, window_label, app_handle, token, false).await
 }
 
 /// Run a read-only tool-use agent loop (no bash, editor view-only).
@@ -85,6 +58,19 @@ pub async fn run_read_only(
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<String, String> {
+    run_inner(config, system_prompt, user_prompt, cwd, window_label, app_handle, token, true).await
+}
+
+async fn run_inner(
+    config: &AppConfig,
+    system_prompt: &str,
+    user_prompt: &str,
+    cwd: Option<&str>,
+    window_label: &str,
+    app_handle: &tauri::AppHandle,
+    token: CancellationToken,
+    read_only: bool,
+) -> Result<String, String> {
     let provider = ProviderConfig::from_app_config(config);
 
     let client = Client::builder()
@@ -93,14 +79,18 @@ pub async fn run_read_only(
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
     let workspace = canonicalize_workspace(cwd)?;
-    let tool_defs = tools::read_only_definitions(provider.wire);
+    let tool_defs = if read_only {
+        tools::read_only_definitions(provider.wire)
+    } else {
+        tools::definitions(provider.wire)
+    };
 
     match provider.wire {
         WireFormat::Anthropic => {
             anthropic::run_loop(
                 &client, &provider.base_url, &provider.api_key, &provider.model,
                 system_prompt, user_prompt, &tool_defs, &workspace,
-                window_label, app_handle, token, true,
+                window_label, app_handle, token, read_only,
             )
             .await
         }
@@ -108,7 +98,7 @@ pub async fn run_read_only(
             openai::run_loop(
                 &client, &provider.base_url, &provider.api_key, &provider.model,
                 system_prompt, user_prompt, &tool_defs, &workspace,
-                window_label, app_handle, token, true,
+                window_label, app_handle, token, read_only,
             )
             .await
         }

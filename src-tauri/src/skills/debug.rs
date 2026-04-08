@@ -10,12 +10,9 @@
 /// runner mode (claude + codex).
 
 use crate::config::AppConfig;
-use crate::evidence::{self, EvidenceEvent};
 use crate::prompts::Prompts;
 use crate::tool_runner;
-use super::{runners, BlackboardEvent};
-use chrono::Utc;
-use tauri::{Emitter, EventTarget};
+use super::{emit_skill_event, record_skill_evidence, runners};
 use tokio_util::sync::CancellationToken;
 
 pub(super) async fn run(
@@ -58,10 +55,12 @@ async fn run_via_api(
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<(), String> {
+    let debug_artifacts = || vec!["bugs.md".to_string(), "change.log".to_string()];
+
     // ── Phase 1: Diagnose (read-only) ────────────────────────────────────────
-    emit_debug_event(app_handle, window_label, "diagnosing",
+    emit_skill_event(app_handle, window_label, "diagnosing",
         "Claude is analysing the codebase to diagnose the issue.".to_string())?;
-    record_debug_evidence(workspace, "debug_started", &format!("Debug started for issue: {task}"), "system");
+    record_skill_evidence(workspace, "debug_started", &format!("Debug started for issue: {task}"), "system", debug_artifacts());
 
     let diagnose_prompt = super::inject_context(
         context,
@@ -78,12 +77,12 @@ async fn run_via_api(
         window_label, app_handle, token.clone(),
     ).await?;
 
-    emit_debug_event(app_handle, window_label, "diagnosed",
+    emit_skill_event(app_handle, window_label, "diagnosed",
         "Claude completed root-cause analysis. Now applying the fix.".to_string())?;
-    record_debug_evidence(workspace, "debug_diagnosed", "Claude completed root-cause analysis.", "claude");
+    record_skill_evidence(workspace, "debug_diagnosed", "Claude completed root-cause analysis.", "claude", debug_artifacts());
 
     // ── Phase 2: Fix (with write permissions) ────────────────────────────────
-    emit_debug_event(app_handle, window_label, "fixing",
+    emit_skill_event(app_handle, window_label, "fixing",
         "Claude is applying the fix based on the diagnosis.".to_string())?;
 
     let fix_prompt = super::inject_context(
@@ -106,9 +105,9 @@ async fn run_via_api(
         window_label, app_handle, token,
     ).await?;
 
-    emit_debug_event(app_handle, window_label, "complete",
+    emit_skill_event(app_handle, window_label, "complete",
         "Debug skill finished — diagnosis and fix applied.".to_string())?;
-    record_debug_evidence(workspace, "debug_completed", "Debug skill finished — diagnosis and fix applied.", "claude");
+    record_skill_evidence(workspace, "debug_completed", "Debug skill finished — diagnosis and fix applied.", "claude", debug_artifacts());
 
     Ok(())
 }
@@ -124,46 +123,14 @@ async fn run_via_cli(
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<(), String> {
-    record_debug_evidence(workspace, "debug_started", &format!("Debug (CLI) started for issue: {task}"), "system");
+    let debug_artifacts = vec!["bugs.md".to_string(), "change.log".to_string()];
+    record_skill_evidence(workspace, "debug_started", &format!("Debug (CLI) started for issue: {task}"), "system", debug_artifacts.clone());
     let prompt = super::inject_context(
         context,
         Prompts::render(&prompts.debug_codex, &[("issue", task)]),
     );
     runners::codex(&prompt, workspace, window_label, app_handle, token).await?;
-    record_debug_evidence(workspace, "debug_completed", "Debug (CLI) completed.", "codex");
+    record_skill_evidence(workspace, "debug_completed", "Debug (CLI) completed.", "codex", debug_artifacts);
     Ok(())
 }
 
-fn emit_debug_event(
-    app_handle: &tauri::AppHandle,
-    window_label: &str,
-    status: &str,
-    summary: String,
-) -> Result<(), String> {
-    app_handle
-        .emit_to(
-            EventTarget::webview_window(window_label),
-            "blackboard-updated",
-            BlackboardEvent {
-                subtask_id: None,
-                status: status.to_string(),
-                summary,
-            },
-        )
-        .map_err(|e| format!("Emit error: {e}"))
-}
-
-fn record_debug_evidence(workspace: Option<&str>, event_type: &str, summary: &str, agent: &str) {
-    let Some(ws) = workspace else { return };
-    let _ = evidence::record_event(
-        ws,
-        EvidenceEvent {
-            ts: Utc::now().timestamp_millis() as u64,
-            event_type: event_type.to_string(),
-            agent: agent.to_string(),
-            subtask_id: None,
-            summary: summary.to_string(),
-            artifacts: vec!["bugs.md".to_string(), "change.log".to_string()],
-        },
-    );
-}
