@@ -105,8 +105,6 @@ async fn claude_with_streaming(
     let mut is_first_chunk = true;
     let mut pending_tool_name: Option<String> = None;
     let mut pending_tool_input = String::new();
-    // Capture an early-return error from the line handler (e.g. forbidden tool in read-only).
-    let mut handler_error: Option<String> = None;
 
     let process_result = run_cli_process(
         "claude",
@@ -148,10 +146,6 @@ async fn claude_with_streaming(
         Err(e) => return Err(e),
     }
 
-    if let Some(err) = handler_error {
-        return Err(err);
-    }
-
     // Read-only workspace integrity check.
     if let Some(before) = workspace_before {
         let after = snapshot_workspace(&resolved_cwd);
@@ -172,7 +166,7 @@ async fn claude_with_streaming(
 fn handle_stream_event(
     v: &Value,
     mode: ClaudeExecutionMode,
-    resolved_cwd: &std::path::Path,
+    resolved_cwd: &std::path::PathBuf,
     window_label: &str,
     app_handle: &tauri::AppHandle,
     pending_tool_name: &mut Option<String>,
