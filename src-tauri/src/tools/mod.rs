@@ -321,10 +321,8 @@ fn tool_to_read_only_definition(tool: &dyn Tool, format: WireFormat) -> Option<V
     match name {
         // Shell execution excluded in read-only mode
         "Bash" | "PowerShell" | "REPL" => None,
-        // Write tools excluded
-        "Write" | "NotebookEdit" => None,
-        // Edit becomes read-only (view only)
-        "Edit" => Some(tool_to_definition(tool, format)),
+        // Write/edit tools excluded
+        "Write" | "Edit" | "NotebookEdit" | "TodoWrite" => None,
         // Mutating tools excluded in read-only
         "EnterWorktree" | "ExitWorktree" | "ScheduleCron" | "McpAuth" | "Config" => None,
         // Everything else is allowed (search, read, info tools)
