@@ -3,7 +3,6 @@
 /// All functions here are pure string manipulation — no async, no I/O,
 /// no Tauri dependencies.  They construct the prompts sent to Claude/Codex
 /// and parse the structured markers they return.
-
 use super::blackboard::{SubtaskCard, BLACKBOARD_MD};
 use super::vendored::VendoredSkill;
 use crate::planning_schema::SubtaskAcceptance;
@@ -78,7 +77,11 @@ pub(super) fn build_fix_prompt(
     if !card.files_touched.is_empty() {
         extra_sections.push(format!(
             "Files modified in previous attempt (focus your fixes here):\n{}",
-            card.files_touched.iter().map(|f| format!("- {f}")).collect::<Vec<_>>().join("\n")
+            card.files_touched
+                .iter()
+                .map(|f| format!("- {f}"))
+                .collect::<Vec<_>>()
+                .join("\n")
         ));
     }
 
@@ -93,7 +96,11 @@ pub(super) fn build_fix_prompt(
     if !card.attempted_fixes.is_empty() {
         extra_sections.push(format!(
             "Previously attempted approaches that FAILED (do NOT repeat these):\n{}",
-            card.attempted_fixes.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n")
+            card.attempted_fixes
+                .iter()
+                .map(|a| format!("- {a}"))
+                .collect::<Vec<_>>()
+                .join("\n")
         ));
     }
 
@@ -159,7 +166,11 @@ pub(super) fn build_review_prompt(
     } else {
         format!(
             "Verifier passed but flagged these warnings (confirm or escalate):\n{}",
-            verifier_warnings.iter().map(|w| format!("- {w}")).collect::<Vec<_>>().join("\n")
+            verifier_warnings
+                .iter()
+                .map(|w| format!("- {w}"))
+                .collect::<Vec<_>>()
+                .join("\n")
         )
     };
 
@@ -418,5 +429,88 @@ mod tests {
             render_acceptance_block(None),
             "Structured acceptance for this subtask: none provided."
         );
+    }
+
+    fn fix_prompt_card() -> SubtaskCard {
+        use crate::skills::blackboard::{SubtaskKind, SubtaskState};
+        SubtaskCard {
+            id: "F1".to_string(),
+            title: "Jobs API".to_string(),
+            description: "Build job routes".to_string(),
+            kind: SubtaskKind::Feature,
+            depends_on: Vec::new(),
+            can_run_in_parallel: true,
+            parallel_group: None,
+            suggested_skill: None,
+            expected_touch: Vec::new(),
+            status: SubtaskState::NeedsFix,
+            attempts: 2,
+            latest_implementation: Some("Added CRUD endpoints".to_string()),
+            latest_review: Some("Missing validation".to_string()),
+            review_findings: vec!["Input validation missing on POST /jobs".to_string()],
+            files_touched: vec![
+                "src/jobs/api.rs".to_string(),
+                "src/jobs/model.rs".to_string(),
+            ],
+            isolated_workspace: None,
+            merge_conflict: None,
+            attempted_fixes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn build_fix_prompt_includes_focus_files() {
+        let card = fix_prompt_card();
+        let prompt = build_fix_prompt("base", "task", &card, None, None);
+        assert!(prompt.contains("Files modified in previous attempt"));
+        assert!(prompt.contains("src/jobs/api.rs"));
+        assert!(prompt.contains("src/jobs/model.rs"));
+    }
+
+    #[test]
+    fn build_fix_prompt_includes_merge_conflict() {
+        let mut card = fix_prompt_card();
+        card.merge_conflict = Some("Conflict in src/shared/db.rs between F1 and F2".to_string());
+        let prompt = build_fix_prompt("base", "task", &card, None, None);
+        assert!(prompt.contains("Merge conflict from previous attempt"));
+        assert!(prompt.contains("Conflict in src/shared/db.rs between F1 and F2"));
+    }
+
+    #[test]
+    fn build_fix_prompt_includes_attempted_fixes() {
+        let mut card = fix_prompt_card();
+        card.attempted_fixes = vec!["Attempt 1: Added basic CRUD without validation".to_string()];
+        let prompt = build_fix_prompt("base", "task", &card, None, None);
+        assert!(prompt.contains("Previously attempted approaches that FAILED"));
+        assert!(prompt.contains("Attempt 1: Added basic CRUD without validation"));
+    }
+
+    #[test]
+    fn build_fix_prompt_omits_empty_sections() {
+        let mut card = fix_prompt_card();
+        card.files_touched.clear();
+        card.merge_conflict = None;
+        card.attempted_fixes.clear();
+        let prompt = build_fix_prompt("base", "task", &card, None, None);
+        assert!(!prompt.contains("Files modified in previous attempt"));
+        assert!(!prompt.contains("Merge conflict from previous attempt"));
+        assert!(!prompt.contains("Previously attempted approaches"));
+    }
+
+    #[test]
+    fn build_review_prompt_includes_verifier_warnings() {
+        let card = fix_prompt_card();
+        let warnings = vec!["Touched files outside expected scope: src/auth/mod.rs".to_string()];
+        let prompt = build_review_prompt("task", &card, None, &warnings);
+        assert!(prompt.contains("Verifier passed but flagged these warnings"));
+        assert!(prompt.contains("Touched files outside expected scope"));
+        assert!(prompt.contains("confirm or escalate"));
+    }
+
+    #[test]
+    fn build_review_prompt_clean_verifier_pass() {
+        let card = fix_prompt_card();
+        let prompt = build_review_prompt("task", &card, None, &[]);
+        assert!(prompt.contains("Verifier: passed with no warnings."));
     }
 }

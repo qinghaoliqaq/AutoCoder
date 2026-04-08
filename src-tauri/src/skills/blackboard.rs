@@ -3,7 +3,6 @@
 /// Heavy-lifting is delegated to sibling modules:
 ///   blackboard_parser — plan parsing (PLAN.md + PLAN_GRAPH.json → SubtaskCard)
 ///   blackboard_render — markdown rendering and label helpers
-
 use super::blackboard_parser::build_initial_subtasks;
 use crate::planning_schema::SuggestedSkill;
 use chrono::Utc;
@@ -192,7 +191,9 @@ impl Blackboard {
         let card = self.subtask_mut(subtask_id)?;
         card.attempts += 1;
         card.status = SubtaskState::InProgress;
-        card.merge_conflict = None;
+        // Note: merge_conflict is intentionally NOT cleared here.
+        // It is cleared on success in record_review(passed=true), so that
+        // build_fix_prompt can still see it during the retry attempt.
         Ok(card.attempts)
     }
 
@@ -233,10 +234,8 @@ impl Blackboard {
         if !passed {
             if let Some(impl_summary) = card.latest_implementation.as_ref() {
                 if !impl_summary.is_empty() {
-                    card.attempted_fixes.push(format!(
-                        "Attempt {}: {}",
-                        card.attempts, impl_summary
-                    ));
+                    card.attempted_fixes
+                        .push(format!("Attempt {}: {}", card.attempts, impl_summary));
                 }
             }
         }
@@ -525,5 +524,138 @@ mod tests {
         let ready = board.schedulable_subtasks();
         assert_eq!(ready.len(), 1);
         assert_eq!(ready[0].id, "P1");
+    }
+
+    #[test]
+    fn begin_attempt_preserves_merge_conflict_for_retry_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().to_str().unwrap();
+        let mut board = Blackboard {
+            task: "demo".to_string(),
+            state: BoardState::InProgress,
+            active_subtask_id: None,
+            active_subtask_ids: Vec::new(),
+            subtasks: vec![SubtaskCard {
+                id: "F1".to_string(),
+                title: "API".to_string(),
+                description: "desc".to_string(),
+                kind: SubtaskKind::Feature,
+                depends_on: Vec::new(),
+                can_run_in_parallel: true,
+                parallel_group: None,
+                suggested_skill: None,
+                expected_touch: Vec::new(),
+                status: SubtaskState::NeedsFix,
+                attempts: 1,
+                latest_implementation: Some("First try".to_string()),
+                latest_review: None,
+                review_findings: vec!["conflict".to_string()],
+                files_touched: Vec::new(),
+                isolated_workspace: None,
+                merge_conflict: Some("Conflict in shared/db.rs".to_string()),
+                attempted_fixes: Vec::new(),
+            }],
+            updated_at: "before".to_string(),
+        };
+        board.persist(workspace).unwrap();
+
+        board.begin_attempt("F1").unwrap();
+
+        // merge_conflict must survive so build_fix_prompt can render it.
+        assert_eq!(
+            board.subtask("F1").unwrap().merge_conflict.as_deref(),
+            Some("Conflict in shared/db.rs")
+        );
+    }
+
+    #[test]
+    fn record_review_archives_attempted_fix_on_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().to_str().unwrap();
+        let mut board = Blackboard {
+            task: "demo".to_string(),
+            state: BoardState::InProgress,
+            active_subtask_id: Some("F1".to_string()),
+            active_subtask_ids: vec!["F1".to_string()],
+            subtasks: vec![SubtaskCard {
+                id: "F1".to_string(),
+                title: "API".to_string(),
+                description: "desc".to_string(),
+                kind: SubtaskKind::Feature,
+                depends_on: Vec::new(),
+                can_run_in_parallel: true,
+                parallel_group: None,
+                suggested_skill: None,
+                expected_touch: Vec::new(),
+                status: SubtaskState::InProgress,
+                attempts: 1,
+                latest_implementation: Some("Added CRUD endpoints".to_string()),
+                latest_review: None,
+                review_findings: Vec::new(),
+                files_touched: Vec::new(),
+                isolated_workspace: None,
+                merge_conflict: None,
+                attempted_fixes: Vec::new(),
+            }],
+            updated_at: "before".to_string(),
+        };
+        board.persist(workspace).unwrap();
+
+        board
+            .record_review(
+                "F1",
+                false,
+                "Missing validation".to_string(),
+                vec!["fix it".to_string()],
+            )
+            .unwrap();
+
+        let card = board.subtask("F1").unwrap();
+        assert_eq!(card.attempted_fixes.len(), 1);
+        assert!(card.attempted_fixes[0].contains("Added CRUD endpoints"));
+        assert!(card.attempted_fixes[0].starts_with("Attempt 1:"));
+    }
+
+    #[test]
+    fn record_review_success_clears_merge_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().to_str().unwrap();
+        let mut board = Blackboard {
+            task: "demo".to_string(),
+            state: BoardState::InProgress,
+            active_subtask_id: Some("F1".to_string()),
+            active_subtask_ids: vec!["F1".to_string()],
+            subtasks: vec![SubtaskCard {
+                id: "F1".to_string(),
+                title: "API".to_string(),
+                description: "desc".to_string(),
+                kind: SubtaskKind::Feature,
+                depends_on: Vec::new(),
+                can_run_in_parallel: true,
+                parallel_group: None,
+                suggested_skill: None,
+                expected_touch: Vec::new(),
+                status: SubtaskState::InProgress,
+                attempts: 2,
+                latest_implementation: Some("Fixed it".to_string()),
+                latest_review: None,
+                review_findings: Vec::new(),
+                files_touched: Vec::new(),
+                isolated_workspace: None,
+                merge_conflict: Some("old conflict".to_string()),
+                attempted_fixes: vec!["Attempt 1: first try".to_string()],
+            }],
+            updated_at: "before".to_string(),
+        };
+        board.persist(workspace).unwrap();
+
+        board
+            .record_review("F1", true, "Looks good".to_string(), Vec::new())
+            .unwrap();
+
+        let card = board.subtask("F1").unwrap();
+        assert_eq!(card.merge_conflict, None);
+        // attempted_fixes should NOT grow on success.
+        assert_eq!(card.attempted_fixes.len(), 1);
     }
 }
