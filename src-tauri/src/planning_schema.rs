@@ -713,7 +713,7 @@ mod tests {
 
     #[test]
     fn quality_warns_on_sequential_bottleneck() {
-        let mut s1 = sample_subtask("F1");
+        let s1 = sample_subtask("F1");
         let mut s2 = sample_subtask("F2");
         let mut s3 = sample_subtask("F3");
         let mut s4 = sample_subtask("F4");

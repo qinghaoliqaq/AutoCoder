@@ -1,6 +1,6 @@
 use super::{runners, QaResult, ToolLog};
 use crate::{
-    evidence::{self, read_evidence_index, EvidenceEvent, EvidenceMetrics, EVIDENCE_INDEX_JSON},
+    evidence::{self, read_evidence_index, EvidenceEvent, EVIDENCE_INDEX_JSON},
     planning_schema::{read_plan_acceptance_lenient, PLAN_ACCEPTANCE_JSON},
     prompts::Prompts,
 };

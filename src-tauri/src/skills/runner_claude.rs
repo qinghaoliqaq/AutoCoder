@@ -40,6 +40,7 @@ pub(crate) async fn claude(
     .await
 }
 
+#[allow(dead_code)]
 pub(crate) async fn claude_quiet(
     prompt: &str,
     cwd: Option<&str>,

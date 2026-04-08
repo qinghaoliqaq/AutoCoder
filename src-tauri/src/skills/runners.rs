@@ -16,7 +16,7 @@ pub(crate) use super::runner_process::kill_registered_processes;
 
 // Re-export runner functions so callers keep using `runners::claude(...)` etc.
 pub(crate) use super::runner_claude::{
-    claude, claude_quiet, claude_quiet_subtask, claude_read_only, claude_read_only_quiet,
+    claude, claude_quiet_subtask, claude_read_only, claude_read_only_quiet,
 };
 pub(crate) use super::runner_codex::{
     codex, codex_read_only, codex_read_only_quiet, codex_read_only_quiet_subtask,

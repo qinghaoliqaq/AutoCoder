@@ -379,6 +379,7 @@ impl AppConfig {
         let api_key = draft.api_key.trim().to_string();
         let base_url = draft.base_url.trim().to_string();
         let model = draft.model.trim().to_string();
+        let existing = AppConfig::load_persisted().unwrap_or_default();
 
         if base_url.is_empty() {
             return Err("Base URL cannot be empty".to_string());
@@ -399,6 +400,7 @@ impl AppConfig {
                 vendored_skills: draft.vendored_skills,
                 max_parallel_subtasks: clamp_parallel_subtasks(draft.max_parallel_subtasks),
                 execution_access_mode: draft.execution_access_mode,
+                build_gate: existing.features.build_gate,
             },
             agent: AgentConfig {
                 api_key: draft.agent_api_key.trim().to_string(),

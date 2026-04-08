@@ -393,8 +393,9 @@ mod tests {
             "../secret.txt".to_string(),
         );
         assert!(result.is_err());
+        let err = result.unwrap_err();
         assert!(
-            result.unwrap_err().contains("traversal") || result.unwrap_err().contains("resolve")
+            err.contains("traversal") || err.contains("resolve")
         );
     }
 
