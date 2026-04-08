@@ -2,7 +2,6 @@
 ///
 /// Parses PLAN.md checklist items and PLAN_GRAPH.json into SubtaskCard
 /// structs used by the blackboard to track subtask execution.
-
 use super::blackboard::{SubtaskCard, SubtaskKind, SubtaskState};
 use crate::planning_schema::{read_plan_graph, PlanSubtask, SubtaskCategory};
 use std::collections::HashSet;

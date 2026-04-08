@@ -2,10 +2,7 @@
 ///
 /// When multiple subtasks modify files in parallel, the merge engine detects
 /// conflicts and performs automatic three-way merges where possible.
-
-use super::isolated_workspace::{
-    snapshot_workspace, workspace_changes, IsolatedWorkspace,
-};
+use super::isolated_workspace::{snapshot_workspace, workspace_changes, IsolatedWorkspace};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -49,8 +46,7 @@ pub(crate) fn merge_isolated_workspace(
         // ours (isolated workspace after subtask edits).
         let base_content = read_base_content(&isolated.base_dir, path);
         let main_content = std::fs::read_to_string(main_root.join(path)).unwrap_or_default();
-        let ours_content =
-            std::fs::read_to_string(isolated.root.join(path)).unwrap_or_default();
+        let ours_content = std::fs::read_to_string(isolated.root.join(path)).unwrap_or_default();
 
         match three_way_merge(&base_content, &main_content, &ours_content) {
             Ok(merged) => merge_results.push((path.clone(), merged)),
@@ -336,15 +332,31 @@ mod tests {
 
     #[test]
     fn hunks_overlap_detects_collision() {
-        let a = vec![DiffHunk { base_start: 2, base_end: 4, new_lines: vec![] }];
-        let b = vec![DiffHunk { base_start: 3, base_end: 5, new_lines: vec![] }];
+        let a = vec![DiffHunk {
+            base_start: 2,
+            base_end: 4,
+            new_lines: vec![],
+        }];
+        let b = vec![DiffHunk {
+            base_start: 3,
+            base_end: 5,
+            new_lines: vec![],
+        }];
         assert!(hunks_overlap(&a, &b));
     }
 
     #[test]
     fn hunks_overlap_allows_adjacent() {
-        let a = vec![DiffHunk { base_start: 0, base_end: 2, new_lines: vec![] }];
-        let b = vec![DiffHunk { base_start: 3, base_end: 5, new_lines: vec![] }];
+        let a = vec![DiffHunk {
+            base_start: 0,
+            base_end: 2,
+            new_lines: vec![],
+        }];
+        let b = vec![DiffHunk {
+            base_start: 3,
+            base_end: 5,
+            new_lines: vec![],
+        }];
         assert!(!hunks_overlap(&a, &b));
     }
 }

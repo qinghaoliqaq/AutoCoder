@@ -123,11 +123,7 @@ impl Prompts {
             test_claude: load("test_claude.md", &search_dirs, DEFAULT_TEST_CLAUDE),
             compact_summary: load("compact_summary.md", &search_dirs, DEFAULT_COMPACT_SUMMARY),
             qa_claude: load("qa_claude.md", &search_dirs, DEFAULT_QA_CLAUDE),
-            review_security: load(
-                "review_security.md",
-                &search_dirs,
-                DEFAULT_REVIEW_SECURITY,
-            ),
+            review_security: load("review_security.md", &search_dirs, DEFAULT_REVIEW_SECURITY),
             review_specialist: load(
                 "review_specialist.md",
                 &search_dirs,

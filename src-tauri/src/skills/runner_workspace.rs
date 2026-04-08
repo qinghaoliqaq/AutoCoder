@@ -3,7 +3,6 @@
 /// Records file-level changes (CREATE / MODIFY / DELETE) to `change.log`
 /// in the workspace root, and provides before/after snapshot diffing so
 /// runners can detect what a child process actually touched.
-
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -189,9 +188,7 @@ pub(super) fn record_workspace_snapshot_diff(
     }
 }
 
-pub(super) fn format_workspace_change_list(
-    changes: &[(WorkspaceChangeKind, PathBuf)],
-) -> String {
+pub(super) fn format_workspace_change_list(changes: &[(WorkspaceChangeKind, PathBuf)]) -> String {
     changes
         .iter()
         .map(|(kind, path)| {

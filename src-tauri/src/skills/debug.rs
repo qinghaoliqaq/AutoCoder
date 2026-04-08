@@ -1,3 +1,4 @@
+use super::{emit_skill_event, record_skill_evidence, runners};
 /// Debug skill — two-phase investigation and fix.
 ///
 /// Phase 1 (Diagnose): Claude analyses the codebase read-only to identify the
@@ -8,11 +9,9 @@
 /// api_format = "anthropic"), both phases run through the tool_use agent loop
 /// (direct API calls, no CLI needed). Otherwise falls back to the legacy CLI
 /// runner mode (claude + codex).
-
 use crate::config::AppConfig;
 use crate::prompts::Prompts;
 use crate::tool_runner;
-use super::{emit_skill_event, record_skill_evidence, runners};
 use tokio_util::sync::CancellationToken;
 
 pub(super) async fn run(
@@ -26,9 +25,28 @@ pub(super) async fn run(
     token: CancellationToken,
 ) -> Result<(), String> {
     if can_use_tool_runner(config) {
-        run_via_api(task, workspace, context, config, prompts, window_label, app_handle, token).await
+        run_via_api(
+            task,
+            workspace,
+            context,
+            config,
+            prompts,
+            window_label,
+            app_handle,
+            token,
+        )
+        .await
     } else {
-        run_via_cli(task, workspace, context, prompts, window_label, app_handle, token).await
+        run_via_cli(
+            task,
+            workspace,
+            context,
+            prompts,
+            window_label,
+            app_handle,
+            token,
+        )
+        .await
     }
 }
 
@@ -39,8 +57,7 @@ fn can_use_tool_runner(config: &AppConfig) -> bool {
         return true;
     }
     // Option 2: [director] is configured with Anthropic format
-    config.is_configured()
-        && config.director.api_format == crate::config::ApiFormat::Anthropic
+    config.is_configured() && config.director.api_format == crate::config::ApiFormat::Anthropic
 }
 
 // ── API tool_use path (no CLI needed) ────────────────────────────────────────
@@ -58,9 +75,19 @@ async fn run_via_api(
     let debug_artifacts = || vec!["bugs.md".to_string(), "change.log".to_string()];
 
     // ── Phase 1: Diagnose (read-only) ────────────────────────────────────────
-    emit_skill_event(app_handle, window_label, "diagnosing",
-        "Claude is analysing the codebase to diagnose the issue.".to_string())?;
-    record_skill_evidence(workspace, "debug_started", &format!("Debug started for issue: {task}"), "system", debug_artifacts());
+    emit_skill_event(
+        app_handle,
+        window_label,
+        "diagnosing",
+        "Claude is analysing the codebase to diagnose the issue.".to_string(),
+    )?;
+    record_skill_evidence(
+        workspace,
+        "debug_started",
+        &format!("Debug started for issue: {task}"),
+        "system",
+        debug_artifacts(),
+    );
 
     let diagnose_prompt = super::inject_context(
         context,
@@ -74,16 +101,33 @@ async fn run_via_api(
          This is a read-only diagnosis phase — only view, grep, and glob tools are available.",
         &diagnose_prompt,
         workspace,
-        window_label, app_handle, token.clone(),
-    ).await?;
+        window_label,
+        app_handle,
+        token.clone(),
+    )
+    .await?;
 
-    emit_skill_event(app_handle, window_label, "diagnosed",
-        "Claude completed root-cause analysis. Now applying the fix.".to_string())?;
-    record_skill_evidence(workspace, "debug_diagnosed", "Claude completed root-cause analysis.", "claude", debug_artifacts());
+    emit_skill_event(
+        app_handle,
+        window_label,
+        "diagnosed",
+        "Claude completed root-cause analysis. Now applying the fix.".to_string(),
+    )?;
+    record_skill_evidence(
+        workspace,
+        "debug_diagnosed",
+        "Claude completed root-cause analysis.",
+        "claude",
+        debug_artifacts(),
+    );
 
     // ── Phase 2: Fix (with write permissions) ────────────────────────────────
-    emit_skill_event(app_handle, window_label, "fixing",
-        "Claude is applying the fix based on the diagnosis.".to_string())?;
+    emit_skill_event(
+        app_handle,
+        window_label,
+        "fixing",
+        "Claude is applying the fix based on the diagnosis.".to_string(),
+    )?;
 
     let fix_prompt = super::inject_context(
         context,
@@ -102,12 +146,25 @@ async fn run_via_api(
          Do not change unrelated code.",
         &full_prompt,
         workspace,
-        window_label, app_handle, token,
-    ).await?;
+        window_label,
+        app_handle,
+        token,
+    )
+    .await?;
 
-    emit_skill_event(app_handle, window_label, "complete",
-        "Debug skill finished — diagnosis and fix applied.".to_string())?;
-    record_skill_evidence(workspace, "debug_completed", "Debug skill finished — diagnosis and fix applied.", "claude", debug_artifacts());
+    emit_skill_event(
+        app_handle,
+        window_label,
+        "complete",
+        "Debug skill finished — diagnosis and fix applied.".to_string(),
+    )?;
+    record_skill_evidence(
+        workspace,
+        "debug_completed",
+        "Debug skill finished — diagnosis and fix applied.",
+        "claude",
+        debug_artifacts(),
+    );
 
     Ok(())
 }
@@ -124,13 +181,24 @@ async fn run_via_cli(
     token: CancellationToken,
 ) -> Result<(), String> {
     let debug_artifacts = vec!["bugs.md".to_string(), "change.log".to_string()];
-    record_skill_evidence(workspace, "debug_started", &format!("Debug (CLI) started for issue: {task}"), "system", debug_artifacts.clone());
+    record_skill_evidence(
+        workspace,
+        "debug_started",
+        &format!("Debug (CLI) started for issue: {task}"),
+        "system",
+        debug_artifacts.clone(),
+    );
     let prompt = super::inject_context(
         context,
         Prompts::render(&prompts.debug_codex, &[("issue", task)]),
     );
     runners::codex(&prompt, workspace, window_label, app_handle, token).await?;
-    record_skill_evidence(workspace, "debug_completed", "Debug (CLI) completed.", "codex", debug_artifacts);
+    record_skill_evidence(
+        workspace,
+        "debug_completed",
+        "Debug (CLI) completed.",
+        "codex",
+        debug_artifacts,
+    );
     Ok(())
 }
-

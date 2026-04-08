@@ -154,19 +154,27 @@ pub(super) async fn run_phase(
             let codex_extra = codex_result.unwrap_or_default();
 
             // If Codex found issues Claude missed, append them to the result
-            let combined = if codex_extra.contains("SECURITY_ISSUES:[0]") || codex_extra.is_empty() {
+            let combined = if codex_extra.contains("SECURITY_ISSUES:[0]") || codex_extra.is_empty()
+            {
                 claude_out
             } else {
-                format!(
-                    "{claude_out}\n\n## Cross-Check Findings (Codex)\n\n{codex_extra}"
-                )
+                format!("{claude_out}\n\n## Cross-Check Findings (Codex)\n\n{codex_extra}")
             };
             parse_result(&combined)
         }
 
         // ── Specialist parallel review (security + performance + API + tests) ─
         "specialist_review" => {
-            run_specialist_review(task, workspace, context, prompts, window_label, app_handle, token.clone()).await?
+            run_specialist_review(
+                task,
+                workspace,
+                context,
+                prompts,
+                window_label,
+                app_handle,
+                token.clone(),
+            )
+            .await?
         }
 
         // ── Code cleanup — only files recorded in change.log ─────────────────
@@ -338,38 +346,50 @@ fn artifacts_for_review_phase(phase: &str) -> Vec<String> {
 // ── Specialist parallel dispatch ─────────────────────────────────────────────
 
 const SPECIALISTS: &[(&str, &str)] = &[
-    ("security", "\
+    (
+        "security",
+        "\
 Check for:\n\
 - SQL injection, command injection, path traversal\n\
 - XSS and unsanitized user input in HTML output\n\
 - Hardcoded secrets, API keys, tokens\n\
 - Missing auth checks on protected endpoints\n\
 - Insecure cryptography (MD5/SHA1 for passwords)\n\
-- CSRF on state-mutating endpoints"),
-    ("performance", "\
+- CSRF on state-mutating endpoints",
+    ),
+    (
+        "performance",
+        "\
 Check for:\n\
 - N+1 query patterns in database access\n\
 - Missing database indexes for frequent queries\n\
 - Unbounded list/collection operations (no pagination)\n\
 - Synchronous blocking calls in async code\n\
 - Memory leaks (unclosed resources, growing caches)\n\
-- Unnecessary re-renders in frontend components"),
-    ("api_contract", "\
+- Unnecessary re-renders in frontend components",
+    ),
+    (
+        "api_contract",
+        "\
 Check for:\n\
 - Inconsistent API response formats (mixed error shapes)\n\
 - Missing input validation on request bodies\n\
 - Undocumented status codes or error cases\n\
 - Breaking changes vs existing API consumers\n\
 - Missing Content-Type headers or wrong MIME types\n\
-- Enum/union types not exhaustively handled"),
-    ("testing", "\
+- Enum/union types not exhaustively handled",
+    ),
+    (
+        "testing",
+        "\
 Check for:\n\
 - Critical paths without test coverage (auth, payment, data mutation)\n\
 - Tests that always pass (no meaningful assertions)\n\
 - Missing edge case tests (empty input, boundary values, error paths)\n\
 - Flaky test patterns (timing-dependent, order-dependent)\n\
 - Missing integration tests for cross-module interactions\n\
-- Test files that import but don't test the changed code"),
+- Test files that import but don't test the changed code",
+    ),
 ];
 
 #[allow(clippy::too_many_arguments)]
@@ -414,14 +434,7 @@ async fn run_specialist_review(
         let ah = app_handle.clone();
         let tk = token.clone();
         join_set.spawn(async move {
-            let result = runners::codex_read_only_quiet(
-                &prompt,
-                ws.as_deref(),
-                &wl,
-                &ah,
-                tk,
-            )
-            .await;
+            let result = runners::codex_read_only_quiet(&prompt, ws.as_deref(), &wl, &ah, tk).await;
             (name, result)
         });
     }

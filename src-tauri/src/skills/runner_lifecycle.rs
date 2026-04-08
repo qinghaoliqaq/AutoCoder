@@ -4,7 +4,6 @@
 /// Both Claude and Codex runners share identical process lifecycle management.
 /// This module extracts the common plumbing so each runner only needs to
 /// implement the protocol-specific JSON line parsing.
-
 use super::runner_process::{isolate_child_process_group, ChildProcessGuard};
 use super::runners::RUNNER_TIMEOUT_SECS;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -200,9 +199,13 @@ mod tests {
         let token = CancellationToken::new();
         let mut cmd = Command::new("__nonexistent_binary_12345__");
 
-        let result = run_cli_process("__nonexistent_binary_12345__", &mut cmd, "test-window", token, |_| {
-            LineAction::Continue
-        })
+        let result = run_cli_process(
+            "__nonexistent_binary_12345__",
+            &mut cmd,
+            "test-window",
+            token,
+            |_| LineAction::Continue,
+        )
         .await;
 
         let err = result.unwrap_err();

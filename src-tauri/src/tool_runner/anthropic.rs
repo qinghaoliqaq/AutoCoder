@@ -2,7 +2,6 @@
 ///
 /// POST /messages with x-api-key header.
 /// Bash and editor use Anthropic built-in tool type shorthand.
-
 use super::{emit_chunk, emit_tool_log, execute, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
 use crate::errors::{self, AppError};
 use reqwest::Client;

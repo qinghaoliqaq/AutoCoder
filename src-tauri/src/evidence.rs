@@ -109,10 +109,26 @@ pub(crate) fn compute_evidence_metrics(workspace: &str) -> Option<EvidenceMetric
 
     let subtask_total = index.subtasks.len();
     let subtask_done = index.subtasks.iter().filter(|s| s.status == "done").count();
-    let subtask_failed = index.subtasks.iter().filter(|s| s.status == "failed").count();
-    let subtask_in_progress = index.subtasks.iter().filter(|s| s.status == "in_progress").count();
-    let subtask_needs_fix = index.subtasks.iter().filter(|s| s.status == "needs_fix").count();
-    let subtask_pending = index.subtasks.iter().filter(|s| s.status == "pending").count();
+    let subtask_failed = index
+        .subtasks
+        .iter()
+        .filter(|s| s.status == "failed")
+        .count();
+    let subtask_in_progress = index
+        .subtasks
+        .iter()
+        .filter(|s| s.status == "in_progress")
+        .count();
+    let subtask_needs_fix = index
+        .subtasks
+        .iter()
+        .filter(|s| s.status == "needs_fix")
+        .count();
+    let subtask_pending = index
+        .subtasks
+        .iter()
+        .filter(|s| s.status == "pending")
+        .count();
 
     let completion_ratio = if subtask_total > 0 {
         subtask_done as f64 / subtask_total as f64
@@ -128,14 +144,35 @@ pub(crate) fn compute_evidence_metrics(workspace: &str) -> Option<EvidenceMetric
     };
     let multi_attempt_count = index.subtasks.iter().filter(|s| s.attempts > 1).count();
 
-    let review_passed = events.iter().filter(|e| e.event_type.starts_with("review_") && e.event_type.ends_with("_passed")).count();
-    let review_failed = events.iter().filter(|e| e.event_type.starts_with("review_") && e.event_type.ends_with("_failed")).count();
-    let test_passed = events.iter().filter(|e| e.event_type.starts_with("test_") && e.event_type.ends_with("_passed")).count();
-    let test_failed = events.iter().filter(|e| e.event_type.starts_with("test_") && e.event_type.ends_with("_failed")).count();
-    let qa_passed = events.iter().filter(|e| matches!(e.event_type.as_str(), "qa_passed" | "qa_pass_with_concerns")).count();
-    let qa_failed = events.iter().filter(|e| e.event_type == "qa_failed").count();
+    let review_passed = events
+        .iter()
+        .filter(|e| e.event_type.starts_with("review_") && e.event_type.ends_with("_passed"))
+        .count();
+    let review_failed = events
+        .iter()
+        .filter(|e| e.event_type.starts_with("review_") && e.event_type.ends_with("_failed"))
+        .count();
+    let test_passed = events
+        .iter()
+        .filter(|e| e.event_type.starts_with("test_") && e.event_type.ends_with("_passed"))
+        .count();
+    let test_failed = events
+        .iter()
+        .filter(|e| e.event_type.starts_with("test_") && e.event_type.ends_with("_failed"))
+        .count();
+    let qa_passed = events
+        .iter()
+        .filter(|e| matches!(e.event_type.as_str(), "qa_passed" | "qa_pass_with_concerns"))
+        .count();
+    let qa_failed = events
+        .iter()
+        .filter(|e| e.event_type == "qa_failed")
+        .count();
     let plan_completed = events.iter().any(|e| e.event_type == "plan_completed");
-    let debug_sessions = events.iter().filter(|e| e.event_type == "debug_completed").count();
+    let debug_sessions = events
+        .iter()
+        .filter(|e| e.event_type == "debug_completed")
+        .count();
 
     // Health score: weighted composite
     let completion_score = (completion_ratio * 40.0) as u32; // 40 points max
@@ -158,7 +195,9 @@ pub(crate) fn compute_evidence_metrics(workspace: &str) -> Option<EvidenceMetric
     let plan_bonus = if plan_completed { 10 } else { 0 };
 
     let raw_score = completion_score + review_score + test_score + plan_bonus;
-    let health_score = raw_score.saturating_sub(failure_penalty + attempt_penalty).min(100);
+    let health_score = raw_score
+        .saturating_sub(failure_penalty + attempt_penalty)
+        .min(100);
 
     Some(EvidenceMetrics {
         subtask_total,
@@ -191,28 +230,76 @@ pub(crate) fn format_metrics_section(metrics: &EvidenceMetrics) -> String {
     lines.push(String::new());
     lines.push(format!("| Metric | Value |"));
     lines.push(format!("|--------|-------|"));
-    lines.push(format!("| Subtask completion | {}/{} ({:.0}%) |", metrics.subtask_done, metrics.subtask_total, metrics.completion_ratio * 100.0));
+    lines.push(format!(
+        "| Subtask completion | {}/{} ({:.0}%) |",
+        metrics.subtask_done,
+        metrics.subtask_total,
+        metrics.completion_ratio * 100.0
+    ));
     lines.push(format!("| Subtasks failed | {} |", metrics.subtask_failed));
-    lines.push(format!("| Subtasks needs_fix | {} |", metrics.subtask_needs_fix));
-    lines.push(format!("| Subtasks pending | {} |", metrics.subtask_pending));
-    lines.push(format!("| Subtasks in_progress | {} |", metrics.subtask_in_progress));
-    lines.push(format!("| Total attempts | {} (avg {:.1}/subtask) |", metrics.total_attempts, metrics.avg_attempts));
-    lines.push(format!("| Multi-attempt subtasks | {} |", metrics.multi_attempt_count));
-    lines.push(format!("| Review phases passed/failed | {}/{} |", metrics.review_passed, metrics.review_failed));
-    lines.push(format!("| Test phases passed/failed | {}/{} |", metrics.test_passed, metrics.test_failed));
-    lines.push(format!("| Previous QA passed/failed | {}/{} |", metrics.qa_passed, metrics.qa_failed));
-    lines.push(format!("| Plan completed | {} |", if metrics.plan_completed { "yes" } else { "no" }));
-    lines.push(format!("| Debug sessions run | {} |", metrics.debug_sessions));
-    lines.push(format!("| Total evidence events | {} |", metrics.total_events));
-    lines.push(format!("| **Health score** | **{}/100** |", metrics.health_score));
+    lines.push(format!(
+        "| Subtasks needs_fix | {} |",
+        metrics.subtask_needs_fix
+    ));
+    lines.push(format!(
+        "| Subtasks pending | {} |",
+        metrics.subtask_pending
+    ));
+    lines.push(format!(
+        "| Subtasks in_progress | {} |",
+        metrics.subtask_in_progress
+    ));
+    lines.push(format!(
+        "| Total attempts | {} (avg {:.1}/subtask) |",
+        metrics.total_attempts, metrics.avg_attempts
+    ));
+    lines.push(format!(
+        "| Multi-attempt subtasks | {} |",
+        metrics.multi_attempt_count
+    ));
+    lines.push(format!(
+        "| Review phases passed/failed | {}/{} |",
+        metrics.review_passed, metrics.review_failed
+    ));
+    lines.push(format!(
+        "| Test phases passed/failed | {}/{} |",
+        metrics.test_passed, metrics.test_failed
+    ));
+    lines.push(format!(
+        "| Previous QA passed/failed | {}/{} |",
+        metrics.qa_passed, metrics.qa_failed
+    ));
+    lines.push(format!(
+        "| Plan completed | {} |",
+        if metrics.plan_completed { "yes" } else { "no" }
+    ));
+    lines.push(format!(
+        "| Debug sessions run | {} |",
+        metrics.debug_sessions
+    ));
+    lines.push(format!(
+        "| Total evidence events | {} |",
+        metrics.total_events
+    ));
+    lines.push(format!(
+        "| **Health score** | **{}/100** |",
+        metrics.health_score
+    ));
     lines.push(String::new());
     lines.push("### Scoring guidance".to_string());
     lines.push(String::new());
     lines.push("Use the metrics above to ground your QA verdict:".to_string());
     lines.push("- **completion_ratio < 1.0** with pending/in_progress subtasks → likely FAIL (incomplete work)".to_string());
-    lines.push("- **subtask_failed > 0** → FAIL unless failures are non-blocking and documented".to_string());
-    lines.push("- **health_score >= 80** with no failed subtasks → strong PASS candidate".to_string());
-    lines.push("- **health_score 50-79** → PASS_WITH_CONCERNS or FAIL depending on severity".to_string());
+    lines.push(
+        "- **subtask_failed > 0** → FAIL unless failures are non-blocking and documented"
+            .to_string(),
+    );
+    lines.push(
+        "- **health_score >= 80** with no failed subtasks → strong PASS candidate".to_string(),
+    );
+    lines.push(
+        "- **health_score 50-79** → PASS_WITH_CONCERNS or FAIL depending on severity".to_string(),
+    );
     lines.push("- **health_score < 50** → likely FAIL".to_string());
     lines.push("- **review_failed > 0 or test_failed > 0** → weigh against pass unless issues were fixed in later events".to_string());
     lines.join("\n")
@@ -242,10 +329,26 @@ pub(crate) fn build_evidence_digest(workspace: &str) -> Option<String> {
     let total = index.subtasks.len();
     if total > 0 {
         let done = index.subtasks.iter().filter(|s| s.status == "done").count();
-        let failed = index.subtasks.iter().filter(|s| s.status == "failed").count();
-        let in_progress = index.subtasks.iter().filter(|s| s.status == "in_progress").count();
-        let needs_fix = index.subtasks.iter().filter(|s| s.status == "needs_fix").count();
-        let pending = index.subtasks.iter().filter(|s| s.status == "pending").count();
+        let failed = index
+            .subtasks
+            .iter()
+            .filter(|s| s.status == "failed")
+            .count();
+        let in_progress = index
+            .subtasks
+            .iter()
+            .filter(|s| s.status == "in_progress")
+            .count();
+        let needs_fix = index
+            .subtasks
+            .iter()
+            .filter(|s| s.status == "needs_fix")
+            .count();
+        let pending = index
+            .subtasks
+            .iter()
+            .filter(|s| s.status == "pending")
+            .count();
         let total_attempts: u32 = index.subtasks.iter().map(|s| s.attempts).sum();
         let multi_attempt: Vec<_> = index.subtasks.iter().filter(|s| s.attempts > 1).collect();
 
@@ -280,12 +383,19 @@ pub(crate) fn build_evidence_digest(workspace: &str) -> Option<String> {
         }
 
         // Failed subtasks
-        let failed_subs: Vec<_> = index.subtasks.iter().filter(|s| s.status == "failed").collect();
+        let failed_subs: Vec<_> = index
+            .subtasks
+            .iter()
+            .filter(|s| s.status == "failed")
+            .collect();
         if !failed_subs.is_empty() {
             lines.push(String::new());
             lines.push("### Failed subtasks".to_string());
             for sub in &failed_subs {
-                lines.push(format!("- **{}** ({}): {}", sub.subtask_id, sub.title, sub.status));
+                lines.push(format!(
+                    "- **{}** ({}): {}",
+                    sub.subtask_id, sub.title, sub.status
+                ));
                 for summary in sub.recent_event_summaries.iter().rev().take(2) {
                     lines.push(format!("  - {summary}"));
                 }
@@ -762,10 +872,16 @@ mod tests {
         .unwrap();
 
         let digest = build_evidence_digest(workspace).expect("should produce digest");
-        assert!(digest.contains("Trouble spots"), "should have trouble spots section");
+        assert!(
+            digest.contains("Trouble spots"),
+            "should have trouble spots section"
+        );
         assert!(digest.contains("F1"), "should mention subtask F1");
         assert!(digest.contains("3 attempts"), "should show attempt count");
-        assert!(digest.contains("QA history"), "should have QA history section");
+        assert!(
+            digest.contains("QA history"),
+            "should have QA history section"
+        );
         assert!(digest.contains("qa_failed"), "should show QA failure");
     }
 
@@ -800,8 +916,14 @@ mod tests {
 
         let ctx = build_subtask_context(workspace, "F1").expect("should produce context");
         assert!(ctx.contains("Previous history"), "should have header");
-        assert!(ctx.contains("4xx validation"), "should include review finding");
-        assert!(ctx.contains("Missing validation"), "should include latest review");
+        assert!(
+            ctx.contains("4xx validation"),
+            "should include review finding"
+        );
+        assert!(
+            ctx.contains("Missing validation"),
+            "should include latest review"
+        );
     }
 
     #[test]

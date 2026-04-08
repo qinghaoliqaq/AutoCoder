@@ -2,7 +2,6 @@
 ///
 /// Responsible for emitting Tauri events (blackboard-updated, tool-log)
 /// and recording evidence entries.
-
 use super::blackboard::{BLACKBOARD_JSON, BLACKBOARD_MD};
 use super::vendored::VendoredSkill;
 use super::{BlackboardEvent, ToolLog};

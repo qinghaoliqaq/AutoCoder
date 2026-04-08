@@ -2,7 +2,6 @@
 ///
 /// Provides fork/sync/cleanup of workspaces so each subtask works on its own
 /// copy without interfering with others or the main workspace.
-
 use super::blackboard::{BLACKBOARD_JSON, BLACKBOARD_MD};
 use crate::verifier::VERIFIER_RESULT_JSON;
 use std::collections::{HashMap, HashSet};
@@ -195,11 +194,7 @@ pub(crate) fn snapshot_workspace(root: &Path) -> HashMap<PathBuf, FileFingerprin
     files
 }
 
-fn collect_workspace_files(
-    root: &Path,
-    dir: &Path,
-    files: &mut HashMap<PathBuf, FileFingerprint>,
-) {
+fn collect_workspace_files(root: &Path, dir: &Path, files: &mut HashMap<PathBuf, FileFingerprint>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };

@@ -3,7 +3,6 @@
 /// Parses the Claude stream-json protocol:
 ///   "assistant" events carry delta text via content[].text.
 ///   Tool calls come as stream_event → content_block_start/delta/stop.
-
 use super::runner_lifecycle::{run_cli_process, LineAction};
 use super::runner_workspace::{
     format_workspace_change_list, record_change, snapshot_workspace, workspace_change_entries,
@@ -29,9 +28,16 @@ pub(crate) async fn claude(
     token: CancellationToken,
 ) -> Result<String, String> {
     claude_with_streaming(
-        prompt, cwd, window_label, app_handle, token,
-        ClaudeExecutionMode::WorkspaceWrite, true, None,
-    ).await
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        ClaudeExecutionMode::WorkspaceWrite,
+        true,
+        None,
+    )
+    .await
 }
 
 pub(crate) async fn claude_quiet(
@@ -42,9 +48,16 @@ pub(crate) async fn claude_quiet(
     token: CancellationToken,
 ) -> Result<String, String> {
     claude_with_streaming(
-        prompt, cwd, window_label, app_handle, token,
-        ClaudeExecutionMode::WorkspaceWrite, false, None,
-    ).await
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        ClaudeExecutionMode::WorkspaceWrite,
+        false,
+        None,
+    )
+    .await
 }
 
 /// Like `claude_quiet`, but tags emitted `skill-chunk` events with a subtask ID.
@@ -57,9 +70,16 @@ pub(crate) async fn claude_quiet_subtask(
     subtask_id: &str,
 ) -> Result<String, String> {
     claude_with_streaming(
-        prompt, cwd, window_label, app_handle, token,
-        ClaudeExecutionMode::WorkspaceWrite, false, Some(subtask_id),
-    ).await
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        ClaudeExecutionMode::WorkspaceWrite,
+        false,
+        Some(subtask_id),
+    )
+    .await
 }
 
 pub(crate) async fn claude_read_only(
@@ -70,9 +90,16 @@ pub(crate) async fn claude_read_only(
     token: CancellationToken,
 ) -> Result<String, String> {
     claude_with_streaming(
-        prompt, cwd, window_label, app_handle, token,
-        ClaudeExecutionMode::ReadOnlyReview, true, None,
-    ).await
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        ClaudeExecutionMode::ReadOnlyReview,
+        true,
+        None,
+    )
+    .await
 }
 
 pub(crate) async fn claude_read_only_quiet(
@@ -83,9 +110,16 @@ pub(crate) async fn claude_read_only_quiet(
     token: CancellationToken,
 ) -> Result<String, String> {
     claude_with_streaming(
-        prompt, cwd, window_label, app_handle, token,
-        ClaudeExecutionMode::ReadOnlyReview, false, None,
-    ).await
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        ClaudeExecutionMode::ReadOnlyReview,
+        false,
+        None,
+    )
+    .await
 }
 
 // ── Core implementation ───────────────────────────────────────────────
@@ -123,40 +157,41 @@ async fn claude_with_streaming(
     let mut pending_tool_input = String::new();
     let owned_subtask_id = subtask_id.map(ToString::to_string);
 
-    let process_result = run_cli_process(
-        "claude",
-        &mut cmd,
-        window_label,
-        token,
-        |line| {
-            let Ok(v) = serde_json::from_str::<Value>(line) else {
-                return LineAction::Continue;
-            };
-            match v["type"].as_str() {
-                Some("stream_event") => {
-                    handle_stream_event(
-                        &v, mode, &resolved_cwd, window_label, app_handle,
-                        &mut pending_tool_name, &mut pending_tool_input,
-                    )
-                }
-                Some("assistant") => {
-                    handle_assistant_message(
-                        &v, emit_chunks, window_label, app_handle,
-                        &mut full_text, &mut is_first_chunk,
-                        owned_subtask_id.as_deref(),
-                    )
-                }
-                Some("result") => {
-                    handle_result_event(
-                        &v, emit_chunks, window_label, app_handle,
-                        &mut full_text,
-                        owned_subtask_id.as_deref(),
-                    )
-                }
-                _ => LineAction::Continue,
-            }
-        },
-    ).await;
+    let process_result = run_cli_process("claude", &mut cmd, window_label, token, |line| {
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            return LineAction::Continue;
+        };
+        match v["type"].as_str() {
+            Some("stream_event") => handle_stream_event(
+                &v,
+                mode,
+                &resolved_cwd,
+                window_label,
+                app_handle,
+                &mut pending_tool_name,
+                &mut pending_tool_input,
+            ),
+            Some("assistant") => handle_assistant_message(
+                &v,
+                emit_chunks,
+                window_label,
+                app_handle,
+                &mut full_text,
+                &mut is_first_chunk,
+                owned_subtask_id.as_deref(),
+            ),
+            Some("result") => handle_result_event(
+                &v,
+                emit_chunks,
+                window_label,
+                app_handle,
+                &mut full_text,
+                owned_subtask_id.as_deref(),
+            ),
+            _ => LineAction::Continue,
+        }
+    })
+    .await;
 
     // If we have output, a non-zero exit is acceptable (claude may exit 1 but still produce text).
     match process_result {
@@ -226,7 +261,12 @@ fn handle_stream_event(
                 let _ = app_handle.emit_to(
                     EventTarget::webview_window(window_label),
                     "tool-log",
-                    ToolLog { agent: "claude".to_string(), tool, input, timestamp: ts },
+                    ToolLog {
+                        agent: "claude".to_string(),
+                        tool,
+                        input,
+                        timestamp: ts,
+                    },
                 );
                 *pending_tool_input = String::new();
             }

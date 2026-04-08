@@ -29,8 +29,7 @@ pub(super) async fn run(
         None
     };
     let metrics_section = workspace.and_then(|ws| {
-        evidence::compute_evidence_metrics(ws)
-            .map(|m| evidence::format_metrics_section(&m))
+        evidence::compute_evidence_metrics(ws).map(|m| evidence::format_metrics_section(&m))
     });
     let (acceptance, acceptance_warning) = workspace
         .map(read_plan_acceptance_lenient)
@@ -116,12 +115,9 @@ fn load_evidence_section(workspace: &str) -> Result<Option<String>, String> {
     // Include both the structured JSON and a human-readable digest summary.
     // The digest highlights trouble spots, failure patterns, and QA history
     // so the LLM can reason about multi-round quality trends.
-    let digest = evidence::build_evidence_digest(workspace)
-        .unwrap_or_default();
+    let digest = evidence::build_evidence_digest(workspace).unwrap_or_default();
 
-    let mut section = format!(
-        "## Evidence Index ({EVIDENCE_INDEX_JSON})\n\n```json\n{json}\n```"
-    );
+    let mut section = format!("## Evidence Index ({EVIDENCE_INDEX_JSON})\n\n```json\n{json}\n```");
     if !digest.is_empty() {
         section.push_str("\n\n");
         section.push_str(&digest);

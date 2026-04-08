@@ -102,31 +102,48 @@ pub async fn chat_with_director(
     // Level 3: Reactive compact — if the API rejected due to prompt length,
     // aggressively compact and retry once.
     let assistant_reply = match &stream_result {
-        Err(e) if e.contains("prompt is too long")
-              || e.contains("context_length_exceeded")
-              || e.contains("max_tokens")
-              || e.contains("too many tokens") =>
+        Err(e)
+            if e.contains("prompt is too long")
+                || e.contains("context_length_exceeded")
+                || e.contains("max_tokens")
+                || e.contains("too many tokens") =>
         {
             reactive_compact(histories, window_label)?;
             // Retry with compacted history
             let compacted_snapshot = {
-                let h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+                let h = histories
+                    .lock()
+                    .map_err(|e| format!("History lock error: {e}"))?;
                 h.get(window_label).cloned().unwrap_or_default()
             };
             match config.director.api_format {
                 ApiFormat::OpenAI => {
                     stream_openai(
-                        &client, config, &system_prompt, user_input,
-                        &compacted_snapshot, window_label, app_handle,
-                        token.clone(), token,
-                    ).await?
+                        &client,
+                        config,
+                        &system_prompt,
+                        user_input,
+                        &compacted_snapshot,
+                        window_label,
+                        app_handle,
+                        token.clone(),
+                        token,
+                    )
+                    .await?
                 }
                 ApiFormat::Anthropic => {
                     stream_anthropic(
-                        &client, config, &system_prompt, user_input,
-                        &compacted_snapshot, window_label, app_handle,
-                        token.clone(), token,
-                    ).await?
+                        &client,
+                        config,
+                        &system_prompt,
+                        user_input,
+                        &compacted_snapshot,
+                        window_label,
+                        app_handle,
+                        token.clone(),
+                        token,
+                    )
+                    .await?
                 }
             }
         }
@@ -151,7 +168,9 @@ pub async fn chat_with_director(
     //   Level 2 — Auto compact: LLM-driven summarization of old messages
     //   Level 3 — Reactive compact: aggressive emergency compaction
     let estimated = {
-        let h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+        let h = histories
+            .lock()
+            .map_err(|e| format!("History lock error: {e}"))?;
         let window_history = h.get(window_label).cloned().unwrap_or_default();
         estimate_tokens(&window_history)
     };
@@ -164,7 +183,9 @@ pub async fn chat_with_director(
 
         // Re-check after micro compact
         let still_over = {
-            let h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+            let h = histories
+                .lock()
+                .map_err(|e| format!("History lock error: {e}"))?;
             let wh = h.get(window_label).cloned().unwrap_or_default();
             estimate_tokens(&wh) > budget
         };
@@ -194,10 +215,13 @@ pub(crate) fn enforce_hard_ceiling(history: &mut Vec<Value>) {
 /// Uses ~4 chars/token for ASCII, ~2 chars/token for CJK — a practical approximation
 /// that avoids pulling in a full tokenizer dependency.
 pub(crate) fn estimate_tokens(messages: &[Value]) -> usize {
-    messages.iter().map(|m| {
-        let text = m["content"].as_str().unwrap_or("");
-        estimate_text_tokens(text)
-    }).sum()
+    messages
+        .iter()
+        .map(|m| {
+            let text = m["content"].as_str().unwrap_or("");
+            estimate_text_tokens(text)
+        })
+        .sum()
 }
 
 fn estimate_text_tokens(text: &str) -> usize {
@@ -226,7 +250,9 @@ fn micro_compact(
     histories: &Mutex<HashMap<String, Vec<Value>>>,
     window_label: &str,
 ) -> Result<(), String> {
-    let mut h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+    let mut h = histories
+        .lock()
+        .map_err(|e| format!("History lock error: {e}"))?;
     let history = match h.get_mut(window_label) {
         Some(h) => h,
         None => return Ok(()),
@@ -239,11 +265,13 @@ fn micro_compact(
     for msg in history.iter_mut() {
         if let Some(content) = msg["content"].as_str() {
             if content.len() > MICRO_TRIM_THRESHOLD {
-                let head = &content[..content.char_indices()
+                let head = &content[..content
+                    .char_indices()
                     .nth(MICRO_HEAD)
                     .map(|(i, _)| i)
                     .unwrap_or(content.len())];
-                let tail_start = content.char_indices()
+                let tail_start = content
+                    .char_indices()
                     .rev()
                     .nth(MICRO_TAIL)
                     .map(|(i, _)| i)
@@ -268,7 +296,9 @@ pub(crate) fn reactive_compact(
     histories: &Mutex<HashMap<String, Vec<Value>>>,
     window_label: &str,
 ) -> Result<(), String> {
-    let mut h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+    let mut h = histories
+        .lock()
+        .map_err(|e| format!("History lock error: {e}"))?;
     let history = match h.get_mut(window_label) {
         Some(h) => h,
         None => return Ok(()),
@@ -280,7 +310,8 @@ pub(crate) fn reactive_compact(
 
     // Find the most recent context summary, if any
     let summary_idx = history.iter().rposition(|m| {
-        m["content"].as_str()
+        m["content"]
+            .as_str()
             .map(|c| c.starts_with("[Context Summary]"))
             .unwrap_or(false)
     });
@@ -308,13 +339,15 @@ pub(crate) fn reactive_compact(
 ///   3. The summary is generated by the Director LLM itself using compact_summary prompt
 ///   4. Replace old messages with the summary message
 async fn compact_history(
-    config:    &AppConfig,
-    prompts:   &crate::prompts::Prompts,
+    config: &AppConfig,
+    prompts: &crate::prompts::Prompts,
     histories: &Mutex<HashMap<String, Vec<Value>>>,
     window_label: &str,
 ) -> Result<(), String> {
     let snapshot = {
-        let h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+        let h = histories
+            .lock()
+            .map_err(|e| format!("History lock error: {e}"))?;
         h.get(window_label).cloned().unwrap_or_default()
     };
 
@@ -351,24 +384,31 @@ async fn compact_history(
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
-    let summary = call_llm_sync(&client, config, &summary_prompt).await
+    let summary = call_llm_sync(&client, config, &summary_prompt)
+        .await
         .unwrap_or_else(|_| {
             // If the LLM call fails, fall back to a simple extraction of the first user message
-            let first_msg = old_messages.first()
+            let first_msg = old_messages
+                .first()
                 .and_then(|m| m["content"].as_str())
                 .unwrap_or("(conversation start)")
-                .chars().take(500).collect::<String>();
-            format!("[Context Summary — LLM compaction failed, preserving first message]\n{first_msg}")
+                .chars()
+                .take(500)
+                .collect::<String>();
+            format!(
+                "[Context Summary — LLM compaction failed, preserving first message]\n{first_msg}"
+            )
         });
 
     // Replace history: summary message + recent messages
-    let mut compacted = vec![
-        json!({ "role": "assistant", "content": format!("[Context Summary]\n{summary}") }),
-    ];
+    let mut compacted =
+        vec![json!({ "role": "assistant", "content": format!("[Context Summary]\n{summary}") })];
     compacted.extend_from_slice(recent_messages);
 
     {
-        let mut h = histories.lock().map_err(|e| format!("History lock error: {e}"))?;
+        let mut h = histories
+            .lock()
+            .map_err(|e| format!("History lock error: {e}"))?;
         h.insert(window_label.to_string(), compacted);
     }
     Ok(())
@@ -383,7 +423,10 @@ async fn call_llm_sync(
 ) -> Result<String, String> {
     match config.director.api_format {
         ApiFormat::OpenAI => {
-            let endpoint = format!("{}/chat/completions", config.director.base_url.trim_end_matches('/'));
+            let endpoint = format!(
+                "{}/chat/completions",
+                config.director.base_url.trim_end_matches('/')
+            );
             let body = json!({
                 "model":       config.director.model,
                 "messages":    [{ "role": "user", "content": prompt }],
@@ -392,16 +435,31 @@ async fn call_llm_sync(
                 "stream":      false
             });
             let no_cancel = CancellationToken::new();
-            let resp = send_and_check(client, &endpoint,
-                &[("Authorization", &format!("Bearer {}", config.director.api_key))],
-                &body, no_cancel).await?;
-            let v: Value = resp.json().await.map_err(|e| format!("JSON parse error: {e}"))?;
-            v["choices"][0]["message"]["content"].as_str()
+            let resp = send_and_check(
+                client,
+                &endpoint,
+                &[(
+                    "Authorization",
+                    &format!("Bearer {}", config.director.api_key),
+                )],
+                &body,
+                no_cancel,
+            )
+            .await?;
+            let v: Value = resp
+                .json()
+                .await
+                .map_err(|e| format!("JSON parse error: {e}"))?;
+            v["choices"][0]["message"]["content"]
+                .as_str()
                 .map(|s| s.to_string())
                 .ok_or_else(|| "No content in compaction response".to_string())
         }
         ApiFormat::Anthropic => {
-            let endpoint = format!("{}/messages", config.director.base_url.trim_end_matches('/'));
+            let endpoint = format!(
+                "{}/messages",
+                config.director.base_url.trim_end_matches('/')
+            );
             let body = json!({
                 "model":       config.director.model,
                 "messages":    [{ "role": "user", "content": prompt }],
@@ -409,12 +467,23 @@ async fn call_llm_sync(
                 "temperature": 0.3
             });
             let no_cancel = CancellationToken::new();
-            let resp = send_and_check(client, &endpoint,
-                &[("x-api-key", config.director.api_key.as_str()),
-                  ("anthropic-version", "2023-06-01")],
-                &body, no_cancel).await?;
-            let v: Value = resp.json().await.map_err(|e| format!("JSON parse error: {e}"))?;
-            v["content"][0]["text"].as_str()
+            let resp = send_and_check(
+                client,
+                &endpoint,
+                &[
+                    ("x-api-key", config.director.api_key.as_str()),
+                    ("anthropic-version", "2023-06-01"),
+                ],
+                &body,
+                no_cancel,
+            )
+            .await?;
+            let v: Value = resp
+                .json()
+                .await
+                .map_err(|e| format!("JSON parse error: {e}"))?;
+            v["content"][0]["text"]
+                .as_str()
                 .map(|s| s.to_string())
                 .ok_or_else(|| "No content in compaction response".to_string())
         }

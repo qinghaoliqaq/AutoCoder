@@ -2,7 +2,6 @@
 ///
 /// All 4 tools are 100% local Rust execution — only the JSON schema format
 /// differs between Anthropic (built-in shorthand) and OpenAI (standard JSON Schema).
-
 use super::providers::WireFormat;
 use serde_json::{json, Value};
 
@@ -148,12 +147,38 @@ pub fn is_read_only(name: &str, input: &Value) -> bool {
 }
 
 const READ_ONLY_PREFIXES: &[&str] = &[
-    "cat ", "head ", "tail ", "less ", "wc ", "file ", "ls ", "ls\n",
-    "pwd", "echo ", "which ", "type ", "find ", "grep ", "rg ", "ag ",
-    "fd ", "git log", "git show", "git diff", "git status",
-    "git branch", "git rev-parse", "git remote", "cargo check",
-    "cargo clippy", "rustc --", "python -c", "node -e", "stat ",
-    "du ", "df ",
+    "cat ",
+    "head ",
+    "tail ",
+    "less ",
+    "wc ",
+    "file ",
+    "ls ",
+    "ls\n",
+    "pwd",
+    "echo ",
+    "which ",
+    "type ",
+    "find ",
+    "grep ",
+    "rg ",
+    "ag ",
+    "fd ",
+    "git log",
+    "git show",
+    "git diff",
+    "git status",
+    "git branch",
+    "git rev-parse",
+    "git remote",
+    "cargo check",
+    "cargo clippy",
+    "rustc --",
+    "python -c",
+    "node -e",
+    "stat ",
+    "du ",
+    "df ",
 ];
 
 /// Summarize tool input for the frontend tool-log event.

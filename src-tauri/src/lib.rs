@@ -353,7 +353,11 @@ async fn test_api_connection(
     let text = resp.text().await.unwrap_or_default();
 
     if status.is_success() {
-        let provider = if is_anthropic { "Anthropic" } else { "OpenAI-compatible" };
+        let provider = if is_anthropic {
+            "Anthropic"
+        } else {
+            "OpenAI-compatible"
+        };
         Ok(format!("连接成功 ({provider} {model})"))
     } else if status.as_u16() == 401 {
         Err("API Key 无效 (401 Unauthorized)".to_string())
@@ -373,8 +377,8 @@ fn truncate_error(text: &str) -> String {
 // ── System tray ───────────────────────────────────────────────────────────────
 
 fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    use tauri::tray::TrayIconBuilder;
     use tauri::menu::{MenuBuilder, MenuItemBuilder};
+    use tauri::tray::TrayIconBuilder;
     use tauri::Manager;
 
     let show = MenuItemBuilder::with_id("show", "Show FlowForge").build(app)?;
@@ -386,22 +390,24 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     TrayIconBuilder::new()
-        .icon(app.default_window_icon().cloned().expect("default icon must be set in tauri.conf.json"))
+        .icon(
+            app.default_window_icon()
+                .cloned()
+                .expect("default icon must be set in tauri.conf.json"),
+        )
         .tooltip("FlowForge")
         .menu(&menu)
-        .on_menu_event(|app, event| {
-            match event.id().as_ref() {
-                "show" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
                 }
-                "quit" => {
-                    app.exit(0);
-                }
-                _ => {}
             }
+            "quit" => {
+                app.exit(0);
+            }
+            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let tauri::tray::TrayIconEvent::Click {

@@ -7,7 +7,6 @@
 ///   runner_workspace — workspace snapshot, change tracking, change.log
 ///   runner_claude    — Claude stream-json protocol implementation
 ///   runner_codex     — Codex JSON protocol implementation
-
 use crate::config::{AppConfig, ExecutionAccessMode};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -16,8 +15,12 @@ use std::path::PathBuf;
 pub(crate) use super::runner_process::kill_registered_processes;
 
 // Re-export runner functions so callers keep using `runners::claude(...)` etc.
-pub(crate) use super::runner_claude::{claude, claude_quiet, claude_quiet_subtask, claude_read_only, claude_read_only_quiet};
-pub(crate) use super::runner_codex::{codex, codex_read_only, codex_read_only_quiet, codex_read_only_quiet_subtask};
+pub(crate) use super::runner_claude::{
+    claude, claude_quiet, claude_quiet_subtask, claude_read_only, claude_read_only_quiet,
+};
+pub(crate) use super::runner_codex::{
+    codex, codex_read_only, codex_read_only_quiet, codex_read_only_quiet_subtask,
+};
 
 /// Hard wall-clock timeout for interactive claude/codex runner sessions.
 /// 30 minutes is generous for any single skill invocation.

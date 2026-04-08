@@ -3,7 +3,6 @@
 /// Parses the Codex JSON protocol:
 ///   "item.started" + type "command_execution" → tool call starting.
 ///   "item.completed" + type "agent_message"   → text reply.
-
 use super::runner_lifecycle::{run_cli_process, LineAction};
 use super::runner_workspace::{record_workspace_snapshot_diff, snapshot_workspace};
 use super::{SkillChunk, ToolLog};
@@ -26,9 +25,16 @@ pub(crate) async fn codex(
     token: CancellationToken,
 ) -> Result<String, String> {
     run_codex(
-        prompt, cwd, window_label, app_handle, token,
-        CodexExecutionMode::WorkspaceWrite, true, None,
-    ).await
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        CodexExecutionMode::WorkspaceWrite,
+        true,
+        None,
+    )
+    .await
 }
 
 pub(crate) async fn codex_read_only(
@@ -39,9 +45,16 @@ pub(crate) async fn codex_read_only(
     token: CancellationToken,
 ) -> Result<String, String> {
     run_codex(
-        prompt, cwd, window_label, app_handle, token,
-        CodexExecutionMode::ReadOnlyReview, true, None,
-    ).await
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        CodexExecutionMode::ReadOnlyReview,
+        true,
+        None,
+    )
+    .await
 }
 
 pub(crate) async fn codex_read_only_quiet(
@@ -52,9 +65,16 @@ pub(crate) async fn codex_read_only_quiet(
     token: CancellationToken,
 ) -> Result<String, String> {
     run_codex(
-        prompt, cwd, window_label, app_handle, token,
-        CodexExecutionMode::ReadOnlyReview, false, None,
-    ).await
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        CodexExecutionMode::ReadOnlyReview,
+        false,
+        None,
+    )
+    .await
 }
 
 /// Like `codex_read_only_quiet`, but tags emitted `skill-chunk` events with a subtask ID.
@@ -67,9 +87,16 @@ pub(crate) async fn codex_read_only_quiet_subtask(
     subtask_id: &str,
 ) -> Result<String, String> {
     run_codex(
-        prompt, cwd, window_label, app_handle, token,
-        CodexExecutionMode::ReadOnlyReview, false, Some(subtask_id),
-    ).await
+        prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        CodexExecutionMode::ReadOnlyReview,
+        false,
+        Some(subtask_id),
+    )
+    .await
 }
 
 // ── Core implementation ───────────────────────────────────────────────
@@ -99,34 +126,35 @@ async fn run_codex(
     let mut output = String::new();
     let owned_subtask_id = subtask_id.map(ToString::to_string);
 
-    let process_result = run_cli_process(
-        "codex",
-        &mut cmd,
-        window_label,
-        token,
-        |line| {
-            let Ok(v) = serde_json::from_str::<Value>(line) else {
-                return LineAction::Continue;
-            };
-            let ev_type = v["type"].as_str().unwrap_or("");
+    let process_result = run_cli_process("codex", &mut cmd, window_label, token, |line| {
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            return LineAction::Continue;
+        };
+        let ev_type = v["type"].as_str().unwrap_or("");
 
-            if ev_type == "error" {
-                let msg = v["message"].as_str()
-                    .or_else(|| v["error"].as_str())
-                    .unwrap_or("unknown error")
-                    .to_string();
-                return LineAction::Error(format!("Codex error: {msg}"));
-            }
+        if ev_type == "error" {
+            let msg = v["message"]
+                .as_str()
+                .or_else(|| v["error"].as_str())
+                .unwrap_or("unknown error")
+                .to_string();
+            return LineAction::Error(format!("Codex error: {msg}"));
+        }
 
-            if let Some(item) = v.get("item") {
-                handle_codex_item(
-                    ev_type, item, emit_chunks, window_label, app_handle, &mut output,
-                    owned_subtask_id.as_deref(),
-                );
-            }
-            LineAction::Continue
-        },
-    ).await;
+        if let Some(item) = v.get("item") {
+            handle_codex_item(
+                ev_type,
+                item,
+                emit_chunks,
+                window_label,
+                app_handle,
+                &mut output,
+                owned_subtask_id.as_deref(),
+            );
+        }
+        LineAction::Continue
+    })
+    .await;
 
     // If we have output, a non-zero exit is acceptable.
     match process_result {

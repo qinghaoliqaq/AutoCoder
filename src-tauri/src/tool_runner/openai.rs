@@ -5,7 +5,6 @@
 ///
 /// Compatible with: OpenAI, DeepSeek, Zhipu/GLM, MiniMax, Moonshot,
 /// Yi, Baichuan, Qwen, Groq, Together, Fireworks, SiliconFlow, etc.
-
 use super::{emit_chunk, emit_tool_log, execute, tools, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
 use crate::errors::{self, AppError};
 use reqwest::Client;
@@ -102,15 +101,9 @@ pub async fn run_loop(
         if let Some(calls) = message["tool_calls"].as_array() {
             for call in calls {
                 let id = call["id"].as_str().unwrap_or("").to_string();
-                let name = call["function"]["name"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
-                let args_str = call["function"]["arguments"]
-                    .as_str()
-                    .unwrap_or("{}");
-                let input: Value =
-                    serde_json::from_str(args_str).unwrap_or(json!({}));
+                let name = call["function"]["name"].as_str().unwrap_or("").to_string();
+                let args_str = call["function"]["arguments"].as_str().unwrap_or("{}");
+                let input: Value = serde_json::from_str(args_str).unwrap_or(json!({}));
                 emit_tool_log(app_handle, window_label, &name, &input);
                 tool_calls.push((id, name, input));
             }
@@ -124,8 +117,7 @@ pub async fn run_loop(
         }
 
         // Execute tools and append results in OpenAI format
-        let results =
-            execute::run_partitioned(&tool_calls, workspace, &token, read_only).await?;
+        let results = execute::run_partitioned(&tool_calls, workspace, &token, read_only).await?;
         for result in &results {
             let tool_call_id = result["tool_use_id"].as_str().unwrap_or("");
             let content = result["content"].as_str().unwrap_or("");

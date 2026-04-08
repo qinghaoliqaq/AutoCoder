@@ -15,7 +15,6 @@
 ///
 /// The memory prompt is injected into the system prompt for both the director
 /// and skill runs, giving the model persistent context across sessions.
-
 use std::path::{Path, PathBuf};
 
 /// Hard limits for the MEMORY.md entrypoint.
@@ -47,7 +46,8 @@ fn project_memory_dir(workspace: Option<&str>) -> Option<PathBuf> {
 fn workspace_slug(workspace: Option<&str>) -> String {
     let ws = workspace.unwrap_or("default");
     let p = Path::new(ws);
-    let components: Vec<&str> = p.components()
+    let components: Vec<&str> = p
+        .components()
         .filter_map(|c| match c {
             std::path::Component::Normal(s) => s.to_str(),
             _ => None,
@@ -60,7 +60,13 @@ fn workspace_slug(workspace: Option<&str>) -> String {
     };
     let raw = tail.join("_");
     raw.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .to_lowercase()
 }
@@ -112,7 +118,9 @@ fn truncate_entrypoint(content: &str) -> String {
     }
 
     let reason = match (over_bytes, over_lines) {
-        (true, false) => format!("{byte_count} bytes (limit {MAX_ENTRYPOINT_BYTES}) — entries too long"),
+        (true, false) => {
+            format!("{byte_count} bytes (limit {MAX_ENTRYPOINT_BYTES}) — entries too long")
+        }
         (false, true) => format!("{line_count} lines (limit {MAX_ENTRYPOINT_LINES})"),
         _ => format!("{line_count} lines and {byte_count} bytes"),
     };
@@ -139,7 +147,8 @@ fn scan_topic_files(workspace: Option<&str>) -> Vec<(PathBuf, String)> {
             if path.extension().map(|e| e == "md").unwrap_or(false)
                 && path.file_name().map(|n| n != "MEMORY.md").unwrap_or(false)
             {
-                let mtime = entry.metadata()
+                let mtime = entry
+                    .metadata()
                     .and_then(|m| m.modified())
                     .unwrap_or(std::time::UNIX_EPOCH);
                 entries.push((path, mtime));
@@ -149,7 +158,8 @@ fn scan_topic_files(workspace: Option<&str>) -> Vec<(PathBuf, String)> {
     // Newest first
     entries.sort_by(|a, b| b.1.cmp(&a.1));
 
-    entries.into_iter()
+    entries
+        .into_iter()
         .map(|(path, _)| {
             let desc = std::fs::read_to_string(&path)
                 .unwrap_or_default()
@@ -172,20 +182,18 @@ fn select_relevant_topics(workspace: Option<&str>, task_hint: &str) -> Vec<(Stri
     }
 
     let task_lower = task_hint.to_lowercase();
-    let task_words: Vec<&str> = task_lower.split_whitespace()
+    let task_words: Vec<&str> = task_lower
+        .split_whitespace()
         .filter(|w| w.len() > 2)
         .collect();
 
     // Score each topic by keyword overlap
-    let mut scored: Vec<(f32, &PathBuf, &str)> = topics.iter()
+    let mut scored: Vec<(f32, &PathBuf, &str)> = topics
+        .iter()
         .map(|(path, desc)| {
-            let name = path.file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
+            let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             let haystack = format!("{} {}", name, desc).to_lowercase();
-            let score: f32 = task_words.iter()
-                .filter(|w| haystack.contains(**w))
-                .count() as f32;
+            let score: f32 = task_words.iter().filter(|w| haystack.contains(**w)).count() as f32;
             // Boost recent files slightly
             (score + 0.1, path, desc.as_str())
         })
@@ -193,7 +201,8 @@ fn select_relevant_topics(workspace: Option<&str>, task_hint: &str) -> Vec<(Stri
 
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    scored.into_iter()
+    scored
+        .into_iter()
         .take(MAX_TOPIC_FILES)
         .filter_map(|(_, path, _)| {
             let name = path.file_name()?.to_str()?.to_string();
@@ -220,9 +229,12 @@ pub fn build_memory_prompt(workspace: Option<&str>, task_hint: &str) -> Option<S
 
     let mut sections = Vec::new();
 
-    sections.push("# Project Memory\n\nPersistent memory from previous sessions. \
+    sections.push(
+        "# Project Memory\n\nPersistent memory from previous sessions. \
         Use this context to maintain continuity. When you learn something important, \
-        tell the user to save it to memory.".to_string());
+        tell the user to save it to memory."
+            .to_string(),
+    );
 
     if let Some(entry) = &entrypoint {
         sections.push(format!("## MEMORY.md (Index)\n\n{entry}"));
@@ -241,10 +253,8 @@ pub fn build_memory_prompt(workspace: Option<&str>, task_hint: &str) -> Option<S
 
 /// Append a line to MEMORY.md. Creates the file/directory if needed.
 pub fn append_to_entrypoint(workspace: Option<&str>, line: &str) -> Result<String, String> {
-    let dir = project_memory_dir(workspace)
-        .ok_or("Cannot determine memory directory")?;
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("Cannot create memory dir: {e}"))?;
+    let dir = project_memory_dir(workspace).ok_or("Cannot determine memory directory")?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create memory dir: {e}"))?;
 
     let path = dir.join("MEMORY.md");
     let mut content = std::fs::read_to_string(&path).unwrap_or_default();
@@ -255,22 +265,26 @@ pub fn append_to_entrypoint(workspace: Option<&str>, line: &str) -> Result<Strin
     content.push_str(line.trim());
     content.push('\n');
 
-    std::fs::write(&path, &content)
-        .map_err(|e| format!("Cannot write MEMORY.md: {e}"))?;
+    std::fs::write(&path, &content).map_err(|e| format!("Cannot write MEMORY.md: {e}"))?;
 
     Ok(path.display().to_string())
 }
 
 /// Write or overwrite a topic file.
 pub fn write_topic(workspace: Option<&str>, name: &str, content: &str) -> Result<String, String> {
-    let dir = project_memory_dir(workspace)
-        .ok_or("Cannot determine memory directory")?;
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("Cannot create memory dir: {e}"))?;
+    let dir = project_memory_dir(workspace).ok_or("Cannot determine memory directory")?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create memory dir: {e}"))?;
 
     // Sanitize filename
-    let safe_name: String = name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+    let safe_name: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let filename = if safe_name.ends_with(".md") {
         safe_name
@@ -279,8 +293,7 @@ pub fn write_topic(workspace: Option<&str>, name: &str, content: &str) -> Result
     };
 
     let path = dir.join(&filename);
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Cannot write topic file: {e}"))?;
+    std::fs::write(&path, content).map_err(|e| format!("Cannot write topic file: {e}"))?;
 
     Ok(path.display().to_string())
 }
@@ -338,7 +351,10 @@ mod tests {
 
     #[test]
     fn workspace_slug_basic() {
-        assert_eq!(workspace_slug(Some("/home/user/projects/my-app")), "projects_my-app");
+        assert_eq!(
+            workspace_slug(Some("/home/user/projects/my-app")),
+            "projects_my-app"
+        );
     }
 
     #[test]

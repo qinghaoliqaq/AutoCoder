@@ -57,7 +57,12 @@ pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> 
 
     // Check for design/polish subtasks first
     let design_keywords = [
-        "beautify", "polish", "redesign", "visual", "spacing", "typography",
+        "beautify",
+        "polish",
+        "redesign",
+        "visual",
+        "spacing",
+        "typography",
     ];
     let design_phrases = [
         "design system",

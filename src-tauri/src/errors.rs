@@ -3,7 +3,6 @@
 /// Replaces ad-hoc `Result<T, String>` with discriminated error kinds so that
 /// callers can match on the variant (e.g. retry on transient API failures,
 /// surface permanent errors to the user immediately).
-
 use serde::Serialize;
 use std::fmt;
 
@@ -50,10 +49,7 @@ impl AppError {
     /// Returns `true` when the error is transient and the operation should be
     /// retried with backoff.
     pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            AppError::Network(_) | AppError::ApiOverloaded { .. }
-        )
+        matches!(self, AppError::Network(_) | AppError::ApiOverloaded { .. })
     }
 
     /// Build an `Api` or `ApiOverloaded` variant depending on the status code.
@@ -139,33 +135,73 @@ impl SkillError {
     /// a structured SkillError by matching known prefixes.
     pub fn from_raw(raw: &str) -> Self {
         if raw == "cancelled" {
-            return Self { kind: "cancelled", message: raw.to_string(), retryable: false };
+            return Self {
+                kind: "cancelled",
+                message: raw.to_string(),
+                retryable: false,
+            };
         }
         if raw.contains("timed out") {
-            return Self { kind: "timeout", message: raw.to_string(), retryable: true };
+            return Self {
+                kind: "timeout",
+                message: raw.to_string(),
+                retryable: true,
+            };
         }
         if raw.starts_with("Failed to start") {
-            return Self { kind: "tool_missing", message: raw.to_string(), retryable: false };
+            return Self {
+                kind: "tool_missing",
+                message: raw.to_string(),
+                retryable: false,
+            };
         }
         if raw.starts_with("Claude error:") || raw.starts_with("Codex error:") {
-            return Self { kind: "agent_error", message: raw.to_string(), retryable: false };
+            return Self {
+                kind: "agent_error",
+                message: raw.to_string(),
+                retryable: false,
+            };
         }
         if raw.contains("read-only run") {
-            return Self { kind: "permission", message: raw.to_string(), retryable: false };
+            return Self {
+                kind: "permission",
+                message: raw.to_string(),
+                retryable: false,
+            };
         }
         if raw.starts_with("config error:") {
-            return Self { kind: "config", message: raw.to_string(), retryable: false };
+            return Self {
+                kind: "config",
+                message: raw.to_string(),
+                retryable: false,
+            };
         }
         if raw.starts_with("network error:") || raw.starts_with("API overloaded") {
-            return Self { kind: "network", message: raw.to_string(), retryable: true };
+            return Self {
+                kind: "network",
+                message: raw.to_string(),
+                retryable: true,
+            };
         }
         if raw.starts_with("API error") {
-            return Self { kind: "api", message: raw.to_string(), retryable: false };
+            return Self {
+                kind: "api",
+                message: raw.to_string(),
+                retryable: false,
+            };
         }
         if raw.starts_with("Unknown skill:") {
-            return Self { kind: "invalid_mode", message: raw.to_string(), retryable: false };
+            return Self {
+                kind: "invalid_mode",
+                message: raw.to_string(),
+                retryable: false,
+            };
         }
-        Self { kind: "internal", message: raw.to_string(), retryable: false }
+        Self {
+            kind: "internal",
+            message: raw.to_string(),
+            retryable: false,
+        }
     }
 
     /// Convert from a typed `AppError`.
@@ -400,14 +436,38 @@ mod tests {
         let cases: Vec<(AppError, &str)> = vec![
             (AppError::Cancelled, "cancelled"),
             (AppError::Config("bad".into()), "config error: bad"),
-            (AppError::Network("timeout".into()), "network error: timeout"),
-            (AppError::Api { status: 400, body: "bad".into() }, "API error 400: bad"),
-            (AppError::ApiOverloaded { status: 429, body: "slow".into() }, "API overloaded 429: slow"),
+            (
+                AppError::Network("timeout".into()),
+                "network error: timeout",
+            ),
+            (
+                AppError::Api {
+                    status: 400,
+                    body: "bad".into(),
+                },
+                "API error 400: bad",
+            ),
+            (
+                AppError::ApiOverloaded {
+                    status: 429,
+                    body: "slow".into(),
+                },
+                "API overloaded 429: slow",
+            ),
             (AppError::ApiParse("json".into()), "API parse error: json"),
-            (AppError::Tool { tool: "bash".into(), detail: "fail".into() }, "bash: fail"),
+            (
+                AppError::Tool {
+                    tool: "bash".into(),
+                    detail: "fail".into(),
+                },
+                "bash: fail",
+            ),
             (AppError::Io("disk".into()), "IO error: disk"),
             (AppError::Merge("conflict".into()), "merge error: conflict"),
-            (AppError::Verification("mismatch".into()), "verification failed: mismatch"),
+            (
+                AppError::Verification("mismatch".into()),
+                "verification failed: mismatch",
+            ),
             (AppError::Internal("oops".into()), "internal error: oops"),
         ];
 
@@ -482,10 +542,28 @@ mod tests {
             (AppError::Cancelled, "cancelled"),
             (AppError::Config("x".into()), "config"),
             (AppError::Network("x".into()), "network"),
-            (AppError::Api { status: 400, body: "x".into() }, "api"),
-            (AppError::ApiOverloaded { status: 429, body: "x".into() }, "network"),
+            (
+                AppError::Api {
+                    status: 400,
+                    body: "x".into(),
+                },
+                "api",
+            ),
+            (
+                AppError::ApiOverloaded {
+                    status: 429,
+                    body: "x".into(),
+                },
+                "network",
+            ),
             (AppError::ApiParse("x".into()), "api_parse"),
-            (AppError::Tool { tool: "bash".into(), detail: "x".into() }, "tool"),
+            (
+                AppError::Tool {
+                    tool: "bash".into(),
+                    detail: "x".into(),
+                },
+                "tool",
+            ),
             (AppError::Io("x".into()), "io"),
             (AppError::Merge("x".into()), "merge"),
             (AppError::Verification("x".into()), "verification"),

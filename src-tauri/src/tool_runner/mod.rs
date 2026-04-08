@@ -1,3 +1,6 @@
+mod anthropic;
+mod execute;
+mod openai;
 /// Tool-use agent loop — modular architecture.
 ///
 /// ```text
@@ -12,11 +15,7 @@
 ///
 /// All tool execution is 100% local Rust. Only the API wire format differs
 /// between providers. Adding a new provider = one entry in providers.rs.
-
 pub mod providers;
-mod anthropic;
-mod execute;
-mod openai;
 mod tools;
 
 use crate::config::AppConfig;
@@ -43,7 +42,17 @@ pub async fn run(
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<String, String> {
-    run_inner(config, system_prompt, user_prompt, cwd, window_label, app_handle, token, false).await
+    run_inner(
+        config,
+        system_prompt,
+        user_prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        false,
+    )
+    .await
 }
 
 /// Run a read-only tool-use agent loop (no bash, editor view-only).
@@ -58,7 +67,17 @@ pub async fn run_read_only(
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<String, String> {
-    run_inner(config, system_prompt, user_prompt, cwd, window_label, app_handle, token, true).await
+    run_inner(
+        config,
+        system_prompt,
+        user_prompt,
+        cwd,
+        window_label,
+        app_handle,
+        token,
+        true,
+    )
+    .await
 }
 
 async fn run_inner(
@@ -92,17 +111,35 @@ async fn run_inner(
     match provider.wire {
         WireFormat::Anthropic => {
             anthropic::run_loop(
-                &client, &provider.base_url, &provider.api_key, &provider.model,
-                system_prompt, user_prompt, &tool_defs, &workspace,
-                window_label, app_handle, token, read_only,
+                &client,
+                &provider.base_url,
+                &provider.api_key,
+                &provider.model,
+                system_prompt,
+                user_prompt,
+                &tool_defs,
+                &workspace,
+                window_label,
+                app_handle,
+                token,
+                read_only,
             )
             .await
         }
         WireFormat::OpenAI => {
             openai::run_loop(
-                &client, &provider.base_url, &provider.api_key, &provider.model,
-                system_prompt, user_prompt, &tool_defs, &workspace,
-                window_label, app_handle, token, read_only,
+                &client,
+                &provider.base_url,
+                &provider.api_key,
+                &provider.model,
+                system_prompt,
+                user_prompt,
+                &tool_defs,
+                &workspace,
+                window_label,
+                app_handle,
+                token,
+                read_only,
             )
             .await
         }
@@ -119,8 +156,12 @@ fn canonicalize_workspace(cwd: Option<&str>) -> Result<PathBuf, String> {
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
-    raw.canonicalize()
-        .map_err(|e| format!("workspace path error: cannot canonicalize '{}': {e}", raw.display()))
+    raw.canonicalize().map_err(|e| {
+        format!(
+            "workspace path error: cannot canonicalize '{}': {e}",
+            raw.display()
+        )
+    })
 }
 
 // ── Emit helpers (shared by anthropic.rs and openai.rs) ─────────────────────
@@ -145,12 +186,7 @@ fn emit_chunk(
     );
 }
 
-fn emit_tool_log(
-    app_handle: &tauri::AppHandle,
-    window_label: &str,
-    name: &str,
-    input: &Value,
-) {
+fn emit_tool_log(app_handle: &tauri::AppHandle, window_label: &str, name: &str, input: &Value) {
     let ts = chrono::Utc::now().timestamp_millis() as u64;
     let summary = tools::summarize_input(name, input);
     let _ = app_handle.emit_to(
