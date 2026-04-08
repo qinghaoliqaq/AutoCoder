@@ -428,9 +428,31 @@ async fn run_subtask(
             };
         }
 
-        match attempt_result? {
-            AttemptResolution::Completed => return Ok(()),
-            AttemptResolution::Retry => continue,
+        match attempt_result {
+            Ok(AttemptResolution::Completed) => return Ok(()),
+            Ok(AttemptResolution::Retry) => continue,
+            Err(e) if attempt < MAX_SUBTASK_ATTEMPTS => {
+                // Transient error (Claude/Codex crash, network issue, etc.) —
+                // retry instead of killing the subtask immediately.
+                tracing::warn!(
+                    subtask = %subtask_id,
+                    attempt,
+                    "Subtask attempt errored, will retry: {e}"
+                );
+                let _ = emit_blackboard(
+                    workspace,
+                    app_handle,
+                    window_label,
+                    Some(subtask_id.clone()),
+                    "needs_fix",
+                    format!(
+                        "Subtask {} attempt {} hit a transient error: {e}. Retrying.",
+                        subtask_id, attempt
+                    ),
+                );
+                continue;
+            }
+            Err(e) => return Err(e),
         }
     }
 }

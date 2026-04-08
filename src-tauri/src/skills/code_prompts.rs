@@ -318,10 +318,15 @@ pub(super) struct ReviewReport {
 }
 
 pub(super) fn parse_review_report(output: &str) -> ReviewReport {
-    let decision = extract_marker_line(output, "REVIEW_DECISION:")
-        .unwrap_or_else(|| "FAIL".to_string())
-        .to_uppercase();
-    let passed = decision.contains("PASS");
+    let explicit_decision = extract_marker_line(output, "REVIEW_DECISION:");
+    let passed = match &explicit_decision {
+        Some(decision) => decision.to_uppercase().contains("PASS"),
+        None => {
+            // No explicit decision marker — infer from output content.
+            // Look for strong positive signals that indicate a pass.
+            infer_review_passed(output)
+        }
+    };
     let summary = extract_marker_line(output, "REVIEW_SUMMARY:")
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| fallback_summary(output, "Codex review completed"));
@@ -338,6 +343,56 @@ pub(super) fn parse_review_report(output: &str) -> ReviewReport {
         summary,
         findings,
     }
+}
+
+/// When the explicit REVIEW_DECISION marker is missing, try to infer the
+/// result from the review body.  We look for strong positive language that
+/// indicates approval and check for the absence of blocking language.
+fn infer_review_passed(output: &str) -> bool {
+    let upper = output.to_uppercase();
+
+    // Check for SPECIALIST_VERDICT which uses a different format.
+    if upper.contains("SPECIALIST_VERDICT:PASS") {
+        return true;
+    }
+    if upper.contains("SPECIALIST_VERDICT:FAIL") {
+        return false;
+    }
+
+    // Strong pass signals.
+    let pass_signals = [
+        "LGTM",
+        "LOOKS GOOD",
+        "PASSES REVIEW",
+        "PASSES THE REVIEW",
+        "REVIEW: PASS",
+        "DECISION: PASS",
+        "VERDICT: PASS",
+        "APPROVED",
+        "ALL CHECKS PASS",
+        "NO CRITICAL",
+        "NO HIGH OR CRITICAL",
+        "NO BLOCKING",
+    ];
+    let has_pass_signal = pass_signals.iter().any(|s| upper.contains(s));
+
+    // Strong fail signals.
+    let fail_signals = [
+        "REVIEW: FAIL",
+        "DECISION: FAIL",
+        "VERDICT: FAIL",
+        "CRITICAL FINDING",
+        "BLOCKS MERGE",
+        "MUST FIX",
+        "CANNOT PASS",
+        "REJECTED",
+    ];
+    let has_fail_signal = fail_signals.iter().any(|s| upper.contains(s));
+
+    if has_fail_signal {
+        return false;
+    }
+    has_pass_signal
 }
 
 // ── String helpers ────────────────────────────────────────────────────────
@@ -513,5 +568,57 @@ mod tests {
         let card = fix_prompt_card();
         let prompt = build_review_prompt("task", &card, None, &[]);
         assert!(prompt.contains("Verifier: passed with no warnings."));
+    }
+
+    #[test]
+    fn parse_review_report_explicit_pass() {
+        let output = "All good.\nREVIEW_DECISION: PASS\nREVIEW_SUMMARY: Looks correct\nREVIEW_FINDINGS:\n- none\n";
+        let report = parse_review_report(output);
+        assert!(report.passed);
+        assert_eq!(report.summary, "Looks correct");
+        assert!(report.findings.is_empty());
+    }
+
+    #[test]
+    fn parse_review_report_explicit_fail() {
+        let output = "Problems found.\nREVIEW_DECISION: FAIL\nREVIEW_SUMMARY: Missing validation\nREVIEW_FINDINGS:\n- No input sanitization\n";
+        let report = parse_review_report(output);
+        assert!(!report.passed);
+        assert_eq!(report.findings, vec!["No input sanitization"]);
+    }
+
+    #[test]
+    fn parse_review_report_no_marker_with_pass_signal() {
+        let output = "The implementation looks good. All checks pass and there are no blocking issues. LGTM.\n";
+        let report = parse_review_report(output);
+        assert!(report.passed);
+    }
+
+    #[test]
+    fn parse_review_report_no_marker_with_fail_signal() {
+        let output = "Critical finding: the API endpoint has no authentication.\nMust fix before merging.\n";
+        let report = parse_review_report(output);
+        assert!(!report.passed);
+    }
+
+    #[test]
+    fn parse_review_report_no_marker_no_signal_defaults_to_fail() {
+        let output = "Some random text without any clear verdict.\n";
+        let report = parse_review_report(output);
+        assert!(!report.passed);
+    }
+
+    #[test]
+    fn parse_review_report_specialist_verdict_pass() {
+        let output = "No HIGH or CRITICAL findings.\nSPECIALIST_VERDICT:PASS — no issues found\n";
+        let report = parse_review_report(output);
+        assert!(report.passed);
+    }
+
+    #[test]
+    fn parse_review_report_specialist_verdict_fail() {
+        let output = "Found 2 critical issues.\nSPECIALIST_VERDICT:FAIL:2 HIGH/CRITICAL findings — SQL injection\n";
+        let report = parse_review_report(output);
+        assert!(!report.passed);
     }
 }

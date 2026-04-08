@@ -17,6 +17,16 @@ pub(crate) fn merge_isolated_workspace(
     let changes = workspace_changes(&isolated.base_snapshot, &isolated_after);
     let main_before = snapshot_workspace(main_root);
 
+    tracing::info!(
+        isolated_root = %isolated.root.display(),
+        main_root = %main_root.display(),
+        base_snapshot_files = isolated.base_snapshot.len(),
+        isolated_after_files = isolated_after.len(),
+        changed_or_created = changes.changed_or_created.len(),
+        deleted = changes.deleted.len(),
+        "Merging isolated workspace back to main"
+    );
+
     let mut conflicts = Vec::new();
     let mut touched = Vec::new();
     // Files that diverged in main since we forked — need three-way merge.
@@ -108,6 +118,20 @@ pub(crate) fn merge_isolated_workspace(
 
     touched.sort();
     touched.dedup();
+
+    if touched.is_empty() {
+        tracing::warn!(
+            isolated_root = %isolated.root.display(),
+            "Merge completed but no files were touched — the subtask may not have written any code"
+        );
+    } else {
+        tracing::info!(
+            merged_files = touched.len(),
+            files = ?touched,
+            "Merge completed successfully"
+        );
+    }
+
     Ok(touched)
 }
 

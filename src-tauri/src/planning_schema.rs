@@ -638,6 +638,7 @@ mod tests {
     #[test]
     fn read_plan_acceptance_lenient_ignores_invalid_json() {
         let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".ai-dev-hub")).unwrap();
         std::fs::write(dir.path().join(PLAN_ACCEPTANCE_JSON), "{ invalid json").unwrap();
 
         let (acceptance, warning) = read_plan_acceptance_lenient(dir.path().to_str().unwrap());
