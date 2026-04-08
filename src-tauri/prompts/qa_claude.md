@@ -8,16 +8,16 @@ Previous known issue: {{issue}}
 
 ## Evidence to inspect
 
-Read what exists and use only real project evidence:
-- EVIDENCE_INDEX.json
-- PLAN.md
-- PLAN_ACCEPTANCE.json
-- PLAN_BLACKBOARD.md / PLAN_BLACKBOARD.json
-- BLACKBOARD.md / BLACKBOARD.json
-- bugs.md
-- PROJECT_REPORT.md
-- test.md
-- change.log
+Read what exists and use only real project evidence (all orchestration files are under `.ai-dev-hub/`):
+- .ai-dev-hub/EVIDENCE_INDEX.json
+- .ai-dev-hub/PLAN.md
+- .ai-dev-hub/PLAN_ACCEPTANCE.json
+- .ai-dev-hub/PLAN_BLACKBOARD.md / .ai-dev-hub/PLAN_BLACKBOARD.json
+- .ai-dev-hub/BLACKBOARD.md / .ai-dev-hub/BLACKBOARD.json
+- .ai-dev-hub/bugs.md
+- .ai-dev-hub/PROJECT_REPORT.md
+- .ai-dev-hub/test.md
+- .ai-dev-hub/change.log
 - source files and config files as needed
 
 ## What QA means here
@@ -53,8 +53,8 @@ Your confidence score should reflect how much concrete evidence supports your ve
 ## Rules
 
 - Prefer concrete evidence over guesses.
-- If `EVIDENCE_INDEX.json` exists, use it as the primary structured evidence summary before scanning raw files.
-- If `PLAN_ACCEPTANCE.json` exists, treat it as the primary acceptance checklist for subtasks.
+- If `.ai-dev-hub/EVIDENCE_INDEX.json` exists, use it as the primary structured evidence summary before scanning raw files.
+- If `.ai-dev-hub/PLAN_ACCEPTANCE.json` exists, treat it as the primary acceptance checklist for subtasks.
 - If a file does not exist, say so briefly and continue.
 - This run will fail if you modify the workspace.
 - Do not silently expand scope beyond the plan.

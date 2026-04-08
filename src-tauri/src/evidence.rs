@@ -1,3 +1,4 @@
+use crate::planning_schema::{PLAN_ACCEPTANCE_JSON, PLAN_GRAPH_JSON};
 use crate::skills::blackboard::{
     Blackboard, BoardState, SubtaskCard, SubtaskKind, SubtaskState, BLACKBOARD_JSON, BLACKBOARD_MD,
 };
@@ -7,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::Path;
 
-pub(crate) const BLACKBOARD_EVENTS_JSONL: &str = "BLACKBOARD_EVENTS.jsonl";
-pub(crate) const EVIDENCE_INDEX_JSON: &str = "EVIDENCE_INDEX.json";
+pub(crate) const BLACKBOARD_EVENTS_JSONL: &str = ".ai-dev-hub/BLACKBOARD_EVENTS.jsonl";
+pub(crate) const EVIDENCE_INDEX_JSON: &str = ".ai-dev-hub/EVIDENCE_INDEX.json";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EvidenceEvent {
@@ -500,6 +501,10 @@ pub(crate) fn refresh_evidence_index(workspace: &str) -> Result<(), String> {
     let events = read_events(workspace)?;
     let index = build_evidence_index(workspace, board.as_ref(), &events);
     let path = Path::new(workspace).join(EVIDENCE_INDEX_JSON);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+    }
     let json = serde_json::to_string_pretty(&index)
         .map_err(|e| format!("Cannot serialize {EVIDENCE_INDEX_JSON}: {e}"))?;
     std::fs::write(&path, json).map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
@@ -520,6 +525,10 @@ pub(crate) fn read_evidence_index(workspace: &str) -> Result<Option<EvidenceInde
 
 fn append_event(workspace: &str, event: &EvidenceEvent) -> Result<(), String> {
     let path = Path::new(workspace).join(BLACKBOARD_EVENTS_JSONL);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+    }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -679,26 +688,26 @@ fn collect_verifier_archive_artifacts(workspace: &str, subtask_id: &str) -> Vec<
 }
 
 fn is_coordination_artifact(path: &str) -> bool {
-    matches!(path, BLACKBOARD_JSON | BLACKBOARD_MD | "PLAN.md")
+    matches!(path, BLACKBOARD_JSON | BLACKBOARD_MD | ".ai-dev-hub/PLAN.md")
 }
 
 fn collect_project_artifacts(workspace: &str) -> Vec<String> {
     let root = Path::new(workspace);
     let mut artifacts = [
-        "PLAN.md",
-        "PLAN_GRAPH.json",
-        "PLAN_ACCEPTANCE.json",
+        ".ai-dev-hub/PLAN.md",
+        PLAN_GRAPH_JSON,
+        PLAN_ACCEPTANCE_JSON,
         BLACKBOARD_JSON,
         BLACKBOARD_MD,
         BLACKBOARD_EVENTS_JSONL,
         EVIDENCE_INDEX_JSON,
-        "PLAN_BLACKBOARD.md",
-        "PLAN_BLACKBOARD.json",
-        "bugs.md",
-        "test.md",
-        "security.md",
-        "PROJECT_REPORT.md",
-        "change.log",
+        ".ai-dev-hub/PLAN_BLACKBOARD.md",
+        ".ai-dev-hub/PLAN_BLACKBOARD.json",
+        ".ai-dev-hub/bugs.md",
+        ".ai-dev-hub/test.md",
+        ".ai-dev-hub/security.md",
+        ".ai-dev-hub/PROJECT_REPORT.md",
+        ".ai-dev-hub/change.log",
     ]
     .into_iter()
     .filter(|path| root.join(path).exists())
@@ -778,6 +787,7 @@ mod tests {
     #[test]
     fn refresh_evidence_index_writes_index() {
         let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".ai-dev-hub")).unwrap();
         let workspace = dir.path().to_str().unwrap();
         let board = sample_board();
         std::fs::write(
@@ -797,7 +807,7 @@ mod tests {
                 subtask_id: Some("F1".to_string()),
                 summary: "Validation missing".to_string(),
                 artifacts: vec![
-                    "BLACKBOARD.md".to_string(),
+                    ".ai-dev-hub/BLACKBOARD.md".to_string(),
                     "notes/review.md".to_string(),
                     VERIFIER_RESULT_JSON.to_string(),
                 ],
@@ -825,19 +835,21 @@ mod tests {
     #[test]
     fn collect_project_artifacts_only_lists_existing_files() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("PLAN.md"), "plan").unwrap();
-        std::fs::write(dir.path().join("bugs.md"), "bugs").unwrap();
+        std::fs::create_dir_all(dir.path().join(".ai-dev-hub")).unwrap();
+        std::fs::write(dir.path().join(".ai-dev-hub/PLAN.md"), "plan").unwrap();
+        std::fs::write(dir.path().join(".ai-dev-hub/bugs.md"), "bugs").unwrap();
 
         let artifacts = collect_project_artifacts(dir.path().to_str().unwrap());
         assert_eq!(
             artifacts,
-            vec!["PLAN.md".to_string(), "bugs.md".to_string()]
+            vec![".ai-dev-hub/PLAN.md".to_string(), ".ai-dev-hub/bugs.md".to_string()]
         );
     }
 
     #[test]
     fn evidence_digest_includes_trouble_spots() {
         let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".ai-dev-hub")).unwrap();
         let workspace = dir.path().to_str().unwrap();
         let mut board = sample_board();
         board.subtasks[0].attempts = 3;
@@ -888,6 +900,7 @@ mod tests {
     #[test]
     fn subtask_context_returns_none_for_first_attempt() {
         let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".ai-dev-hub")).unwrap();
         let workspace = dir.path().to_str().unwrap();
         let mut board = sample_board();
         board.subtasks[0].attempts = 1;
@@ -905,6 +918,7 @@ mod tests {
     #[test]
     fn subtask_context_includes_findings_on_retry() {
         let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".ai-dev-hub")).unwrap();
         let workspace = dir.path().to_str().unwrap();
         let board = sample_board(); // attempts=2, has review_findings
         std::fs::write(
@@ -929,6 +943,7 @@ mod tests {
     #[test]
     fn compute_metrics_from_board_and_events() {
         let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".ai-dev-hub")).unwrap();
         let workspace = dir.path().to_str().unwrap();
         let mut board = sample_board();
         board.subtasks[0].status = SubtaskState::Done;

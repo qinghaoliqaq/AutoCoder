@@ -182,7 +182,7 @@ pub(super) async fn run_phase(
             // Read change.log to get the exact files Claude created/modified.
             // Deduplicate so each file is processed once.
             let change_log_content = workspace
-                .map(|ws| std::fs::read_to_string(format!("{ws}/change.log")).unwrap_or_default())
+                .map(|ws| std::fs::read_to_string(format!("{ws}/.ai-dev-hub/change.log")).unwrap_or_default())
                 .unwrap_or_default();
 
             let file_list = build_cleanup_file_list(&change_log_content);
@@ -238,7 +238,7 @@ pub(super) async fn run_phase(
         // ── Design review — visual consistency and UI quality ────────────
         "design_review" => {
             let file_list = workspace
-                .map(|ws| std::fs::read_to_string(format!("{ws}/change.log")).unwrap_or_default())
+                .map(|ws| std::fs::read_to_string(format!("{ws}/.ai-dev-hub/change.log")).unwrap_or_default())
                 .unwrap_or_default();
             let file_list = build_cleanup_file_list(&file_list);
             let ui_files: Vec<&str> = file_list
@@ -334,11 +334,11 @@ pub(super) async fn run_phase(
 
 fn artifacts_for_review_phase(phase: &str) -> Vec<String> {
     match phase {
-        "plan_check" => vec!["PLAN.md".to_string(), "BLACKBOARD.json".to_string()],
-        "security" => vec!["security.md".to_string()],
-        "specialist_review" => vec!["change.log".to_string()],
-        "design_review" => vec!["change.log".to_string()],
-        "cleanup" => vec!["change.log".to_string()],
+        "plan_check" => vec![".ai-dev-hub/PLAN.md".to_string(), ".ai-dev-hub/BLACKBOARD.json".to_string()],
+        "security" => vec![".ai-dev-hub/security.md".to_string()],
+        "specialist_review" => vec![".ai-dev-hub/change.log".to_string()],
+        "design_review" => vec![".ai-dev-hub/change.log".to_string()],
+        "cleanup" => vec![".ai-dev-hub/change.log".to_string()],
         _ => Vec::new(),
     }
 }

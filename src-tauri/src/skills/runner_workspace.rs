@@ -33,8 +33,11 @@ pub(super) fn record_change(tool: &str, raw_json: &str, cwd: &PathBuf) {
         _ => "MODIFY", // Edit, MultiEdit, etc.
     };
     let entry = format!("{kind}: {}\n", abs.to_string_lossy());
-    let log_path = cwd.join("change.log");
+    let log_path = cwd.join(".ai-dev-hub/change.log");
     use std::io::Write as _;
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     let _ = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -75,7 +78,7 @@ pub(super) fn append_change_entry(
         cwd.join(path)
     };
     let entry = format!("{label}: {}\n", abs.to_string_lossy());
-    let log_path = cwd.join("change.log");
+    let log_path = cwd.join(".ai-dev-hub/change.log");
     use std::io::Write as _;
     let _ = std::fs::OpenOptions::new()
         .create(true)
@@ -149,7 +152,8 @@ fn should_skip_workspace_dir(name: &str) -> bool {
 }
 
 fn should_skip_workspace_file(name: &str) -> bool {
-    name == "change.log"
+    // change.log now lives in .ai-dev-hub/ which is skipped as a directory
+    false
 }
 
 pub(super) fn workspace_change_entries(
@@ -265,15 +269,16 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_workspace_skips_change_log() {
+    fn snapshot_workspace_skips_ai_dev_hub_dir() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".ai-dev-hub")).unwrap();
         std::fs::write(dir.path().join("src/lib.rs"), "fn demo() {}").unwrap();
-        std::fs::write(dir.path().join("change.log"), "noise").unwrap();
+        std::fs::write(dir.path().join(".ai-dev-hub/change.log"), "noise").unwrap();
 
         let snapshot = snapshot_workspace(dir.path());
         assert!(snapshot.contains_key(&PathBuf::from("src/lib.rs")));
-        assert!(!snapshot.contains_key(&PathBuf::from("change.log")));
+        assert!(!snapshot.contains_key(&PathBuf::from(".ai-dev-hub/change.log")));
     }
 
     #[test]
@@ -282,7 +287,7 @@ mod tests {
         let cwd = dir.path().to_path_buf();
         let json = r#"{"file_path":"src/main.rs"}"#;
         record_change("Write", json, &cwd);
-        let log = std::fs::read_to_string(cwd.join("change.log")).unwrap();
+        let log = std::fs::read_to_string(cwd.join(".ai-dev-hub/change.log")).unwrap();
         assert!(log.contains("CREATE:"));
         assert!(log.contains("src/main.rs"));
     }
@@ -293,7 +298,7 @@ mod tests {
         let cwd = dir.path().to_path_buf();
         let json = r#"{"file_path":"src/lib.rs"}"#;
         record_change("Edit", json, &cwd);
-        let log = std::fs::read_to_string(cwd.join("change.log")).unwrap();
+        let log = std::fs::read_to_string(cwd.join(".ai-dev-hub/change.log")).unwrap();
         assert!(log.contains("MODIFY:"));
     }
 
@@ -302,7 +307,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().to_path_buf();
         record_change("Write", "not-json", &cwd);
-        assert!(!cwd.join("change.log").exists());
+        assert!(!cwd.join(".ai-dev-hub/change.log").exists());
     }
 
     #[test]
@@ -311,7 +316,7 @@ mod tests {
         let cwd = dir.path().to_path_buf();
         record_change("Write", r#"{"file_path":"a.rs"}"#, &cwd);
         record_change("Edit", r#"{"file_path":"b.rs"}"#, &cwd);
-        let log = std::fs::read_to_string(cwd.join("change.log")).unwrap();
+        let log = std::fs::read_to_string(cwd.join(".ai-dev-hub/change.log")).unwrap();
         assert!(log.contains("a.rs"));
         assert!(log.contains("b.rs"));
         assert_eq!(log.lines().count(), 2);

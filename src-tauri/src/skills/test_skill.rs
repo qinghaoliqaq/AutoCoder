@@ -554,7 +554,7 @@ fn emit_acceptance_warning_log(
 
 fn artifacts_for_test_phase(phase: &str) -> Vec<String> {
     match phase {
-        "gen_test_plan" => vec!["test.md".to_string(), "PLAN.md".to_string()],
+        "gen_test_plan" => vec![".ai-dev-hub/test.md".to_string(), ".ai-dev-hub/PLAN.md".to_string()],
         "frontend_test" | "integration_test" | "fix" | "codex_fix" => {
             vec!["test.md".to_string(), "bugs.md".to_string()]
         }

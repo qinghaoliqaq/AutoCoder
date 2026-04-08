@@ -20,12 +20,12 @@ pub(super) fn build_implement_prompt(
     format!(
         "{base_prompt}\n\n\
 Shared-blackboard contract:\n\
-- Read PLAN.md and {BLACKBOARD_MD} in the current directory before making changes.\n\
+- Read .ai-dev-hub/PLAN.md and {BLACKBOARD_MD} in the current directory before making changes.\n\
 - Do not rely on direct agent-to-agent conversation.\n\
 - Do not implement the whole project in one pass; focus only on the current subtask.\n\
 - You may touch shared code if required, but only to complete this subtask cleanly.\n\
 - Work only inside the isolated workspace you were given for this subtask.\n\
-- If packaged vendored skill guidance conflicts with PLAN.md, PLAN_BLACKBOARD.md, {BLACKBOARD_MD}, or the current subtask contract, follow the local project rules.\n\
+- If packaged vendored skill guidance conflicts with .ai-dev-hub/PLAN.md, .ai-dev-hub/PLAN_BLACKBOARD.md, {BLACKBOARD_MD}, or the current subtask contract, follow the local project rules.\n\
 \n\
 Current task context: {task}\n\
 Current subtask:\n\
@@ -113,11 +113,11 @@ pub(super) fn build_fix_prompt(
     format!(
         "{base_prompt}\n\n\
 Shared-blackboard contract:\n\
-- Read PLAN.md and {BLACKBOARD_MD} in the current directory before making changes.\n\
+- Read .ai-dev-hub/PLAN.md and {BLACKBOARD_MD} in the current directory before making changes.\n\
 - Treat the review findings below as the only coordination channel from Codex.\n\
 - Fix the current subtask; do not drift into unrelated features.\n\
 - Work only inside the isolated workspace you were given for this subtask.\n\
-- If packaged vendored skill guidance conflicts with PLAN.md, PLAN_BLACKBOARD.md, {BLACKBOARD_MD}, or the current subtask contract, follow the local project rules.\n\
+- If packaged vendored skill guidance conflicts with .ai-dev-hub/PLAN.md, .ai-dev-hub/PLAN_BLACKBOARD.md, {BLACKBOARD_MD}, or the current subtask contract, follow the local project rules.\n\
 \n\
 Current task context: {task}\n\
 Current subtask:\n\
@@ -178,7 +178,7 @@ pub(super) fn build_review_prompt(
     format!(
         "You are Codex reviewing exactly one implementation subtask.\n\n\
 Shared-blackboard contract:\n\
-- Read PLAN.md and {BLACKBOARD_MD} from the current directory before reviewing.\n\
+- Read .ai-dev-hub/PLAN.md and {BLACKBOARD_MD} from the current directory before reviewing.\n\
 - Read {VERIFIER_RESULT_JSON} from the current directory before reviewing.\n\
 - Do not rely on direct Claude transcript as the source of truth.\n\
 - Do not edit files. Your job is review only.\n\

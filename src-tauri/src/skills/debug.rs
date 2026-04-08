@@ -72,7 +72,7 @@ async fn run_via_api(
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<(), String> {
-    let debug_artifacts = || vec!["bugs.md".to_string(), "change.log".to_string()];
+    let debug_artifacts = || vec![".ai-dev-hub/bugs.md".to_string(), ".ai-dev-hub/change.log".to_string()];
 
     // ── Phase 1: Diagnose (read-only) ────────────────────────────────────────
     emit_skill_event(
@@ -180,7 +180,7 @@ async fn run_via_cli(
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<(), String> {
-    let debug_artifacts = vec!["bugs.md".to_string(), "change.log".to_string()];
+    let debug_artifacts = vec![".ai-dev-hub/bugs.md".to_string(), ".ai-dev-hub/change.log".to_string()];
     record_skill_evidence(
         workspace,
         "debug_started",

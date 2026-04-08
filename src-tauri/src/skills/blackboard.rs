@@ -9,8 +9,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-pub(crate) const BLACKBOARD_JSON: &str = "BLACKBOARD.json";
-pub(crate) const BLACKBOARD_MD: &str = "BLACKBOARD.md";
+pub(crate) const BLACKBOARD_JSON: &str = ".ai-dev-hub/BLACKBOARD.json";
+pub(crate) const BLACKBOARD_MD: &str = ".ai-dev-hub/BLACKBOARD.md";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -93,7 +93,7 @@ impl Blackboard {
             return Ok(board);
         }
 
-        let plan_path = Path::new(workspace).join("PLAN.md");
+        let plan_path = Path::new(workspace).join(".ai-dev-hub/PLAN.md");
         let plan = std::fs::read_to_string(&plan_path)
             .map_err(|e| format!("Cannot read {}: {e}", plan_path.display()))?;
         let subtasks = build_initial_subtasks(workspace, &plan);
@@ -119,6 +119,10 @@ impl Blackboard {
         let ws = Path::new(workspace);
         let json_path = ws.join(BLACKBOARD_JSON);
         let md_path = ws.join(BLACKBOARD_MD);
+        if let Some(parent) = json_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+        }
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Cannot serialize blackboard: {e}"))?;
         std::fs::write(&json_path, json)
@@ -353,7 +357,7 @@ pub(crate) fn sanitize_persisted_state(workspace: &str) -> Result<(), String> {
 }
 
 pub(crate) fn tick_plan_checkbox(workspace: &str, subtask_id: &str) -> Result<(), String> {
-    let plan_path = Path::new(workspace).join("PLAN.md");
+    let plan_path = Path::new(workspace).join(".ai-dev-hub/PLAN.md");
     let content = std::fs::read_to_string(&plan_path)
         .map_err(|e| format!("Cannot read {}: {e}", plan_path.display()))?;
     let target = format!("**{subtask_id}.");
@@ -387,7 +391,8 @@ mod tests {
     #[test]
     fn tick_plan_checkbox_marks_matching_item() {
         let dir = tempfile::tempdir().unwrap();
-        let plan_path = dir.path().join("PLAN.md");
+        std::fs::create_dir_all(dir.path().join(".ai-dev-hub")).unwrap();
+        let plan_path = dir.path().join(".ai-dev-hub/PLAN.md");
         std::fs::write(
             &plan_path,
             "- [ ] **F1. User login** - POST /login\n- [ ] **P1. Login screen** - form\n",

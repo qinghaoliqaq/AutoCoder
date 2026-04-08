@@ -2,8 +2,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-pub(crate) const PLAN_BOARD_JSON: &str = "PLAN_BLACKBOARD.json";
-pub(crate) const PLAN_BOARD_MD: &str = "PLAN_BLACKBOARD.md";
+pub(crate) const PLAN_BOARD_JSON: &str = ".ai-dev-hub/PLAN_BLACKBOARD.json";
+pub(crate) const PLAN_BOARD_MD: &str = ".ai-dev-hub/PLAN_BLACKBOARD.md";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -52,6 +52,10 @@ impl PlanBoard {
         let root = Path::new(workspace);
         let json_path = root.join(PLAN_BOARD_JSON);
         let md_path = root.join(PLAN_BOARD_MD);
+        if let Some(parent) = json_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+        }
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Cannot serialize plan blackboard: {e}"))?;
         std::fs::write(&json_path, json)

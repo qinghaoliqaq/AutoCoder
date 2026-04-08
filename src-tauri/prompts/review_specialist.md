@@ -4,7 +4,7 @@ Your specialty: {{specialty}}
 
 This is a READ-ONLY review. Do not modify files. Only produce findings.
 
-Review the source files that were created or modified (check change.log if present).
+Review the source files that were created or modified (check .ai-dev-hub/change.log if present).
 Focus ONLY on your specialty area below.
 
 {{specialty_instructions}}

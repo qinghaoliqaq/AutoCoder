@@ -7,9 +7,9 @@ use crate::verifier::VERIFIER_RESULT_JSON;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-const PLAN_MD: &str = "PLAN.md";
-const PLAN_BOARD_MD: &str = "PLAN_BLACKBOARD.md";
-const PLAN_BOARD_JSON: &str = "PLAN_BLACKBOARD.json";
+const PLAN_MD: &str = ".ai-dev-hub/PLAN.md";
+const PLAN_BOARD_MD: &str = ".ai-dev-hub/PLAN_BLACKBOARD.md";
+const PLAN_BOARD_JSON: &str = ".ai-dev-hub/PLAN_BLACKBOARD.json";
 pub(crate) const SCRATCH_ROOT_DIR: &str = ".ai-dev-hub/subtasks";
 
 // ── Data types ─────────────────────────────────────────────────────────────
@@ -304,16 +304,10 @@ pub(crate) fn should_skip_workspace_dir(name: &str) -> bool {
 }
 
 pub(crate) fn should_skip_workspace_file(name: &str) -> bool {
-    if matches!(
-        name,
-        "change.log"
-            | BLACKBOARD_MD
-            | BLACKBOARD_JSON
-            | PLAN_MD
-            | PLAN_BOARD_MD
-            | PLAN_BOARD_JSON
-            | VERIFIER_RESULT_JSON
-    ) {
+    // Orchestration files (BLACKBOARD, PLAN, change.log, etc.) now live inside
+    // .ai-dev-hub/ which is already skipped by should_skip_workspace_dir.
+    // Only verifier-result.json remains at the isolated workspace root level.
+    if name == VERIFIER_RESULT_JSON {
         return true;
     }
 

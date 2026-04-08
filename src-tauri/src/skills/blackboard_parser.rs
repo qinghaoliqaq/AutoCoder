@@ -187,8 +187,9 @@ mod tests {
     #[test]
     fn load_or_create_prefers_plan_graph_when_available() {
         let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".ai-dev-hub")).unwrap();
         std::fs::write(
-            dir.path().join("PLAN.md"),
+            dir.path().join(".ai-dev-hub/PLAN.md"),
             "- [x] **F1. Jobs API** - Build job routes\n- [ ] **P1. Jobs Page** - Build jobs page\n",
         )
         .unwrap();

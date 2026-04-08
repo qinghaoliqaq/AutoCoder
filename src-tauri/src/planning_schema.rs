@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-pub(crate) const PLAN_GRAPH_JSON: &str = "PLAN_GRAPH.json";
-pub(crate) const PLAN_ACCEPTANCE_JSON: &str = "PLAN_ACCEPTANCE.json";
+pub(crate) const PLAN_GRAPH_JSON: &str = ".ai-dev-hub/PLAN_GRAPH.json";
+pub(crate) const PLAN_ACCEPTANCE_JSON: &str = ".ai-dev-hub/PLAN_ACCEPTANCE.json";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PlanGraph {

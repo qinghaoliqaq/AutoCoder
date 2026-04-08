@@ -59,7 +59,7 @@ pub(super) async fn run(
 
     let ws_path = create_plan_workspace_unique(&base_name)?;
     let ws_str = ws_path.to_string_lossy().into_owned();
-    let plan_path_str = ws_path.join("PLAN.md").to_string_lossy().into_owned();
+    let plan_path_str = ws_path.join(".ai-dev-hub/PLAN.md").to_string_lossy().into_owned();
     let plan_graph_path_str = ws_path.join(PLAN_GRAPH_JSON).to_string_lossy().into_owned();
     let plan_acceptance_path_str = ws_path
         .join(PLAN_ACCEPTANCE_JSON)
@@ -78,7 +78,7 @@ pub(super) async fn run(
         "plan_started",
         &format!("Planning started for task: {task}"),
         "system",
-        vec!["PLAN.md".to_string()],
+        vec![".ai-dev-hub/PLAN.md".to_string()],
     );
 
     if let Some(doc) = context.filter(|c| !c.trim().is_empty()) {
@@ -121,7 +121,7 @@ pub(super) async fn run(
         ),
         "system",
         vec![
-            "PLAN.md".to_string(),
+            ".ai-dev-hub/PLAN.md".to_string(),
             PLAN_GRAPH_JSON.to_string(),
             PLAN_ACCEPTANCE_JSON.to_string(),
             PLAN_BOARD_MD.to_string(),
@@ -561,7 +561,7 @@ struct ValidatedPlan {
 }
 
 fn validate_plan_artifacts(workspace: &std::path::Path) -> Result<ValidatedPlan, String> {
-    let plan_path = workspace.join("PLAN.md");
+    let plan_path = workspace.join(".ai-dev-hub/PLAN.md");
     let graph_path = workspace.join(PLAN_GRAPH_JSON);
     let acceptance_path = workspace.join(PLAN_ACCEPTANCE_JSON);
 

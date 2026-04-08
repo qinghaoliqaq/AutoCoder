@@ -81,12 +81,12 @@ fn evidence_artifacts_for_status(status: &str) -> Vec<String> {
             BLACKBOARD_JSON.to_string(),
             BLACKBOARD_MD.to_string(),
             VERIFIER_RESULT_JSON.to_string(),
-            "PLAN.md".to_string(),
+            ".ai-dev-hub/PLAN.md".to_string(),
         ],
         "subtask_started" | "implemented" | "passed" | "needs_fix" | "failed" => vec![
             BLACKBOARD_JSON.to_string(),
             BLACKBOARD_MD.to_string(),
-            "PLAN.md".to_string(),
+            ".ai-dev-hub/PLAN.md".to_string(),
         ],
         _ => vec![BLACKBOARD_JSON.to_string(), BLACKBOARD_MD.to_string()],
     }
