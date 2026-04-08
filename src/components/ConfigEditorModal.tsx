@@ -5,7 +5,7 @@ import AccessModeToggle from './AccessModeToggle';
 import ToggleSwitch from './ToggleSwitch';
 import ProviderSelect from './ProviderSelect';
 import { useTheme, THEMES } from './ThemeProvider';
-import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, Keyboard, Zap, Palette } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, Keyboard, Zap, Palette, Lightbulb } from 'lucide-react';
 
 // ── Settings tab definitions ─────────────────────────────────────────────────
 
@@ -45,6 +45,46 @@ function FieldGroup({ label, hint, children }: { label: string; hint?: string; c
 
 const inputClass =
   'w-full rounded-xl border border-edge-primary/60 bg-surface-input px-3 py-2.5 text-sm text-content-primary outline-none transition-all duration-200 placeholder:text-content-tertiary focus:border-themed-accent/50 focus:ring-2 focus:ring-themed-accent/10 focus:shadow-[0_0_0_3px_rgb(var(--accent)/0.06)]';
+
+// ── Tips carousel ────────────────────────────────────────────────────────────
+
+const TIPS = [
+  'Full Access 模式下 Claude / Codex 会跳过权限限制，执行更激进但风险更高。',
+  'Sandbox 模式下优先使用受限权限，审查型任务保持只读，更安全。',
+  'Plan 模式会自动将任务拆分为子任务，并行执行以提高效率。',
+  'Build Gate 会在代码提交前自动进行编译/类型检查，提前发现错误。',
+  '可以在项目根目录放置 .autocoder/skills/ 来注入自定义 Vendored Skills。',
+  'Director 支持 Anthropic 和 OpenAI 兼容 API，可切换不同模型。',
+  '快捷键 Cmd+1~4 可以快速切换设置页面的标签。',
+  '调整 Parallel Lanes 可以控制同时执行的子任务数量，推荐 2-4 个。',
+];
+
+function TipsCarousel() {
+  const [index, setIndex] = useState(() => Math.floor(Math.random() * TIPS.length));
+  const [fade, setFade] = useState(true);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFade(false);
+      setTimeout(() => {
+        setIndex((i) => (i + 1) % TIPS.length);
+        setFade(true);
+      }, 300);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="flex items-start gap-2.5 rounded-xl border border-edge-primary/30 bg-surface-secondary/30 px-4 py-2.5">
+      <Lightbulb className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-amber-500/70" />
+      <span
+        className={`text-[11px] leading-5 text-content-secondary transition-opacity duration-300 ${fade ? 'opacity-100' : 'opacity-0'}`}
+      >
+        {TIPS[index]}
+      </span>
+    </div>
+  );
+}
 
 // ── Main component ───────────────────────────────────────────────────────────
 
@@ -111,10 +151,10 @@ export default function ConfigEditorModal({
             <button
               key={id}
               onClick={() => setActiveTab(id)}
-              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
+              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-colors ${
                 activeTab === id
-                  ? 'bg-themed-accent-soft/70 text-themed-accent-text font-semibold'
-                  : 'text-content-secondary hover:bg-surface-tertiary/40 hover:text-content-primary font-medium'
+                  ? 'bg-themed-accent-soft/70 text-themed-accent-text'
+                  : 'text-content-secondary hover:bg-surface-tertiary/40 hover:text-content-primary'
               }`}
             >
               {icon}
@@ -328,11 +368,7 @@ function GeneralTab({
         />
       </div>
 
-      <InfoBanner variant={draft.execution_access_mode === 'full_access' ? 'warning' : 'success'}>
-        {draft.execution_access_mode === 'full_access'
-          ? 'Full Access 模式下 Claude / Codex 会跳过权限限制，自动执行更激进，但风险也更高。'
-          : 'Sandbox 模式下优先使用受限权限。审查型任务保持只读，不受此设置影响。'}
-      </InfoBanner>
+      <TipsCarousel />
     </div>
   );
 }

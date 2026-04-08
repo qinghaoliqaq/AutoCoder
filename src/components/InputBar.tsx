@@ -78,87 +78,79 @@ export default function InputBar({
     qa: 'QA acceptance in progress — Director is judging readiness from the collected evidence...',
   };
 
-  return (
-    <div className="flex flex-col gap-2 relative z-50">
-      <div className={`relative flex flex-col gap-1.5 p-1.5 sm:p-2 glass-panel transition-all rounded-3xl
-                      ${directorReady ? 'focus-within:border-themed-accent/40 focus-within:ring-4 focus-within:ring-themed-accent/10 shadow-[0_4px_30px_rgb(var(--bg-primary)/0.1)]'
-          : 'border-rose-400/40 bg-rose-50/30 shadow-none'}`}
-        style={!directorReady ? { backgroundColor: 'rgb(var(--bg-primary) / 0.5)' } : undefined}
-      >
+  const hasInput = input.trim().length > 0;
 
+  return (
+    <div className="flex flex-col gap-1.5 relative z-50">
+      <div
+        className={`relative flex flex-col rounded-2xl border transition-all duration-200 ${
+          directorReady
+            ? 'border-edge-primary/40 bg-surface-secondary/50 backdrop-blur-2xl shadow-[0_2px_20px_rgb(var(--bg-primary)/0.08)] focus-within:border-themed-accent/40 focus-within:shadow-[0_2px_24px_rgb(var(--accent)/0.1)]'
+            : 'border-rose-400/30 bg-rose-50/20'
+        }`}
+      >
         {mode !== 'chat' && (
-          <div className="flex flex-wrap items-start justify-between gap-1.5 px-1">
-            <div className="self-start flex items-center gap-1.5 px-2.5 py-1.5 glass-button rounded-lg">
-              <span className="text-[10px] text-content-tertiary uppercase tracking-wider font-semibold">skill</span>
-              <span className="text-[11px] font-bold text-themed-accent-text flex items-center gap-1.5">
-                {MODES.find(m => m.id === mode)?.icon} {mode.toUpperCase()}
-              </span>
-              <span className="text-[10px] text-content-tertiary italic ml-1">by Director</span>
-            </div>
+          <div className="flex items-center gap-1.5 px-4 pt-2.5">
+            <span className="text-[10px] text-content-tertiary uppercase tracking-wider font-semibold">skill</span>
+            <span className="text-[11px] font-bold text-themed-accent-text flex items-center gap-1">
+              {MODES.find(m => m.id === mode)?.icon} {mode.toUpperCase()}
+            </span>
           </div>
         )}
 
-        <div className="flex items-end px-1 relative">
-          <div className="flex-1 relative">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                handleInput();
-              }}
-              onCompositionStart={() => {
-                isComposingRef.current = true;
-              }}
-              onCompositionEnd={() => {
-                isComposingRef.current = false;
-                lastCompositionEndAtRef.current = Date.now();
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder={directorReady ? placeholders[mode] : 'Use the model settings button in the top bar to configure Director...'}
-              disabled={!directorReady || isRunning}
-              rows={1}
-              className="custom-scrollbar w-full resize-none border-none bg-transparent py-2 text-[14px] leading-6 text-content-primary placeholder-content-tertiary transition-all
-                       sm:text-[15px]
-                       focus:ring-0 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed
-                       "
-              style={{ minHeight: '32px', maxHeight: '400px' }}
-            />
-          </div>
+        <div className="flex items-end gap-2 px-4 py-2.5">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              handleInput();
+            }}
+            onCompositionStart={() => { isComposingRef.current = true; }}
+            onCompositionEnd={() => {
+              isComposingRef.current = false;
+              lastCompositionEndAtRef.current = Date.now();
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder={directorReady ? placeholders[mode] : 'Use the model settings button in the top bar to configure Director...'}
+            disabled={!directorReady || isRunning}
+            rows={1}
+            className="custom-scrollbar flex-1 resize-none border-none bg-transparent text-[14px] leading-6 text-content-primary placeholder-content-tertiary
+                     sm:text-[15px] focus:ring-0 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ minHeight: '28px', maxHeight: '400px' }}
+          />
 
-          <div className="flex-shrink-0 flex items-center justify-center pl-3 pb-0.5">
-            {isRunning ? (
-              <button
-                onClick={onStop}
-                disabled={isStopping}
-                className="w-10 h-10 flex items-center justify-center rounded-full text-rose-500 transition-all shadow-sm active:scale-95 backdrop-blur-sm border border-rose-300/40"
-                style={{ backgroundColor: 'rgb(var(--bg-elevated) / 0.8)' }}
-                title={isStopping ? 'Stopping...' : 'Stop'}
-              >
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
-                  <rect x="3" y="3" width="10" height="10" rx="1.5" />
-                </svg>
-              </button>
-            ) : (
-              <button
-                onClick={handleSubmit}
-                disabled={!input.trim() || !directorReady}
-                className={`w-10 h-10 flex items-center justify-center rounded-full transition-all active:scale-95 backdrop-blur-sm
-                        ${(!input.trim() || !directorReady) ? 'text-content-tertiary border border-edge-primary/50' : 'bg-themed-accent text-white shadow-md hover:opacity-90'}
-                        disabled:opacity-50 disabled:cursor-not-allowed`}
-                style={(!input.trim() || !directorReady) ? { backgroundColor: 'rgb(var(--bg-elevated) / 0.5)' } : undefined}
-                title="Send (Enter)"
-              >
-                <svg className="w-5 h-5 ml-[2px]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
-                </svg>
-              </button>
-            )}
-          </div>
+          {isRunning ? (
+            <button
+              onClick={onStop}
+              disabled={isStopping}
+              className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-rose-500 border border-rose-300/30 transition-all active:scale-95 hover:bg-rose-500/10"
+              title={isStopping ? 'Stopping...' : 'Stop'}
+            >
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
+                <rect x="3" y="3" width="10" height="10" rx="1.5" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={handleSubmit}
+              disabled={!hasInput || !directorReady}
+              className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all active:scale-95 ${
+                hasInput && directorReady
+                  ? 'bg-themed-accent text-white shadow-sm hover:opacity-90'
+                  : 'text-content-tertiary/40'
+              } disabled:cursor-not-allowed`}
+              title="Send (Enter)"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-3 px-3">
+      <div className="flex items-center justify-between gap-3 px-2">
         {configStatus ? (
           <AccessModeToggle
             mode={configStatus.execution_access_mode}
@@ -169,12 +161,12 @@ export default function InputBar({
         ) : (
           <div />
         )}
-        <div className="text-[10px] text-content-tertiary flex items-center gap-2 tabular-nums select-none">
-          <kbd className="rounded border border-edge-primary/60 bg-surface-tertiary/60 px-1 py-0.5 font-mono text-[9px]">Enter</kbd>
-          <span>Send</span>
-          <span className="text-edge-primary">|</span>
-          <kbd className="rounded border border-edge-primary/60 bg-surface-tertiary/60 px-1 py-0.5 font-mono text-[9px]">Shift+Enter</kbd>
-          <span>Newline</span>
+        <div className="text-[10px] text-content-tertiary/60 flex items-center gap-1.5 select-none">
+          <kbd className="rounded border border-edge-primary/40 px-1 py-0.5 font-mono text-[9px]">↵</kbd>
+          <span>发送</span>
+          <span className="mx-0.5">·</span>
+          <kbd className="rounded border border-edge-primary/40 px-1 py-0.5 font-mono text-[9px]">⇧↵</kbd>
+          <span>换行</span>
         </div>
       </div>
     </div>
