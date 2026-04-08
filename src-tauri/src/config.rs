@@ -94,7 +94,7 @@ pub struct AgentConfig {
     /// Leave empty to use Anthropic's default endpoint.
     #[serde(default)]
     pub base_url: String,
-    /// Model to use for skill execution (e.g. "claude-sonnet-4-6").
+    /// Model to use for skill execution (e.g. "claude-sonnet-4-0").
     #[serde(default = "default_agent_model")]
     pub model: String,
     /// Provider: "anthropic" (default), "bedrock", "vertex", "foundry".
@@ -235,6 +235,7 @@ impl AppConfig {
     pub fn load() -> Self {
         let mut cfg = Self::load_persisted().unwrap_or_default();
         Self::apply_env_overrides(&mut cfg);
+        normalize_agent_config(&mut cfg.agent);
         cfg
     }
 
@@ -356,6 +357,8 @@ impl AppConfig {
     }
 
     pub fn draft(&self) -> ConfigDraft {
+        let mut agent = self.agent.clone();
+        normalize_agent_config(&mut agent);
         ConfigDraft {
             api_key: self.director.api_key.clone(),
             base_url: self.director.base_url.clone(),
@@ -364,14 +367,14 @@ impl AppConfig {
             vendored_skills: self.features.vendored_skills,
             max_parallel_subtasks: self.features.parallel_subtask_limit(),
             execution_access_mode: self.features.execution_access_mode,
-            agent_provider: self.agent.provider.clone(),
-            agent_api_key: self.agent.api_key.clone(),
-            agent_base_url: self.agent.base_url.clone(),
-            agent_model: self.agent.model.clone(),
-            agent_second_provider: self.agent.second_provider.clone(),
-            agent_second_api_key: self.agent.second_api_key.clone(),
-            agent_second_base_url: self.agent.second_base_url.clone(),
-            agent_second_model: self.agent.second_model.clone(),
+            agent_provider: agent.provider.clone(),
+            agent_api_key: agent.api_key.clone(),
+            agent_base_url: agent.base_url.clone(),
+            agent_model: agent.model.clone(),
+            agent_second_provider: agent.second_provider.clone(),
+            agent_second_api_key: agent.second_api_key.clone(),
+            agent_second_base_url: agent.second_base_url.clone(),
+            agent_second_model: agent.second_model.clone(),
         }
     }
 
@@ -388,7 +391,7 @@ impl AppConfig {
             return Err("Model cannot be empty".to_string());
         }
 
-        let cfg = AppConfig {
+        let mut cfg = AppConfig {
             director: DirectorConfig {
                 api_key,
                 base_url,
@@ -405,22 +408,15 @@ impl AppConfig {
             agent: AgentConfig {
                 api_key: draft.agent_api_key.trim().to_string(),
                 base_url: draft.agent_base_url.trim().to_string(),
-                model: if draft.agent_model.trim().is_empty() {
-                    default_agent_model()
-                } else {
-                    draft.agent_model.trim().to_string()
-                },
-                provider: if draft.agent_provider.trim().is_empty() {
-                    default_provider()
-                } else {
-                    draft.agent_provider.trim().to_lowercase()
-                },
+                model: draft.agent_model.trim().to_string(),
+                provider: draft.agent_provider.trim().to_lowercase(),
                 second_provider: draft.agent_second_provider.trim().to_lowercase(),
                 second_api_key: draft.agent_second_api_key.trim().to_string(),
                 second_base_url: draft.agent_second_base_url.trim().to_string(),
                 second_model: draft.agent_second_model.trim().to_string(),
             },
         };
+        normalize_agent_config(&mut cfg.agent);
 
         let path = writable_config_path()?;
         let content = toml::to_string_pretty(&cfg)
@@ -499,7 +495,7 @@ fn default_context_budget() -> usize {
 }
 
 fn default_agent_model() -> String {
-    "claude-sonnet-4-6".to_string()
+    "claude-sonnet-4-0".to_string()
 }
 
 fn default_provider() -> String {
@@ -512,6 +508,51 @@ fn default_max_parallel_subtasks() -> usize {
 
 fn clamp_parallel_subtasks(value: usize) -> usize {
     value.clamp(1, MAX_PARALLEL_SUBTASKS_CAP)
+}
+
+fn normalize_agent_config(agent: &mut AgentConfig) {
+    normalize_agent_identity(&mut agent.provider, &mut agent.base_url, &mut agent.model, None);
+    let fallback_provider = if agent.second_provider.trim().is_empty() {
+        Some(agent.provider.as_str())
+    } else {
+        None
+    };
+    normalize_agent_identity(
+        &mut agent.second_provider,
+        &mut agent.second_base_url,
+        &mut agent.second_model,
+        fallback_provider,
+    );
+}
+
+fn normalize_agent_identity(
+    provider: &mut String,
+    base_url: &mut String,
+    model: &mut String,
+    fallback_provider: Option<&str>,
+) {
+    let effective_provider = if provider.trim().is_empty() {
+        fallback_provider.unwrap_or("")
+    } else {
+        provider.as_str()
+    }
+    .trim()
+    .to_lowercase();
+
+    if effective_provider.is_empty() || effective_provider == "anthropic" {
+        return;
+    }
+
+    if is_legacy_claude_default(model.trim()) {
+        model.clear();
+    }
+    if base_url.trim() == "https://api.anthropic.com/v1" {
+        base_url.clear();
+    }
+}
+
+fn is_legacy_claude_default(model: &str) -> bool {
+    matches!(model, "claude-sonnet-4-6" | "claude-sonnet-4-0")
 }
 
 fn parse_bool(value: &str) -> Option<bool> {
@@ -566,5 +607,25 @@ mod tests {
             Some(ExecutionAccessMode::FullAccess)
         );
         assert_eq!(parse_execution_access_mode("nope"), None);
+    }
+
+    #[test]
+    fn normalize_agent_config_clears_legacy_claude_defaults_for_other_providers() {
+        let mut agent = AgentConfig {
+            api_key: "x".to_string(),
+            base_url: "https://api.anthropic.com/v1".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            provider: "minimax".to_string(),
+            second_provider: String::new(),
+            second_api_key: String::new(),
+            second_base_url: String::new(),
+            second_model: "claude-sonnet-4-0".to_string(),
+        };
+
+        normalize_agent_config(&mut agent);
+
+        assert!(agent.base_url.is_empty());
+        assert!(agent.model.is_empty());
+        assert!(agent.second_model.is_empty());
     }
 }

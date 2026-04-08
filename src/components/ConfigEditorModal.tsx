@@ -60,27 +60,35 @@ const TIPS = [
 ];
 
 function TipsCarousel() {
-  const [index, setIndex] = useState(() => Math.floor(Math.random() * TIPS.length));
-  const [fade, setFade] = useState(true);
+  const [displayIndex, setDisplayIndex] = useState(() => Math.floor(Math.random() * TIPS.length));
+  const [fadingOut, setFadingOut] = useState(false);
+  // nextIndex is the tip waiting to be shown after fade-out completes
+  const nextIndex = (displayIndex + 1) % TIPS.length;
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setFade(false);
-      setTimeout(() => {
-        setIndex((i) => (i + 1) % TIPS.length);
-        setFade(true);
-      }, 300);
+      // Start fade-out
+      setFadingOut(true);
     }, 5000);
     return () => clearInterval(timer);
-  }, []);
+  }, [displayIndex]);
+
+  const handleTransitionEnd = () => {
+    if (fadingOut) {
+      // Fade-out done — swap content and fade back in
+      setDisplayIndex(nextIndex);
+      setFadingOut(false);
+    }
+  };
 
   return (
     <div className="flex items-start gap-2.5 rounded-xl border border-edge-primary/30 bg-surface-secondary/30 px-4 py-2.5">
       <Lightbulb className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-amber-500/70" />
       <span
-        className={`text-[11px] leading-5 text-content-secondary transition-opacity duration-300 ${fade ? 'opacity-100' : 'opacity-0'}`}
+        className={`text-[11px] leading-5 text-content-secondary transition-opacity duration-300 ${fadingOut ? 'opacity-0' : 'opacity-100'}`}
+        onTransitionEnd={handleTransitionEnd}
       >
-        {TIPS[index]}
+        {TIPS[displayIndex]}
       </span>
     </div>
   );
@@ -282,7 +290,7 @@ function GeneralTab({
             type="text"
             value={draft.model}
             onChange={(e) => update('model', e.target.value)}
-            placeholder="gpt-4o / claude-sonnet-4-6 / MiniMax-M2.5"
+            placeholder="gpt-4o / claude-sonnet-4-0 / MiniMax-M1"
             className={inputClass}
           />
         </FieldGroup>
@@ -375,6 +383,33 @@ function GeneralTab({
 
 // ── Tab: Agent ───────────────────────────────────────────────────────────────
 
+type ConnectionStatus = 'idle' | 'testing' | 'success' | 'error';
+
+interface AgentIdentityValues {
+  provider: string;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
+function resolvePrimaryIdentity(draft: ConfigDraft): AgentIdentityValues {
+  return {
+    provider: draft.agent_provider,
+    apiKey: draft.agent_api_key,
+    baseUrl: draft.agent_base_url,
+    model: draft.agent_model,
+  };
+}
+
+function resolveSecondIdentity(draft: ConfigDraft): AgentIdentityValues {
+  return {
+    provider: draft.agent_second_provider || draft.agent_provider,
+    apiKey: draft.agent_second_api_key || draft.agent_api_key,
+    baseUrl: draft.agent_second_base_url || draft.agent_base_url,
+    model: draft.agent_second_model || draft.agent_model,
+  };
+}
+
 function AgentTab({
   draft,
   update,
@@ -382,26 +417,100 @@ function AgentTab({
   draft: ConfigDraft;
   update: <K extends keyof ConfigDraft>(key: K, value: ConfigDraft[K]) => void;
 }) {
-  const providerLabel = AGENT_PROVIDERS.find(p => p.value === draft.agent_provider)?.label ?? draft.agent_provider;
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const primary = resolvePrimaryIdentity(draft);
+  const second = resolveSecondIdentity(draft);
+
+  return (
+    <div className="space-y-5">
+      <SectionHeading
+        title="智能体执行层"
+        description="配置后，技能（代码、调试、测试等）将通过 API 直接执行。本地工具（Bash、编辑器等）完全免费运行。"
+      />
+
+      <AgentIdentityCard
+        title="主身份 (Claude)"
+        description="编码、方案起草阶段使用的模型。请参考右侧链接中的模型名称手动输入。"
+        raw={primary}
+        effective={primary}
+        providerHint={undefined}
+        apiKeyHint={undefined}
+        modelHint="留空使用供应商默认模型"
+        baseUrlHint="留空使用供应商默认端点"
+        onProviderChange={(value) => update('agent_provider', value)}
+        onApiKeyChange={(value) => update('agent_api_key', value)}
+        onModelChange={(value) => update('agent_model', value)}
+        onBaseUrlChange={(value) => update('agent_base_url', value)}
+      />
+
+      <AgentIdentityCard
+        title="副身份 (Codex)"
+        description="审阅、诊断、测试、评估阶段使用的模型。留空则自动跟随主身份。"
+        raw={{
+          provider: draft.agent_second_provider,
+          apiKey: draft.agent_second_api_key,
+          baseUrl: draft.agent_second_base_url,
+          model: draft.agent_second_model,
+        }}
+        effective={second}
+        providerHint="留空跟随主身份"
+        apiKeyHint="留空跟随主身份 Key"
+        modelHint="留空跟随主身份模型"
+        baseUrlHint="留空跟随主身份端点"
+        onProviderChange={(value) => update('agent_second_provider', value)}
+        onApiKeyChange={(value) => update('agent_second_api_key', value)}
+        onModelChange={(value) => update('agent_second_model', value)}
+        onBaseUrlChange={(value) => update('agent_second_base_url', value)}
+      />
+
+    </div>
+  );
+}
+
+function AgentIdentityCard({
+  title,
+  description,
+  raw,
+  effective,
+  providerHint,
+  apiKeyHint,
+  modelHint,
+  baseUrlHint,
+  onProviderChange,
+  onApiKeyChange,
+  onModelChange,
+  onBaseUrlChange,
+}: {
+  title: string;
+  description: string;
+  raw: AgentIdentityValues;
+  effective: AgentIdentityValues;
+  providerHint?: string;
+  apiKeyHint?: string;
+  modelHint?: string;
+  baseUrlHint?: string;
+  onProviderChange: (value: string) => void;
+  onApiKeyChange: (value: string) => void;
+  onModelChange: (value: string) => void;
+  onBaseUrlChange: (value: string) => void;
+}) {
+  const [testStatus, setTestStatus] = useState<ConnectionStatus>('idle');
   const [testMessage, setTestMessage] = useState('');
 
+  useEffect(() => {
+    setTestStatus('idle');
+    setTestMessage('');
+  }, [effective.provider, effective.apiKey, effective.baseUrl, effective.model]);
+
   const handleTestConnection = async () => {
-    if (!draft.agent_provider || !draft.agent_api_key) return;
+    if (!effective.provider || !effective.apiKey) return;
     setTestStatus('testing');
     setTestMessage('');
-
-    // Determine the actual base_url and model based on provider defaults
-    const model = draft.agent_model || 'claude-sonnet-4-6';
-    const baseUrl = draft.agent_base_url || 'https://api.anthropic.com/v1';
-    const format = draft.agent_provider === 'anthropic' ? 'anthropic' : 'openai';
-
     try {
-      const result = await invoke<string>('test_api_connection', {
-        apiKey: draft.agent_api_key,
-        baseUrl,
-        model,
-        apiFormat: format,
+      const result = await invoke<string>('test_agent_connection', {
+        provider: effective.provider,
+        apiKey: effective.apiKey,
+        baseUrl: effective.baseUrl,
+        model: effective.model,
       });
       setTestStatus('success');
       setTestMessage(result);
@@ -411,63 +520,76 @@ function AgentTab({
     }
   };
 
+  // Doc link for the selected provider
+  const selectedProvider = AGENT_PROVIDERS.find(p => p.value === effective.provider);
+  const docUrl = selectedProvider?.doc_url ?? null;
+
   return (
-    <div className="space-y-5">
-      <SectionHeading
-        title="智能体执行层"
-        description="配置后，技能（代码、调试、测试等）将通过 API 直接执行。本地工具（Bash、编辑器等）完全免费运行。"
-      />
+    <div className="space-y-4 rounded-2xl border border-edge-primary/40 bg-surface-elevated/20 px-4 py-4">
+      <SectionHeading title={title} description={description} />
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <FieldGroup label="供应商">
-          <ProviderSelect
-            value={draft.agent_provider}
-            onChange={(value) => update('agent_provider', value)}
-          />
+        <FieldGroup label="供应商" hint={providerHint}>
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <ProviderSelect
+                value={raw.provider}
+                onChange={onProviderChange}
+              />
+            </div>
+            {docUrl && (
+              <a
+                href={docUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-shrink-0 text-[11px] text-sky-500 hover:text-sky-400 transition-colors"
+                title="查看模型列表"
+              >
+                📄 模型文档
+              </a>
+            )}
+          </div>
         </FieldGroup>
 
-        <FieldGroup label="API Key">
+        <FieldGroup label="API Key" hint={apiKeyHint}>
           <input
             type="password"
-            value={draft.agent_api_key}
-            onChange={(e) => update('agent_api_key', e.target.value)}
-            placeholder={draft.agent_provider ? '输入供应商 API Key' : '请先选择供应商'}
-            disabled={!draft.agent_provider}
+            value={raw.apiKey}
+            onChange={(e) => onApiKeyChange(e.target.value)}
+            placeholder={raw.provider || effective.provider ? '输入供应商 API Key' : '请先选择供应商'}
+            disabled={!raw.provider && !effective.provider}
             className={`${inputClass} disabled:opacity-50 disabled:cursor-not-allowed`}
           />
         </FieldGroup>
 
-        <FieldGroup label="Model" hint="主身份 (Claude)：编码 / 方案起草">
+        <FieldGroup label="Model" hint={modelHint}>
           <input
             type="text"
-            value={draft.agent_model}
-            onChange={(e) => update('agent_model', e.target.value)}
-            placeholder="使用供应商默认模型"
-            disabled={!draft.agent_provider}
+            value={raw.model}
+            onChange={(e) => onModelChange(e.target.value)}
+            placeholder="请手动输入模型名称"
+            disabled={!raw.provider && !effective.provider}
             className={`${inputClass} disabled:opacity-50 disabled:cursor-not-allowed`}
           />
         </FieldGroup>
 
-        <div className="sm:col-span-2">
-          <FieldGroup label="Base URL" hint="留空用默认">
-            <input
-              type="text"
-              value={draft.agent_base_url}
-              onChange={(e) => update('agent_base_url', e.target.value)}
-              placeholder="使用供应商默认端点"
-              disabled={!draft.agent_provider}
-              className={`${inputClass} disabled:opacity-50 disabled:cursor-not-allowed`}
-            />
-          </FieldGroup>
-        </div>
+        <FieldGroup label="Base URL" hint={baseUrlHint}>
+          <input
+            type="text"
+            value={raw.baseUrl}
+            onChange={(e) => onBaseUrlChange(e.target.value)}
+            placeholder="使用供应商默认端点"
+            disabled={!raw.provider && !effective.provider}
+            className={`${inputClass} disabled:opacity-50 disabled:cursor-not-allowed`}
+          />
+        </FieldGroup>
       </div>
 
-      {/* Connectivity Test */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={handleTestConnection}
-          disabled={testStatus === 'testing' || !draft.agent_provider || !draft.agent_api_key}
+          disabled={testStatus === 'testing' || !effective.provider || !effective.apiKey}
           className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-themed-accent-text glass-button disabled:cursor-not-allowed disabled:opacity-50"
         >
           {testStatus === 'testing' ? (
@@ -490,69 +612,9 @@ function AgentTab({
         )}
       </div>
 
-      <div className="h-px bg-edge-primary/40" />
-
-      {/* ── Second Identity (Codex) ─────────────────────────────── */}
-      <SectionHeading
-        title="副身份 (Codex)"
-        description="审阅、诊断、测试、评估阶段使用的模型。留空则复用主身份配置。"
-      />
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FieldGroup label="供应商" hint="留空跟随主身份">
-          <ProviderSelect
-            value={draft.agent_second_provider}
-            onChange={(value) => update('agent_second_provider', value)}
-          />
-        </FieldGroup>
-
-        <FieldGroup label="API Key" hint="留空跟随主身份">
-          <input
-            type="password"
-            value={draft.agent_second_api_key}
-            onChange={(e) => update('agent_second_api_key', e.target.value)}
-            placeholder="留空则使用主身份 Key"
-            className={inputClass}
-          />
-        </FieldGroup>
-
-        <FieldGroup label="Model" hint="留空跟随主身份">
-          <input
-            type="text"
-            value={draft.agent_second_model}
-            onChange={(e) => update('agent_second_model', e.target.value)}
-            placeholder="留空则使用主身份模型"
-            className={inputClass}
-          />
-        </FieldGroup>
-
-        <FieldGroup label="Base URL" hint="留空跟随主身份">
-          <input
-            type="text"
-            value={draft.agent_second_base_url}
-            onChange={(e) => update('agent_second_base_url', e.target.value)}
-            placeholder="留空则使用主身份端点"
-            className={inputClass}
-          />
-        </FieldGroup>
-      </div>
-
-      {/* Status banners */}
-      {draft.agent_provider && !draft.agent_api_key && (
-        <InfoBanner variant="warning">
-          需要填写 API Key 才能启用 Agent 执行层。
-        </InfoBanner>
-      )}
-
-      {draft.agent_provider && draft.agent_api_key && testStatus === 'idle' && (
-        <InfoBanner variant="success">
-          已配置 — 技能将通过 {providerLabel} API 执行。点击「测试连通性」验证配置是否正确。
-        </InfoBanner>
-      )}
-
-      {!draft.agent_provider && (
+      {!effective.provider && (
         <InfoBanner variant="info">
-          选择供应商并填写 API Key 后即可启用智能体执行。
+          请从上方选择供应商，并在模型文档链接中确认可用的模型名称。
         </InfoBanner>
       )}
     </div>

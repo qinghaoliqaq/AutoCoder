@@ -40,11 +40,11 @@ api_format = "openai"
 #
 #   provider       | default endpoint                              | default model          | wire format
 #   ───────────────┼───────────────────────────────────────────────┼────────────────────────┼───────────
-#   anthropic      | https://api.anthropic.com/v1                  | claude-sonnet-4-6      | Anthropic
+#   anthropic      | https://api.anthropic.com/v1                  | claude-sonnet-4-0      | Anthropic
 #   openai / codex | https://api.openai.com/v1                     | gpt-4o                 | OpenAI
 #   deepseek       | https://api.deepseek.com                      | deepseek-chat          | OpenAI
 #   zhipu / glm    | https://open.bigmodel.cn/api/paas/v4          | glm-4-plus             | OpenAI
-#   minimax        | https://api.minimax.chat/v1                   | MiniMax-Text-01        | OpenAI
+#   minimax        | https://api.minimax.io/v1                     | MiniMax-Text-01        | OpenAI
 #   moonshot / kimi| https://api.moonshot.cn/v1                    | moonshot-v1-128k       | OpenAI
 #   yi / 01ai      | https://api.lingyiwanwu.com/v1                | yi-large               | OpenAI
 #   baichuan       | https://api.baichuan-ai.com/v1                | Baichuan4              | OpenAI
@@ -52,7 +52,7 @@ api_format = "openai"
 #   groq           | https://api.groq.com/openai/v1                | llama-3.3-70b-versatile| OpenAI
 #   together       | https://api.together.xyz/v1                   | Meta-Llama-3.1-70B-... | OpenAI
 #   fireworks      | https://api.fireworks.ai/inference/v1          | llama-v3p1-70b-instruct| OpenAI
-#   siliconflow    | https://api.siliconflow.cn/v1                 | Qwen/Qwen2.5-72B-...  | OpenAI
+#   siliconflow    | https://api.siliconflow.com/v1                | Qwen/Qwen2.5-72B-...  | OpenAI
 #
 # If base_url is empty, the provider's default endpoint is used.
 # If model is empty, the provider's default model is used.

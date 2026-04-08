@@ -20,6 +20,7 @@ use prompts::Prompts;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
+use tool_runner::providers::{self, ResolvedProviderInfo};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -315,6 +316,45 @@ async fn test_api_connection(
     model: String,
     api_format: String,
 ) -> Result<String, String> {
+    let provider = if api_format == "anthropic" {
+        providers::ProviderConfig::from_fields("anthropic", &api_key, &base_url, &model)
+    } else {
+        providers::ProviderConfig::from_fields("openai", &api_key, &base_url, &model)
+    };
+    send_test_request(&provider).await
+}
+
+#[tauri::command]
+async fn test_agent_connection(
+    provider: String,
+    api_key: String,
+    base_url: String,
+    model: String,
+) -> Result<String, String> {
+    let provider = providers::ProviderConfig::from_fields(&provider, &api_key, &base_url, &model);
+    send_test_request(&provider).await
+}
+
+#[tauri::command]
+fn resolve_agent_provider(
+    provider: String,
+    api_key: String,
+    base_url: String,
+    model: String,
+) -> ResolvedProviderInfo {
+    providers::ProviderConfig::from_fields(&provider, &api_key, &base_url, &model).to_resolved_info()
+}
+
+
+fn truncate_error(text: &str) -> String {
+    if text.len() > 200 {
+        format!("{}...", &text[..200])
+    } else {
+        text.to_string()
+    }
+}
+
+async fn send_test_request(provider: &providers::ProviderConfig) -> Result<String, String> {
     use reqwest::Client;
 
     let client = Client::builder()
@@ -322,24 +362,23 @@ async fn test_api_connection(
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
-    let is_anthropic = api_format == "anthropic";
-    let base = base_url.trim_end_matches('/');
-
     let body = serde_json::json!({
-        "model": model,
+        "model": provider.model,
         "max_tokens": 8,
         "messages": [{"role": "user", "content": "Hi"}],
     });
 
-    let request = if is_anthropic {
-        client
-            .post(format!("{base}/messages"))
-            .header("x-api-key", &api_key)
-            .header("anthropic-version", "2023-06-01")
-    } else {
-        client
-            .post(format!("{base}/chat/completions"))
-            .header("Authorization", format!("Bearer {api_key}"))
+    let request = match provider.wire {
+        providers::WireFormat::Anthropic => client
+            .post(format!("{}/messages", provider.base_url.trim_end_matches('/')))
+            .header("x-api-key", &provider.api_key)
+            .header("anthropic-version", "2023-06-01"),
+        providers::WireFormat::OpenAI => client
+            .post(format!(
+                "{}/chat/completions",
+                provider.base_url.trim_end_matches('/')
+            ))
+            .header("Authorization", format!("Bearer {}", provider.api_key)),
     };
 
     let resp = request
@@ -353,24 +392,11 @@ async fn test_api_connection(
     let text = resp.text().await.unwrap_or_default();
 
     if status.is_success() {
-        let provider = if is_anthropic {
-            "Anthropic"
-        } else {
-            "OpenAI-compatible"
-        };
-        Ok(format!("连接成功 ({provider} {model})"))
+        Ok(format!("连接成功 ({} {})", provider.name, provider.model))
     } else if status.as_u16() == 401 {
         Err("API Key 无效 (401 Unauthorized)".to_string())
     } else {
         Err(format!("API 返回 {status}: {}", truncate_error(&text)))
-    }
-}
-
-fn truncate_error(text: &str) -> String {
-    if text.len() > 200 {
-        format!("{}...", &text[..200])
-    } else {
-        text.to_string()
     }
 }
 
@@ -483,6 +509,8 @@ pub fn run() {
             evidence_digest,
             evidence_subtask_context,
             test_api_connection,
+            test_agent_connection,
+            resolve_agent_provider,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

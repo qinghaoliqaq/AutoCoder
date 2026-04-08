@@ -44,22 +44,29 @@ export interface ConfigDraft {
   agent_second_model: string;
 }
 
+export interface ResolvedProviderInfo {
+  provider: string;
+  base_url: string;
+  model: string;
+  api_format: 'openai' | 'anthropic';
+}
+
 /** Supported agent providers for the UI dropdown. */
-export const AGENT_PROVIDERS = [
-  { value: '',           label: '未配置 (Not configured)' },
-  { value: 'anthropic',  label: 'Anthropic Claude' },
-  { value: 'openai',     label: 'OpenAI' },
-  { value: 'deepseek',   label: 'DeepSeek' },
-  { value: 'zhipu',      label: '智谱 GLM' },
-  { value: 'minimax',    label: 'MiniMax' },
-  { value: 'moonshot',   label: '月之暗面 Moonshot' },
-  { value: 'qwen',       label: '通义千问 Qwen' },
-  { value: 'yi',         label: '零一万物 Yi' },
-  { value: 'baichuan',   label: '百川 Baichuan' },
-  { value: 'groq',       label: 'Groq' },
-  { value: 'together',   label: 'Together AI' },
-  { value: 'fireworks',  label: 'Fireworks AI' },
-  { value: 'siliconflow',label: '硅基流动 SiliconFlow' },
+export const AGENT_PROVIDERS: readonly { value: string; label: string; doc_url: string | null }[] = [
+  { value: '',            label: '未配置 (Not configured)',     doc_url: null },
+  { value: 'anthropic',   label: 'Anthropic Claude',             doc_url: 'https://docs.anthropic.com/zh-CN/docs/models' },
+  { value: 'openai',      label: 'OpenAI',                       doc_url: 'https://platform.openai.com/docs/models' },
+  { value: 'deepseek',    label: 'DeepSeek',                     doc_url: 'https://platform.deepseek.com/docs/models' },
+  { value: 'zhipu',       label: '智谱 GLM',                     doc_url: 'https://open.bigmodel.cn/doc/api#chatglm' },
+  { value: 'minimax',     label: 'MiniMax',                      doc_url: 'https://www.minimaxi.com/document/Introduction' },
+  { value: 'moonshot',    label: '月之暗面 Moonshot',             doc_url: 'https://platform.moonshot.cn/docs/api/chat' },
+  { value: 'qwen',        label: '通义千问 Qwen',                 doc_url: 'https://help.aliyun.com/zh/dashscope/developer-reference' },
+  { value: 'yi',          label: '零一万物 Yi',                   doc_url: 'https://www.lingyiwanwu.com/docs' },
+  { value: 'baichuan',    label: '百川 Baichuan',                 doc_url: 'https://www.baichuan-ai.com/docs/api' },
+  { value: 'groq',        label: 'Groq',                          doc_url: 'https://console.groq.com/docs/models' },
+  { value: 'together',    label: 'Together AI',                   doc_url: 'https://docs.together.com/docs/models' },
+  { value: 'fireworks',   label: 'Fireworks AI',                  doc_url: 'https://docs.fireworks.ai/models' },
+  { value: 'siliconflow', label: '硅基流动 SiliconFlow',           doc_url: 'https://docs.siliconflow.cn' },
 ] as const;
 
 export interface ChatMessage {

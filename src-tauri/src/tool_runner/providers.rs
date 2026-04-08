@@ -2,9 +2,10 @@
 /// for each supported LLM provider.
 ///
 /// Adding a new provider:
-///   1. Add a variant to the match in `from_name()`
+///   1. Add a variant to the match in `provider_defaults()`
 ///   2. Set its default base_url and wire format
 ///   That's it — the loops in anthropic.rs / openai.rs handle the rest.
+use serde::Serialize;
 
 /// Wire format: how we talk to the API.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -25,6 +26,14 @@ pub struct ProviderConfig {
     pub wire: WireFormat,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ResolvedProviderInfo {
+    pub provider: String,
+    pub base_url: String,
+    pub model: String,
+    pub api_format: String,
+}
+
 impl ProviderConfig {
     /// Build a ProviderConfig from app config, resolving defaults.
     pub fn from_app_config(config: &crate::config::AppConfig) -> Self {
@@ -37,12 +46,47 @@ impl ProviderConfig {
         Self::resolve(config, true)
     }
 
+    pub fn from_fields(provider: &str, api_key: &str, base_url: &str, model: &str) -> Self {
+        let provider = if provider.trim().is_empty() {
+            "anthropic"
+        } else {
+            provider.trim()
+        };
+        let info = provider_defaults(provider);
+        Self {
+            name: provider.to_lowercase(),
+            base_url: if base_url.trim().is_empty() {
+                info.default_base_url.to_string()
+            } else {
+                base_url.trim().to_string()
+            },
+            api_key: api_key.trim().to_string(),
+            model: if model.trim().is_empty() {
+                info.default_model.to_string()
+            } else {
+                model.trim().to_string()
+            },
+            wire: info.wire,
+        }
+    }
+
+    pub fn to_resolved_info(&self) -> ResolvedProviderInfo {
+        ResolvedProviderInfo {
+            provider: self.name.clone(),
+            base_url: self.base_url.clone(),
+            model: self.model.clone(),
+            api_format: match self.wire {
+                WireFormat::Anthropic => "anthropic",
+                WireFormat::OpenAI => "openai",
+            }
+            .to_string(),
+        }
+    }
+
     fn resolve(config: &crate::config::AppConfig, use_second: bool) -> Self {
         let agent = &config.agent;
 
         if agent.is_configured() {
-            // Determine effective provider/key/url/model for this identity.
-            // Second identity fields fall back to primary when empty.
             let eff_provider = if use_second && !agent.second_provider.is_empty() {
                 &agent.second_provider
             } else {
@@ -64,6 +108,11 @@ impl ProviderConfig {
                 &agent.model
             };
 
+            let eff_provider = if eff_provider.trim().is_empty() {
+                "anthropic"
+            } else {
+                eff_provider
+            };
             let info = provider_defaults(eff_provider);
             let base_url = if eff_base_url_raw.is_empty() {
                 info.default_base_url.to_string()
@@ -83,7 +132,6 @@ impl ProviderConfig {
                 wire: info.wire,
             }
         } else {
-            // Fall back to director config
             let wire = match config.director.api_format {
                 crate::config::ApiFormat::OpenAI => WireFormat::OpenAI,
                 crate::config::ApiFormat::Anthropic => WireFormat::Anthropic,
@@ -113,7 +161,7 @@ fn provider_defaults(name: &str) -> ProviderInfo {
         "anthropic" => ProviderInfo {
             wire: WireFormat::Anthropic,
             default_base_url: "https://api.anthropic.com/v1",
-            default_model: "claude-sonnet-4-6",
+            default_model: "claude-sonnet-4-0",
         },
 
         // ── OpenAI ──────────────────────────────────────────────────────────
@@ -186,7 +234,7 @@ fn provider_defaults(name: &str) -> ProviderInfo {
             default_model: "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
         },
 
-        // ── Fireworks AI ────────────────────────────────────────────────────
+        // ── Fireworks AI ───────────────────────────────────────────────────
         "fireworks" => ProviderInfo {
             wire: WireFormat::OpenAI,
             default_base_url: "https://api.fireworks.ai/inference/v1",
@@ -196,7 +244,7 @@ fn provider_defaults(name: &str) -> ProviderInfo {
         // ── SiliconFlow (硅基流动) ──────────────────────────────────────────
         "siliconflow" => ProviderInfo {
             wire: WireFormat::OpenAI,
-            default_base_url: "https://api.siliconflow.cn/v1",
+            default_base_url: "https://api.siliconflow.com/v1",
             default_model: "Qwen/Qwen2.5-72B-Instruct",
         },
 
@@ -206,5 +254,18 @@ fn provider_defaults(name: &str) -> ProviderInfo {
             default_base_url: "https://api.openai.com/v1",
             default_model: "gpt-4o",
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_provider_defaults_from_fields() {
+        let config = ProviderConfig::from_fields("siliconflow", "", "", "");
+        assert_eq!(config.base_url, "https://api.siliconflow.com/v1");
+        assert_eq!(config.model, "Qwen/Qwen2.5-72B-Instruct");
+        assert_eq!(config.wire, WireFormat::OpenAI);
     }
 }
