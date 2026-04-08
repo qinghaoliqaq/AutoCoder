@@ -132,11 +132,13 @@ Current subtask:\n\
 Blackboard review findings to resolve:\n\
 {findings}\n\
 {extra}\n\
-Fix strategy:\n\
-- Address each finding above as a checklist item — do not skip any.\n\
+CRITICAL — Fix strategy (do NOT rewrite from scratch):\n\
+- Your workspace already contains the code from the PREVIOUS attempt. Do NOT delete or rewrite it wholesale.\n\
+- Read the existing files first, then make TARGETED edits to address each finding below.\n\
+- Address EACH finding above as a checklist item — do not skip any.\n\
 - If compile or type-check errors are listed, fix every error so the build passes cleanly.\n\
 - If a merge conflict is noted, restructure your changes to avoid conflicting with parallel subtask output.\n\
-- If previous approaches failed, try a fundamentally different strategy.\n\
+- If previous approaches failed, try a fundamentally different strategy — but still start from the current code.\n\
 \n\
 At the very end output exactly these lines:\n\
 SUBTASK_ID: {id}\n\
@@ -198,11 +200,11 @@ Current subtask:\n\
 {acceptance_block}\n\
 \n\
 Review standard:\n\
-- PASS if the subtask is implemented, wired correctly, and has no **blocking** correctness gap.\n\
+- PASS if the subtask is implemented correctly and completely, meets all acceptance criteria, and has no correctness or quality gaps.\n\
 - PASS if the implementation satisfies the structured acceptance requirements below when they are provided.\n\
-- PASS with findings for minor style issues, best-practice suggestions, or non-critical improvements — list them in REVIEW_FINDINGS but still PASS.\n\
-- FAIL **only** if required behavior is missing, there is a runtime crash/error, data loss risk, or a security vulnerability.\n\
-- Do NOT fail for: cosmetic issues, missing optional props defaults, naming preferences, minor code style, or theoretical edge cases that don't break functionality.\n\
+- FAIL if required behavior is missing, partially implemented, or incorrectly wired.\n\
+- FAIL if there is a runtime crash/error, data loss risk, or a security vulnerability.\n\
+- FAIL if the code has clear quality issues: wrong component usage, missing error handling where needed, broken UI/UX patterns, incorrect types or props.\n\
 - If the verifier flagged warnings above, confirm whether they are actual issues or false positives.\n\
 \n\
 At the very end output exactly this shape:\n\

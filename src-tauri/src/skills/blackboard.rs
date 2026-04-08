@@ -168,6 +168,18 @@ impl Blackboard {
                     SubtaskState::NeedsFix
                 };
             }
+            // Reset Failed subtasks so they can be retried when the user
+            // restarts the code skill.  Clear stale review findings because
+            // the isolated workspace is gone — keeping them would cause
+            // build_fix_prompt to tell Claude to "fix existing code" in a
+            // fresh empty workspace.  The attempted_fixes history is kept so
+            // Claude knows what approaches already failed.
+            if matches!(card.status, SubtaskState::Failed) {
+                card.attempts = 0;
+                card.review_findings.clear();
+                card.merge_conflict = None;
+                card.status = SubtaskState::Pending;
+            }
         }
 
         self.state = if self
@@ -176,8 +188,6 @@ impl Blackboard {
             .all(|card| matches!(card.status, SubtaskState::Done))
         {
             BoardState::Completed
-        } else if matches!(self.state, BoardState::Failed) {
-            BoardState::Failed
         } else {
             BoardState::Pending
         };

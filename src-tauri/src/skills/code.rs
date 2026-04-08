@@ -112,6 +112,9 @@ pub(super) async fn run(
     let mut launched_ids = HashSet::new();
     let mut active_subtasks = HashMap::<String, ActiveSubtaskMeta>::new();
 
+    // Track subtask failures without cancelling other workers.  Only a
+    // JoinSet panic (worker crash) is treated as truly fatal.
+
     let fatal_error = loop {
         spawn_ready_subtasks(
             &mut join_set,
@@ -142,6 +145,27 @@ pub(super) async fn run(
             {
                 break None;
             }
+            // Some subtasks are not done — check why.
+            let failed: Vec<_> = board
+                .subtasks
+                .iter()
+                .filter(|card| matches!(card.status, super::blackboard::SubtaskState::Failed))
+                .map(|card| card.id.clone())
+                .collect();
+            if !failed.is_empty() {
+                let done_count = board
+                    .subtasks
+                    .iter()
+                    .filter(|card| matches!(card.status, super::blackboard::SubtaskState::Done))
+                    .count();
+                break Some(format!(
+                    "Subtask(s) {} failed after exhausting retries. {}/{} subtasks completed successfully. \
+                     Tell me to continue and I will retry the failed ones.",
+                    failed.join(", "),
+                    done_count,
+                    total,
+                ));
+            }
             let blocked = board
                 .subtasks
                 .iter()
@@ -171,16 +195,31 @@ pub(super) async fn run(
         active_subtasks.remove(&subtask_id);
 
         if let Err(err) = result {
-            token.cancel();
-            break Some(err);
+            // Single subtask failure — log it but let other subtasks continue.
+            // The subtask is already marked Failed on the board by run_subtask.
+            tracing::warn!(
+                subtask = %subtask_id,
+                "Subtask exhausted retries: {err}"
+            );
+            let _ = emit_blackboard(
+                workspace,
+                app_handle,
+                window_label,
+                Some(subtask_id.clone()),
+                "subtask_failed",
+                format!("Subtask {} failed: {err}. Other subtasks continue.", subtask_id),
+            );
+            // The subtask is already marked Failed on the board.
+            // Do NOT cancel — let remaining subtasks finish.
         }
     };
 
+    // Drain any remaining workers (should only happen on JoinSet panic).
     while let Some(joined) = join_set.join_next().await {
         if fatal_error.is_none() {
-            let (_subtask_id, result) =
-                joined.map_err(|err| format!("Parallel subtask worker crashed: {err}"))?;
-            result?;
+            if let Ok((id, Err(err))) = joined {
+                tracing::warn!(subtask = %id, "Late subtask failure: {err}");
+            }
         }
     }
 
@@ -388,17 +427,47 @@ async fn run_subtask(
         total,
     };
 
+    // When a subtask fails review (Retry), we keep its isolated workspace so
+    // Claude can fix the existing code in-place instead of reimplementing from
+    // scratch.  Only transient errors (Err) get a fresh workspace.
+    let mut reuse_isolated: Option<IsolatedWorkspace> = None;
+
     loop {
         let attempt = mutate_board(&ctx.board, workspace, |board| {
             board.begin_attempt(&subtask_id)
         })
         .await?;
 
-        let isolated = create_isolated_workspace(workspace, &subtask_id, attempt)?;
-        mutate_board(&ctx.board, workspace, |board| {
-            board.set_isolated_workspace(&subtask_id, Some(isolated.root.display().to_string()))
-        })
-        .await?;
+        // Setup phase: create/reuse isolated workspace.  If any step fails,
+        // we must clean up the active-subtask tracking before propagating.
+        let isolated = match setup_isolated_workspace(
+            &ctx,
+            &subtask_id,
+            attempt,
+            reuse_isolated.take(),
+        )
+        .await
+        {
+            Ok(iso) => iso,
+            Err(e) => {
+                // Setup failed — remove from active set so the scheduler
+                // doesn't think we're still running.
+                let _ = mutate_board(&ctx.board, workspace, |board| {
+                    board.finish_active_subtask(&subtask_id);
+                    Ok(())
+                })
+                .await;
+                if attempt < MAX_SUBTASK_ATTEMPTS {
+                    tracing::warn!(
+                        subtask = %subtask_id,
+                        attempt,
+                        "Workspace setup failed, will retry fresh: {e}"
+                    );
+                    continue;
+                }
+                return Err(e);
+            }
+        };
 
         let attempt_result = run_single_attempt(&ctx, &subtask_id, attempt, &isolated).await;
 
@@ -417,9 +486,16 @@ async fn run_subtask(
         } else {
             None
         };
-        let cleanup_err = cleanup_isolated_workspace(&isolated.root)
-            .and_then(|()| cleanup_isolated_workspace(&isolated.base_dir))
-            .err();
+
+        // Only clean up the workspace when we won't reuse it.
+        let should_reuse = matches!(attempt_result, Ok(AttemptResolution::Retry));
+        let cleanup_err = if should_reuse {
+            None
+        } else {
+            cleanup_isolated_workspace(&isolated.root)
+                .and_then(|()| cleanup_isolated_workspace(&isolated.base_dir))
+                .err()
+        };
 
         if let Some(err) = clear_board_err.or(finish_active_err).or(cleanup_err) {
             return match attempt_result {
@@ -430,14 +506,18 @@ async fn run_subtask(
 
         match attempt_result {
             Ok(AttemptResolution::Completed) => return Ok(()),
-            Ok(AttemptResolution::Retry) => continue,
+            Ok(AttemptResolution::Retry) => {
+                // Keep the workspace so Claude fixes existing code next attempt.
+                reuse_isolated = Some(isolated);
+                continue;
+            }
             Err(e) if attempt < MAX_SUBTASK_ATTEMPTS => {
                 // Transient error (Claude/Codex crash, network issue, etc.) —
-                // retry instead of killing the subtask immediately.
+                // retry with a fresh workspace.
                 tracing::warn!(
                     subtask = %subtask_id,
                     attempt,
-                    "Subtask attempt errored, will retry: {e}"
+                    "Subtask attempt errored, will retry fresh: {e}"
                 );
                 let _ = emit_blackboard(
                     workspace,
@@ -455,6 +535,31 @@ async fn run_subtask(
             Err(e) => return Err(e),
         }
     }
+}
+
+/// Set up the isolated workspace for an attempt — create fresh or reuse previous.
+async fn setup_isolated_workspace(
+    ctx: &AttemptContext<'_>,
+    subtask_id: &str,
+    attempt: u32,
+    reuse: Option<IsolatedWorkspace>,
+) -> Result<IsolatedWorkspace, String> {
+    let isolated = if let Some(prev) = reuse {
+        tracing::info!(
+            subtask = %subtask_id,
+            attempt,
+            "Reusing previous isolated workspace for fix attempt"
+        );
+        sync_coordination_files(ctx.workspace, &prev.root)?;
+        prev
+    } else {
+        create_isolated_workspace(ctx.workspace, subtask_id, attempt)?
+    };
+    mutate_board(&ctx.board, ctx.workspace, |board| {
+        board.set_isolated_workspace(subtask_id, Some(isolated.root.display().to_string()))
+    })
+    .await?;
+    Ok(isolated)
 }
 
 /// Execute a single attempt of a subtask: implement → build gate → verify → review → merge.
@@ -838,7 +943,7 @@ async fn run_verification_phase(
     emit_blackboard(
         ctx.workspace, ctx.app_handle, ctx.window_label,
         Some(card.id.clone()), "needs_fix",
-        format!("Verifier rejected {} on attempt {}. Claude will retry in a fresh isolated workspace using the verifier findings.", card.id, attempt),
+        format!("Verifier rejected {} on attempt {}. Claude will fix the code in-place using the verifier findings.", card.id, attempt),
     )?;
     Ok(None)
 }
@@ -914,7 +1019,7 @@ async fn run_review_and_merge_phase(
     emit_blackboard(
         ctx.workspace, ctx.app_handle, ctx.window_label,
         Some(card.id.clone()), "needs_fix",
-        format!("Codex rejected {} on attempt {}. Claude will retry in a fresh isolated workspace using the shared blackboard findings.", card.id, attempt),
+        format!("Codex rejected {} on attempt {}. Claude will fix the existing code in-place using the shared blackboard findings.", card.id, attempt),
     )?;
     Ok(AttemptResolution::Retry)
 }
@@ -1001,7 +1106,7 @@ async fn apply_merge(
             emit_blackboard(
                 ctx.workspace, ctx.app_handle, ctx.window_label,
                 Some(card.id.clone()), "needs_fix",
-                format!("Subtask {} passed review but hit merge conflicts. Claude will retry from a fresh isolated workspace.", card.id),
+                format!("Subtask {} passed review but hit merge conflicts. Claude will fix the code in-place to resolve conflicts.", card.id),
             )?;
             Ok(AttemptResolution::Retry)
         }
