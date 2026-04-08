@@ -1,29 +1,24 @@
 pub(crate) mod bundled_skills;
 mod config;
-mod detect;
 mod director;
-pub(crate) mod errors;
-mod evidence;
 mod history;
 pub(crate) mod memory;
-mod planning_schema;
 mod prompts;
 mod skills;
 pub(crate) mod tool_runner;
 pub(crate) mod tools;
-mod verifier;
 mod workspace;
 
 use config::{AppConfig, ConfigDraft, ConfigStatus, ExecutionAccessMode};
-use detect::SystemStatus;
 use director::chat_with_director;
-use errors::SkillError;
 use prompts::Prompts;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
-use tool_runner::providers::{self, ResolvedProviderInfo};
 use tokio_util::sync::CancellationToken;
+use tool_runner::errors::SkillError;
+use tool_runner::providers::{self, ResolvedProviderInfo};
 use tracing::{info, warn};
 
 pub struct AppState {
@@ -37,9 +32,32 @@ pub struct AppState {
 
 // ── Tauri commands ─────────────────────────────────────────────────────────────
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SystemStatus {
+    pub api_configured: bool,
+    pub api_provider: String,
+    pub api_model: String,
+}
+
 #[tauri::command]
 fn detect_tools() -> SystemStatus {
-    detect::detect_tools()
+    let config = AppConfig::load();
+    let api_configured = config.agent.is_configured() || config.is_configured();
+    let api_provider = if config.agent.is_configured() {
+        config.agent.provider.clone()
+    } else {
+        format!("{:?}", config.director.api_format).to_lowercase()
+    };
+    let api_model = if config.agent.is_configured() {
+        config.agent.model.clone()
+    } else {
+        config.director.model.clone()
+    };
+    SystemStatus {
+        api_configured,
+        api_provider,
+        api_model,
+    }
 }
 
 #[tauri::command]

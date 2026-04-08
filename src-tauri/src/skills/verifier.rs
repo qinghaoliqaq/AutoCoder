@@ -1,4 +1,4 @@
-use crate::{planning_schema::SubtaskAcceptance, skills::blackboard::SubtaskCard};
+use super::{blackboard::SubtaskCard, planning_schema::SubtaskAcceptance};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -200,7 +200,7 @@ fn is_test_path(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::skills::blackboard::{SubtaskKind, SubtaskState};
+    use super::blackboard::{SubtaskKind, SubtaskState};
 
     fn sample_card() -> SubtaskCard {
         SubtaskCard {

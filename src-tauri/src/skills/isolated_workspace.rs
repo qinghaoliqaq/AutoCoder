@@ -3,7 +3,7 @@
 /// Provides fork/sync/cleanup of workspaces so each subtask works on its own
 /// copy without interfering with others or the main workspace.
 use super::blackboard::{BLACKBOARD_JSON, BLACKBOARD_MD};
-use crate::verifier::VERIFIER_RESULT_JSON;
+use super::verifier::VERIFIER_RESULT_JSON;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 

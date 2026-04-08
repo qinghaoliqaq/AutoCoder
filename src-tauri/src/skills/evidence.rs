@@ -1,8 +1,8 @@
-use crate::planning_schema::{PLAN_ACCEPTANCE_JSON, PLAN_GRAPH_JSON};
-use crate::skills::blackboard::{
+use super::planning_schema::{PLAN_ACCEPTANCE_JSON, PLAN_GRAPH_JSON};
+use super::blackboard::{
     Blackboard, BoardState, SubtaskCard, SubtaskKind, SubtaskState, BLACKBOARD_JSON, BLACKBOARD_MD,
 };
-use crate::verifier::VERIFIER_RESULT_JSON;
+use super::verifier::VERIFIER_RESULT_JSON;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -752,7 +752,7 @@ fn subtask_kind_label(kind: &SubtaskKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::skills::blackboard::{BoardState, SubtaskCard, SubtaskKind, SubtaskState};
+    use super::blackboard::{BoardState, SubtaskCard, SubtaskKind, SubtaskState};
 
     fn sample_board() -> Blackboard {
         Blackboard {

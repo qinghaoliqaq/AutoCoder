@@ -5,11 +5,8 @@
 ///   2. Add `mod <name>;` below
 ///   3. Add a match arm in `execute()`
 ///   4. Optionally add a new prompt file in src-tauri/prompts/
-use crate::{
-    config::AppConfig,
-    evidence::{self, EvidenceEvent},
-    prompts::Prompts,
-};
+use crate::{config::AppConfig, prompts::Prompts};
+use evidence::EvidenceEvent;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
@@ -22,6 +19,9 @@ mod code;
 mod code_events;
 mod code_prompts;
 mod debug;
+pub(crate) mod evidence;
+pub(crate) mod planning_schema;
+pub(crate) mod verifier;
 pub(crate) mod isolated_workspace;
 pub(crate) mod merge_engine;
 mod plan;

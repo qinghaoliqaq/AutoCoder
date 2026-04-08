@@ -13,7 +13,7 @@
 /// Each phase emits "review-phase-result" when it finishes.
 use super::ReviewPhaseResult;
 use crate::config::AppConfig;
-use crate::evidence::{self, EvidenceEvent};
+use super::evidence::{self, EvidenceEvent};
 use crate::prompts::Prompts;
 use crate::tool_runner;
 use chrono::Utc;

@@ -13,6 +13,7 @@ mod openai;
 ///
 /// Tool definitions and execution are now provided by the `crate::tools` module.
 /// The tool_runner only handles the API loop and event emission.
+pub(crate) mod errors;
 pub mod providers;
 mod system_prompt;
 

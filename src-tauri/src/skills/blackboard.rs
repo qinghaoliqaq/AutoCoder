@@ -4,7 +4,7 @@
 ///   blackboard_parser — plan parsing (PLAN.md + PLAN_GRAPH.json → SubtaskCard)
 ///   blackboard_render — markdown rendering and label helpers
 use super::blackboard_parser::build_initial_subtasks;
-use crate::planning_schema::SuggestedSkill;
+use super::planning_schema::SuggestedSkill;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::Path;

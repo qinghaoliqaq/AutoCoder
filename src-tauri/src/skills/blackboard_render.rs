@@ -3,7 +3,7 @@
 /// Provides `Blackboard::render_markdown()` and label functions used
 /// to format board/subtask state for the BLACKBOARD.md output.
 use super::blackboard::{Blackboard, BoardState, SubtaskKind, SubtaskState};
-use crate::planning_schema::SuggestedSkill;
+use super::planning_schema::SuggestedSkill;
 
 // ── Markdown rendering ──────────────────────────────────────────��─────────
 

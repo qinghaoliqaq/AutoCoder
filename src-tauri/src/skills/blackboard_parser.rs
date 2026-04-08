@@ -3,7 +3,7 @@
 /// Parses PLAN.md checklist items and PLAN_GRAPH.json into SubtaskCard
 /// structs used by the blackboard to track subtask execution.
 use super::blackboard::{SubtaskCard, SubtaskKind, SubtaskState};
-use crate::planning_schema::{read_plan_graph, PlanSubtask, SubtaskCategory};
+use super::planning_schema::{read_plan_graph, PlanSubtask, SubtaskCategory};
 use std::collections::HashSet;
 
 // ── Public helpers (called from Blackboard::load_or_create) ───────────────
@@ -194,7 +194,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
-            dir.path().join(crate::planning_schema::PLAN_GRAPH_JSON),
+            dir.path().join(super::planning_schema::PLAN_GRAPH_JSON),
             r#"{
                 "version": 1,
                 "project_name": "Hiring Hub",
@@ -235,7 +235,7 @@ mod tests {
         assert!(!board.subtasks[1].can_run_in_parallel);
         assert_eq!(
             board.subtasks[1].suggested_skill,
-            Some(crate::planning_schema::SuggestedSkill::FrontendDev)
+            Some(super::planning_schema::SuggestedSkill::FrontendDev)
         );
     }
 }

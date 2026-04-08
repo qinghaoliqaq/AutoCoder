@@ -6,7 +6,7 @@
 /// Compatible with: OpenAI, DeepSeek, Zhipu/GLM, MiniMax, Moonshot,
 /// Yi, Baichuan, Qwen, Groq, Together, Fireworks, SiliconFlow, etc.
 use super::{emit_chunk, emit_tool_log, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
-use crate::errors::{self, AppError};
+use super::errors::{self, AppError};
 use crate::tools::{self, ToolRegistry};
 use futures_util::StreamExt;
 use reqwest::Client;

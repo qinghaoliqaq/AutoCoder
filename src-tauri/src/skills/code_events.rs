@@ -5,9 +5,9 @@
 use super::blackboard::{BLACKBOARD_JSON, BLACKBOARD_MD};
 use super::vendored::VendoredSkill;
 use super::{BlackboardEvent, ToolLog};
-use crate::evidence::{self, EvidenceEvent};
+use super::evidence::{self, EvidenceEvent};
 use crate::skills::blackboard::SubtaskCard;
-use crate::verifier::VERIFIER_RESULT_JSON;
+use super::verifier::VERIFIER_RESULT_JSON;
 use tauri::{Emitter, EventTarget};
 
 pub(super) fn emit_blackboard(

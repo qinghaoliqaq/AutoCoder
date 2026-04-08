@@ -4,7 +4,7 @@
 /// Parses Server-Sent Events for real-time token streaming.
 /// Bash and editor use Anthropic built-in tool type shorthand.
 use super::{emit_chunk, emit_tool_log, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
-use crate::errors::{self, AppError};
+use super::errors::{self, AppError};
 use crate::tools::{self, ToolRegistry};
 use futures_util::StreamExt;
 use reqwest::Client;

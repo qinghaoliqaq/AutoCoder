@@ -5,8 +5,8 @@
 /// and parse the structured markers they return.
 use super::blackboard::{SubtaskCard, BLACKBOARD_MD};
 use super::vendored::VendoredSkill;
-use crate::planning_schema::SubtaskAcceptance;
-use crate::verifier::VERIFIER_RESULT_JSON;
+use super::planning_schema::SubtaskAcceptance;
+use super::verifier::VERIFIER_RESULT_JSON;
 
 // ── Prompt builders ───────────────────────────────────────────────────────
 
