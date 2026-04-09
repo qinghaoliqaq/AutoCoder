@@ -1192,7 +1192,11 @@ async fn apply_merge(
             // propagate the error.  Retrying would cause a double-merge
             // (reimplementing on top of already-merged code).
             if let Err(e) = mutate_board(&ctx.board, ctx.workspace, |board| {
-                board.record_implementation(
+                // Do NOT use `?` here — if record_implementation or
+                // record_review fails, we must still call finish_active_subtask
+                // and complete_if_finished.  Otherwise the subtask stays
+                // InProgress for the rest of the session, blocking dependents.
+                if let Err(e) = board.record_implementation(
                     &card.id,
                     review_card
                         .latest_implementation
@@ -1201,8 +1205,12 @@ async fn apply_merge(
                             "Implementation merged from isolated workspace.".to_string()
                         }),
                     merged_files.clone(),
-                )?;
-                board.record_review(&card.id, true, review.summary.clone(), Vec::new())?;
+                ) {
+                    tracing::warn!(subtask = %card.id, "record_implementation failed (non-fatal): {e}");
+                }
+                if let Err(e) = board.record_review(&card.id, true, review.summary.clone(), Vec::new()) {
+                    tracing::warn!(subtask = %card.id, "record_review failed (non-fatal): {e}");
+                }
                 board.finish_active_subtask(&card.id);
                 board.complete_if_finished();
                 Ok(())

@@ -556,6 +556,11 @@ fn diff_hunks(base: &[&str], changed: &[&str]) -> Vec<DiffHunk> {
 fn hunks_overlap(a_hunks: &[DiffHunk], b_hunks: &[DiffHunk]) -> bool {
     for a in a_hunks {
         for b in b_hunks {
+            // Two pure-insertion hunks at the same position don't conflict —
+            // they can be applied sequentially (order is arbitrary but valid).
+            if a.base_start == a.base_end && b.base_start == b.base_end {
+                continue;
+            }
             let (a_s, a_e) = (a.base_start, a.base_end.max(a.base_start + 1));
             let (b_s, b_e) = (b.base_start, b.base_end.max(b.base_start + 1));
             if a_s < b_e && b_s < a_e {
