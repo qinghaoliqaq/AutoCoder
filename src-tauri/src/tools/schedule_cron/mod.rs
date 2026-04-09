@@ -47,12 +47,15 @@ fn write_cron_entries(workspace: &std::path::Path, entries: &[Value]) -> Result<
 
 /// Generate a simple unique ID for a cron entry.
 fn generate_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    format!("cron_{ts}")
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("cron_{ts}_{seq}")
 }
 
 const SCHEDULE_CRON_DESCRIPTION: &str = "Manage scheduled tasks (cron jobs). \

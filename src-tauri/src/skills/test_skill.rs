@@ -529,7 +529,7 @@ pub(super) async fn run_phase(
         let _ = evidence::record_event(
             workspace,
             EvidenceEvent {
-                ts: Utc::now().timestamp_millis() as u64,
+                ts: Utc::now().timestamp_millis().max(0) as u64,
                 event_type: format!("test_{phase}_{}", if passed { "passed" } else { "failed" }),
                 agent: "system".to_string(),
                 subtask_id: None,
@@ -559,7 +559,7 @@ fn emit_acceptance_warning_log(
                 agent: "system".to_string(),
                 tool: "StructuredAcceptance".to_string(),
                 input: format!("Fallback active: {warning}"),
-                timestamp: Utc::now().timestamp_millis() as u64,
+                timestamp: Utc::now().timestamp_millis().max(0) as u64,
             },
         )
         .map_err(|e| e.to_string())

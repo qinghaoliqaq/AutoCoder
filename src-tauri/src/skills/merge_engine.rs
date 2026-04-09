@@ -500,8 +500,18 @@ struct DiffHunk {
 fn diff_hunks(base: &[&str], changed: &[&str]) -> Vec<DiffHunk> {
     use similar::{ChangeTag, TextDiff};
 
-    let base_text = base.join("\n");
-    let changed_text = changed.join("\n");
+    // Append trailing newline so `TextDiff::from_lines` tokenizes every
+    // line uniformly (each token ends with '\n').  Without this, the last
+    // line of the shorter side would lack '\n' while the corresponding line
+    // in the longer side would have it, producing a spurious diff.
+    let mut base_text = base.join("\n");
+    if !base_text.is_empty() {
+        base_text.push('\n');
+    }
+    let mut changed_text = changed.join("\n");
+    if !changed_text.is_empty() {
+        changed_text.push('\n');
+    }
     let diff = TextDiff::from_lines(&base_text, &changed_text);
 
     let mut hunks = Vec::new();

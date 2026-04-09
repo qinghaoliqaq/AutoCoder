@@ -24,7 +24,7 @@ pub(super) fn emit_blackboard(
     if let Err(e) = evidence::record_event(
         workspace,
         EvidenceEvent {
-            ts: chrono::Utc::now().timestamp_millis() as u64,
+            ts: chrono::Utc::now().timestamp_millis().max(0) as u64,
             event_type: status.to_string(),
             agent: evidence_agent_for_status(status).to_string(),
             subtask_id: subtask_id.clone(),
@@ -56,7 +56,7 @@ pub(super) fn emit_vendored_skill_log(
     skill: &VendoredSkill,
     card: &SubtaskCard,
 ) {
-    let ts = chrono::Utc::now().timestamp_millis() as u64;
+    let ts = chrono::Utc::now().timestamp_millis().max(0) as u64;
     if let Err(e) = app_handle.emit_to(
         EventTarget::webview_window(window_label),
         "tool-log",

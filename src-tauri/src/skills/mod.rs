@@ -166,7 +166,7 @@ pub(super) fn record_skill_evidence(
     let _ = evidence::record_event(
         ws,
         EvidenceEvent {
-            ts: chrono::Utc::now().timestamp_millis() as u64,
+            ts: chrono::Utc::now().timestamp_millis().max(0) as u64,
             event_type: event_type.to_string(),
             agent: agent.to_string(),
             subtask_id: None,

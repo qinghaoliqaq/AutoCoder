@@ -302,7 +302,7 @@ fn emit_tool_log(
     input: &Value,
     registry: &ToolRegistry,
 ) {
-    let ts = chrono::Utc::now().timestamp_millis() as u64;
+    let ts = chrono::Utc::now().timestamp_millis().max(0) as u64;
     let summary = registry.summarize_input(name, input);
     let _ = app_handle.emit_to(
         EventTarget::webview_window(window_label),

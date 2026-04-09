@@ -457,7 +457,7 @@ pub(crate) fn build_subtask_context(workspace: &str, subtask_id: &str) -> Option
     ));
     lines.push(format!(
         "This is attempt {}. Previous attempts encountered these issues:",
-        sub.attempts + 1
+        sub.attempts
     ));
 
     if !sub.review_findings.is_empty() {

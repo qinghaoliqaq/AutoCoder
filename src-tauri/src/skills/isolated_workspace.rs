@@ -276,7 +276,16 @@ fn copy_workspace_tree(
             .map_err(|e| format!("Cannot relativize {}: {e}", path.display()))?;
         let target = target_root.join(relative);
 
-        if path.is_dir() {
+        // Use entry.file_type() (lstat) instead of path.is_dir()/is_file()
+        // to avoid following symlinks, which could escape the workspace sandbox.
+        let ft = entry.file_type()
+            .map_err(|e| format!("Cannot stat {}: {e}", path.display()))?;
+
+        if ft.is_symlink() {
+            continue; // skip symlinks — never follow them outside the workspace
+        }
+
+        if ft.is_dir() {
             if should_skip_workspace_dir(&name) {
                 continue;
             }
@@ -286,7 +295,7 @@ fn copy_workspace_tree(
             continue;
         }
 
-        if !path.is_file() || should_skip_workspace_file(&name) {
+        if !ft.is_file() || should_skip_workspace_file(&name) {
             continue;
         }
 
