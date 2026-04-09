@@ -422,7 +422,11 @@ fn check_sequential_bottleneck(graph: &PlanGraph, warnings: &mut Vec<String>) {
         id: &'a str,
         by_id: &HashMap<&str, &'a PlanSubtask>,
         cache: &mut HashMap<&'a str, usize>,
+        remaining: usize,
     ) -> usize {
+        if remaining == 0 {
+            return 0; // depth guard against cycles in unvalidated graphs
+        }
         if let Some(&cached) = cache.get(id) {
             return cached;
         }
@@ -432,7 +436,7 @@ fn check_sequential_bottleneck(graph: &PlanGraph, warnings: &mut Vec<String>) {
                 subtask
                     .depends_on
                     .iter()
-                    .map(|dep| 1 + chain_depth(dep, by_id, cache))
+                    .map(|dep| 1 + chain_depth(dep, by_id, cache, remaining - 1))
                     .max()
                     .unwrap_or(0)
             })
@@ -444,7 +448,7 @@ fn check_sequential_bottleneck(graph: &PlanGraph, warnings: &mut Vec<String>) {
     let max_depth = graph
         .subtasks
         .iter()
-        .map(|s| chain_depth(s.id.as_str(), &by_id, &mut depth_cache))
+        .map(|s| chain_depth(s.id.as_str(), &by_id, &mut depth_cache, graph.subtasks.len()))
         .max()
         .unwrap_or(0);
 

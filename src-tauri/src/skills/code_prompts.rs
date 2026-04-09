@@ -472,9 +472,7 @@ fn extract_list_after_header(output: &str, header: &str) -> Vec<String> {
             continue;
         }
         // Non-list, non-blank line — stop collecting.
-        if !items.is_empty() {
-            break;
-        }
+        break;
     }
 
     items
