@@ -202,12 +202,33 @@ async fn run_command(workspace: &Path, cmd: &BuildCommand) -> CommandResult {
 async fn run_command_with_timeout(workspace: &Path, cmd: &BuildCommand, timeout_secs: u64) -> CommandResult {
     let command_str = format!("{} {}", cmd.program, cmd.args.join(" "));
 
+    // Use spawn() + kill_on_drop(true) instead of output() so that when
+    // the timeout fires and the future is dropped, the child process is
+    // killed rather than orphaned (cargo/npm processes can hold locks and
+    // consume CPU indefinitely if left running).
+    let child = Command::new(&cmd.program)
+        .args(&cmd.args)
+        .current_dir(workspace)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn();
+
+    let mut child = match child {
+        Ok(c) => c,
+        Err(err) => {
+            return CommandResult {
+                label: cmd.label.clone(),
+                command: command_str,
+                passed: false,
+                output: format!("Failed to execute command: {err}"),
+            };
+        }
+    };
+
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
-        Command::new(&cmd.program)
-            .args(&cmd.args)
-            .current_dir(workspace)
-            .output(),
+        child.wait_with_output(),
     )
     .await;
 
@@ -228,12 +249,15 @@ async fn run_command_with_timeout(workspace: &Path, cmd: &BuildCommand, timeout_
             passed: false,
             output: format!("Failed to execute command: {err}"),
         },
-        Err(_) => CommandResult {
-            label: cmd.label.clone(),
-            command: command_str,
-            passed: false,
-            output: format!("Command timed out after {timeout_secs}s"),
-        },
+        Err(_) => {
+            // Timeout — kill_on_drop will handle cleanup when child is dropped.
+            CommandResult {
+                label: cmd.label.clone(),
+                command: command_str,
+                passed: false,
+                output: format!("Command timed out after {timeout_secs}s"),
+            }
+        }
     }
 }
 

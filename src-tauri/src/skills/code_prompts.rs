@@ -335,7 +335,12 @@ pub(super) fn parse_review_report(output: &str) -> ReviewReport {
     };
 
     let passed = match &explicit_decision {
-        Some(decision) => decision.to_uppercase().contains("PASS"),
+        Some(decision) => {
+            let upper = decision.to_uppercase();
+            // Match "PASS" but reject "PASS or FAIL" which is just the prompt
+            // instruction echoed back.
+            upper.contains("PASS") && !upper.contains("PASS OR FAIL")
+        }
         None => {
             // No explicit decision marker — infer from output content.
             // Consider both signal words AND whether actionable findings exist.
@@ -359,6 +364,13 @@ pub(super) fn parse_review_report(output: &str) -> ReviewReport {
 /// is treated as a pass.  This prevents the "fail with nothing to fix"
 /// loop that wastes all retry attempts.
 fn infer_review_passed(output: &str, findings: &[String]) -> bool {
+    // Empty or very short output cannot be trusted as a real review.
+    // Treat as FAIL to prevent broken code from being merged when the
+    // LLM times out or returns a truncated response.
+    if output.trim().len() < 30 {
+        return false;
+    }
+
     let upper = output.to_uppercase();
 
     // Check for SPECIALIST_VERDICT which uses a different format.
@@ -380,9 +392,9 @@ fn infer_review_passed(output: &str, findings: &[String]) -> bool {
         "VERDICT: PASS",
         "APPROVED",
         "ALL CHECKS PASS",
-        "NO CRITICAL",
         "NO HIGH OR CRITICAL",
-        "NO BLOCKING",
+        "NO BLOCKING ISSUES",
+        "NO CRITICAL ISSUES FOUND",
     ];
     let has_pass_signal = pass_signals.iter().any(|s| upper.contains(s));
 
@@ -649,5 +661,22 @@ mod tests {
         let output = "Found 2 critical issues.\nSPECIALIST_VERDICT:FAIL:2 HIGH/CRITICAL findings — SQL injection\n";
         let report = parse_review_report(output);
         assert!(!report.passed);
+    }
+
+    #[test]
+    fn parse_review_report_echoed_pass_or_fail_is_not_pass() {
+        // If Codex echoes the prompt instruction "PASS or FAIL", it should NOT be treated as PASS.
+        let output = "Reviewing now.\nREVIEW_DECISION: PASS or FAIL\nREVIEW_SUMMARY: unclear\n";
+        let report = parse_review_report(output);
+        assert!(!report.passed);
+    }
+
+    #[test]
+    fn parse_review_report_empty_output_is_fail() {
+        // Empty/truncated output must not silently pass.
+        let report = parse_review_report("");
+        assert!(!report.passed);
+        let report2 = parse_review_report("   \n  ");
+        assert!(!report2.passed);
     }
 }

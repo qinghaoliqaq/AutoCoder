@@ -532,11 +532,21 @@ pub(crate) fn read_evidence_index(workspace: &str) -> Result<Option<EvidenceInde
     Ok(Some(index))
 }
 
+/// Maximum JSONL file size before truncation (keep last N lines).
+const MAX_EVENTS_FILE_BYTES: u64 = 512 * 1024; // 512 KB
+const TRUNCATE_KEEP_LINES: usize = 200;
+
 fn append_event(workspace: &str, event: &EvidenceEvent) -> Result<(), String> {
     let path = Path::new(workspace).join(BLACKBOARD_EVENTS_JSONL);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+    }
+    // Truncate the file if it's grown too large, keeping only recent events.
+    if let Ok(meta) = std::fs::metadata(&path) {
+        if meta.len() > MAX_EVENTS_FILE_BYTES {
+            truncate_events_file(&path);
+        }
     }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -551,6 +561,22 @@ fn append_event(workspace: &str, event: &EvidenceEvent) -> Result<(), String> {
     // to the same JSONL file concurrently.
     file.write_all(line.as_bytes())
         .map_err(|e| format!("Cannot append {}: {e}", path.display()))
+}
+
+/// Truncate the events JSONL file to the last N lines.
+fn truncate_events_file(path: &Path) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= TRUNCATE_KEEP_LINES {
+        return;
+    }
+    let kept = &lines[lines.len() - TRUNCATE_KEEP_LINES..];
+    let mut content = kept.join("\n");
+    content.push('\n');
+    // Best-effort — if this fails, the next append will still work.
+    let _ = std::fs::write(path, content);
 }
 
 fn read_blackboard(workspace: &str) -> Result<Option<Blackboard>, String> {
