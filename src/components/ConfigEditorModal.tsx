@@ -5,7 +5,8 @@ import AccessModeToggle from './AccessModeToggle';
 import ToggleSwitch from './ToggleSwitch';
 import ProviderSelect from './ProviderSelect';
 import { useTheme, THEMES } from './ThemeProvider';
-import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, Keyboard, Zap, Palette, Lightbulb, Key, Globe, Cpu, Layers, ShieldCheck, Sparkles } from 'lucide-react';
+import { ProviderIconColor } from './ProviderSelect';
+import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, Keyboard, Zap, Palette, Lightbulb } from 'lucide-react';
 
 // ── Settings tab definitions ─────────────────────────────────────────────────
 
@@ -31,13 +32,12 @@ interface ConfigEditorModalProps {
 
 // ── Reusable field wrapper ───────────────────────────────────────────────────
 
-function FieldGroup({ label, hint, icon, children }: { label: string; hint?: string; icon?: React.ReactNode; children: React.ReactNode }) {
+function FieldGroup({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-2">
-      <div className="flex items-center gap-1.5">
-        {icon && <span className="text-content-tertiary">{icon}</span>}
-        <span className="text-[11.5px] font-semibold uppercase tracking-[0.06em] text-content-secondary">{label}</span>
-        {hint && <span className="text-[10px] font-normal normal-case text-content-tertiary/60 ml-auto">{hint}</span>}
+    <label className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[11.5px] font-medium text-content-secondary">{label}</span>
+        {hint && <span className="text-[10px] text-content-tertiary/60">{hint}</span>}
       </div>
       {children}
     </label>
@@ -45,7 +45,7 @@ function FieldGroup({ label, hint, icon, children }: { label: string; hint?: str
 }
 
 const inputClass =
-  'w-full rounded-xl border border-edge-primary/50 bg-surface-input/80 px-3.5 py-2.5 text-[13px] text-content-primary outline-none transition-all duration-200 placeholder:text-content-tertiary/60 shadow-[inset_0_1px_2px_rgb(var(--bg-primary)/0.06)] hover:border-edge-primary/70 focus:border-themed-accent/60 focus:ring-2 focus:ring-themed-accent/15 focus:shadow-[0_0_0_3px_rgb(var(--accent)/0.08)]';
+  'w-full rounded-lg border border-edge-primary/40 bg-surface-input/60 px-3 py-2 text-[13px] text-content-primary outline-none transition-all duration-150 placeholder:text-content-tertiary/50 hover:border-edge-primary/60 focus:border-themed-accent/50 focus:ring-1 focus:ring-themed-accent/20';
 
 // ── Tips carousel ────────────────────────────────────────────────────────────
 
@@ -80,7 +80,7 @@ function TipsCarousel() {
   };
 
   return (
-    <div className="flex items-start gap-2.5 rounded-xl border border-edge-primary/30 bg-surface-secondary/30 px-4 py-2.5">
+    <div className="flex items-start gap-2.5 rounded-lg bg-surface-tertiary/20 px-4 py-2.5">
       <Lightbulb className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-amber-500/70" />
       <div className="relative min-h-[20px] flex-1 overflow-hidden">
         <span
@@ -134,21 +134,11 @@ export default function ConfigEditorModal({
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-surface-primary">
       {/* ── Top bar (pl-24 avoids macOS traffic-light buttons) ──── */}
-      <div className="flex items-center justify-between border-b border-edge-primary/30 pl-24 pr-5 py-3" style={{ backgroundColor: 'rgb(var(--bg-secondary) / 0.5)' }}>
-        <div className="flex items-center gap-3">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 shadow-sm">
-            <Settings2 className="h-3.5 w-3.5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-[13px] font-semibold text-content-primary">Settings</h1>
-            <span className="text-[10px] text-content-tertiary">
-              保存后写入 <code className="rounded bg-surface-tertiary/80 px-1 py-0.5 text-[9px] font-mono">config.toml</code>
-            </span>
-          </div>
-        </div>
+      <div className="flex items-center justify-between border-b border-edge-primary/20 pl-24 pr-5 py-3">
+        <h1 className="text-[13px] font-semibold text-content-primary tracking-tight">Settings</h1>
         <button
           onClick={onClose}
-          className="rounded-lg p-1.5 text-content-tertiary transition-all hover:bg-surface-tertiary hover:text-content-primary hover:rotate-90 duration-200"
+          className="rounded-md p-1.5 text-content-tertiary transition-colors hover:bg-surface-tertiary/50 hover:text-content-primary"
           title="关闭 (Esc)"
         >
           <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -160,15 +150,15 @@ export default function ConfigEditorModal({
       {/* ── Body: sidebar tabs + content ─────────────────────────── */}
       <div className="flex flex-1 min-h-0">
         {/* Tab sidebar */}
-        <nav className="w-48 flex-shrink-0 border-r border-edge-primary/30 px-3 py-5 space-y-1" style={{ backgroundColor: 'rgb(var(--bg-tertiary) / 0.15)' }}>
+        <nav className="w-44 flex-shrink-0 border-r border-edge-primary/20 px-3 py-4 space-y-0.5">
           {TABS.map(({ id, label, icon }) => (
             <button
               key={id}
               onClick={() => setActiveTab(id)}
-              className={`flex w-full items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-left text-[13px] font-medium transition-all duration-150 ${
+              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-colors duration-100 ${
                 activeTab === id
-                  ? 'bg-themed-accent-soft/70 text-themed-accent-text shadow-sm shadow-themed-accent/5'
-                  : 'text-content-secondary hover:bg-surface-tertiary/50 hover:text-content-primary'
+                  ? 'bg-surface-tertiary/60 text-content-primary'
+                  : 'text-content-tertiary hover:bg-surface-tertiary/30 hover:text-content-secondary'
               }`}
             >
               {icon}
@@ -187,14 +177,14 @@ export default function ConfigEditorModal({
               {activeTab === 'shortcuts' && <ShortcutsTab />}
 
               {error && (
-                <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs leading-5 text-rose-600">
+                <div className="mt-4 rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs leading-5 text-rose-600">
                   {error}
                 </div>
               )}
             </div>
           ) : error ? (
             <div className="mx-auto max-w-2xl px-8 py-6">
-              <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs leading-5 text-rose-600">
+              <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs leading-5 text-rose-600">
                 {error}
               </div>
             </div>
@@ -208,30 +198,25 @@ export default function ConfigEditorModal({
       </div>
 
       {/* ── Footer ──────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-3 border-t border-edge-primary/30 px-6 py-3" style={{ backgroundColor: 'rgb(var(--bg-secondary) / 0.3)' }}>
-        <div className="text-[11px] text-content-tertiary">
-          保存后新对话将使用最新配置
-        </div>
-        <div className="flex gap-2.5">
-          <button
-            onClick={onClose}
-            className="rounded-xl px-5 py-2 text-[12px] font-medium text-content-secondary transition-all border border-edge-primary/40 hover:bg-surface-tertiary/60 hover:border-edge-primary/60"
-          >
-            取消
-          </button>
-          <button
-            onClick={onSave}
-            disabled={!draft || saving}
-            className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-2 text-[12px] font-semibold text-white shadow-md shadow-violet-500/25 transition-all hover:shadow-lg hover:shadow-violet-500/35 hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-md"
-          >
-            {saving ? (
-              <span className="flex items-center gap-1.5">
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                保存中...
-              </span>
-            ) : '保存配置'}
-          </button>
-        </div>
+      <div className="flex items-center justify-end gap-2.5 border-t border-edge-primary/20 px-6 py-3">
+        <button
+          onClick={onClose}
+          className="rounded-lg px-4 py-1.5 text-[12px] font-medium text-content-secondary transition-colors hover:bg-surface-tertiary/50"
+        >
+          取消
+        </button>
+        <button
+          onClick={onSave}
+          disabled={!draft || saving}
+          className="rounded-lg bg-themed-accent/90 px-4 py-1.5 text-[12px] font-semibold text-white transition-all hover:bg-themed-accent active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saving ? (
+            <span className="flex items-center gap-1.5">
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              保存中...
+            </span>
+          ) : '保存配置'}
+        </button>
       </div>
     </div>
   );
@@ -272,13 +257,12 @@ function GeneralTab({
     <div className="space-y-6">
       {/* ── Director Model Card ── */}
       <SectionCard
-        icon={<Cpu className="h-4 w-4" />}
         title="Director 模型"
         description="配置对话指挥层（Director）使用的模型和接口"
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <FieldGroup label="API Key" icon={<Key className="h-3 w-3" />}>
+            <FieldGroup label="API Key">
               <input
                 type="password"
                 value={draft.api_key}
@@ -289,7 +273,7 @@ function GeneralTab({
             </FieldGroup>
           </div>
 
-          <FieldGroup label="API Format" icon={<Layers className="h-3 w-3" />}>
+          <FieldGroup label="API Format">
             <select
               value={draft.api_format}
               onChange={(e) => update('api_format', e.target.value as ConfigDraft['api_format'])}
@@ -300,7 +284,7 @@ function GeneralTab({
             </select>
           </FieldGroup>
 
-          <FieldGroup label="Model" icon={<Cpu className="h-3 w-3" />}>
+          <FieldGroup label="Model">
             <input
               type="text"
               value={draft.model}
@@ -311,7 +295,7 @@ function GeneralTab({
           </FieldGroup>
 
           <div className="sm:col-span-2">
-            <FieldGroup label="Base URL" icon={<Globe className="h-3 w-3" />}>
+            <FieldGroup label="Base URL">
               <input
                 type="text"
                 value={draft.base_url}
@@ -329,12 +313,12 @@ function GeneralTab({
             type="button"
             onClick={handleTestConnection}
             disabled={testStatus === 'testing' || !draft.api_key || !draft.base_url || !draft.model}
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-[12px] font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               testStatus === 'success'
-                ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 shadow-sm shadow-emerald-500/10'
+                ? 'text-emerald-600 bg-emerald-500/10'
                 : testStatus === 'error'
-                  ? 'border border-rose-500/30 bg-rose-500/10 text-rose-600 shadow-sm shadow-rose-500/10'
-                  : 'border border-themed-accent/30 bg-themed-accent-soft/50 text-themed-accent-text shadow-sm shadow-themed-accent/5 hover:bg-themed-accent-soft/80 hover:shadow-md hover:shadow-themed-accent/10'
+                  ? 'text-rose-600 bg-rose-500/10'
+                  : 'text-content-secondary bg-surface-tertiary/40 hover:bg-surface-tertiary/60'
             }`}
           >
             {testStatus === 'testing' ? (
@@ -359,12 +343,11 @@ function GeneralTab({
 
       {/* ── Execution Options Card ── */}
       <SectionCard
-        icon={<ShieldCheck className="h-4 w-4" />}
         title="执行选项"
         description="控制并行度、权限和内置技能"
       >
         <div className="grid gap-4 sm:grid-cols-2">
-          <FieldGroup label="Parallel Lanes" hint="同时执行的子任务数" icon={<Layers className="h-3 w-3" />}>
+          <FieldGroup label="Parallel Lanes" hint="同时执行的子任务数">
             <input
               type="number"
               min={1}
@@ -375,7 +358,7 @@ function GeneralTab({
             />
           </FieldGroup>
 
-          <FieldGroup label="Execution Access" icon={<ShieldCheck className="h-3 w-3" />}>
+          <FieldGroup label="Execution Access">
             <AccessModeToggle
               mode={draft.execution_access_mode}
               onChange={(mode) => update('execution_access_mode', mode)}
@@ -385,7 +368,6 @@ function GeneralTab({
 
         {/* Bundled Skills */}
         <OptionRow
-          icon={<Sparkles className="h-4 w-4 text-themed-accent-text" />}
           title="Bundled Skills"
           description="自动为子任务注入内置的专业技能指导（前端/全栈/设计系统等）"
         >
@@ -452,8 +434,6 @@ function AgentTab({
       <AgentIdentityCard
         title="主身份 (Claude)"
         description="编码、方案起草阶段使用的模型。请参考右侧链接中的模型名称手动输入。"
-        accentColor="from-orange-400 to-amber-500"
-        badge="C"
         raw={primary}
         effective={primary}
         providerHint={undefined}
@@ -469,8 +449,6 @@ function AgentTab({
       <AgentIdentityCard
         title="副身份 (Codex)"
         description="审阅、诊断、测试、评估阶段使用的模型。留空则自动跟随主身份。"
-        accentColor="from-emerald-400 to-teal-500"
-        badge="X"
         raw={{
           provider: draft.agent_second_provider,
           apiKey: draft.agent_second_api_key,
@@ -495,8 +473,6 @@ function AgentTab({
 function AgentIdentityCard({
   title,
   description,
-  accentColor,
-  badge,
   raw,
   effective,
   providerHint,
@@ -510,8 +486,6 @@ function AgentIdentityCard({
 }: {
   title: string;
   description: string;
-  accentColor: string;
-  badge: string;
   raw: AgentIdentityValues;
   effective: AgentIdentityValues;
   providerHint?: string;
@@ -555,12 +529,10 @@ function AgentIdentityCard({
   const docUrl = selectedProvider?.doc_url ?? null;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-edge-primary/40 bg-surface-elevated/30 shadow-sm">
-      {/* Card header with gradient badge */}
-      <div className="flex items-center gap-3 border-b border-edge-primary/30 px-5 py-3.5" style={{ backgroundColor: 'rgb(var(--bg-tertiary) / 0.3)' }}>
-        <div className={`flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br ${accentColor} text-[11px] font-bold text-white shadow-sm`}>
-          {badge}
-        </div>
+    <div className="rounded-xl border border-edge-primary/30 bg-surface-elevated/20">
+      {/* Card header */}
+      <div className="flex items-center gap-3 px-5 pt-4 pb-3">
+        <ProviderIconColor provider={effective.provider} size={22} />
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-semibold text-content-primary">{title}</div>
           <div className="text-[11px] leading-4 text-content-tertiary truncate">{description}</div>
@@ -570,11 +542,10 @@ function AgentIdentityCard({
             href={docUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-shrink-0 inline-flex items-center gap-1 rounded-lg border border-sky-500/20 bg-sky-500/5 px-2.5 py-1 text-[11px] font-medium text-sky-500 transition-colors hover:bg-sky-500/10"
+            className="flex-shrink-0 text-[11px] font-medium text-content-tertiary transition-colors hover:text-themed-accent-text"
             title="查看模型列表"
           >
-            <Globe className="h-3 w-3" />
-            模型文档
+            模型文档 &rarr;
           </a>
         )}
       </div>
@@ -589,7 +560,7 @@ function AgentIdentityCard({
             />
           </FieldGroup>
 
-          <FieldGroup label="API Key" hint={apiKeyHint} icon={<Key className="h-3 w-3" />}>
+          <FieldGroup label="API Key" hint={apiKeyHint}>
             <input
               type="password"
               value={raw.apiKey}
@@ -600,7 +571,7 @@ function AgentIdentityCard({
             />
           </FieldGroup>
 
-          <FieldGroup label="Model" hint={modelHint} icon={<Cpu className="h-3 w-3" />}>
+          <FieldGroup label="Model" hint={modelHint}>
             <input
               type="text"
               value={raw.model}
@@ -611,7 +582,7 @@ function AgentIdentityCard({
             />
           </FieldGroup>
 
-          <FieldGroup label="Base URL" hint={baseUrlHint} icon={<Globe className="h-3 w-3" />}>
+          <FieldGroup label="Base URL" hint={baseUrlHint}>
             <input
               type="text"
               value={raw.baseUrl}
@@ -628,12 +599,12 @@ function AgentIdentityCard({
             type="button"
             onClick={handleTestConnection}
             disabled={testStatus === 'testing' || !effective.provider || !effective.apiKey}
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-[12px] font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               testStatus === 'success'
-                ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
+                ? 'text-emerald-600 bg-emerald-500/10'
                 : testStatus === 'error'
-                  ? 'border border-rose-500/30 bg-rose-500/10 text-rose-600'
-                  : 'border border-themed-accent/30 bg-themed-accent-soft/50 text-themed-accent-text hover:bg-themed-accent-soft/80'
+                  ? 'text-rose-600 bg-rose-500/10'
+                  : 'text-content-secondary bg-surface-tertiary/40 hover:bg-surface-tertiary/60'
             }`}
           >
             {testStatus === 'testing' ? (
@@ -678,7 +649,6 @@ function AppearanceTab() {
 
       {/* System toggle */}
       <OptionRow
-        icon={<Settings2 className="h-4 w-4 text-content-secondary" />}
         title="跟随系统"
         description="根据操作系统外观自动在亮色和暗色主题之间切换"
       >
@@ -743,8 +713,8 @@ function ThemeCard({
       onClick={onSelect}
       className={`group relative overflow-hidden rounded-xl border p-0.5 transition-all ${
         active
-          ? 'border-themed-accent ring-2 ring-themed-accent/20'
-          : 'border-edge-primary/80 hover:border-edge-primary'
+          ? 'border-themed-accent/60 ring-1 ring-themed-accent/15'
+          : 'border-edge-primary/40 hover:border-edge-primary/60'
       }`}
     >
       {/* Mini preview */}
@@ -803,12 +773,12 @@ function ShortcutsTab() {
     <div className="space-y-6">
       <SectionHeading title="键盘快捷键" description="常用操作快捷键一览" />
 
-      <div className="overflow-hidden rounded-2xl border border-edge-primary/40 bg-surface-elevated/30 shadow-sm">
+      <div className="rounded-xl border border-edge-primary/30 bg-surface-elevated/20">
         {shortcuts.map(({ keys, action }, i) => (
           <div
             key={keys}
-            className={`flex items-center justify-between px-5 py-3 transition-colors hover:bg-surface-tertiary/20 ${
-              i !== shortcuts.length - 1 ? 'border-b border-edge-primary/25' : ''
+            className={`flex items-center justify-between px-5 py-2.5 ${
+              i !== shortcuts.length - 1 ? 'border-b border-edge-primary/15' : ''
             }`}
           >
             <span className="text-[13px] text-content-secondary">{action}</span>
@@ -816,7 +786,7 @@ function ShortcutsTab() {
               {keys.split(' + ').map((key) => (
                 <kbd
                   key={key}
-                  className="rounded-lg border border-edge-primary/50 bg-surface-tertiary/60 px-2.5 py-1 font-mono text-[11px] font-medium text-content-secondary shadow-[0_1px_2px_rgb(var(--bg-primary)/0.08)]"
+                  className="rounded-md border border-edge-primary/30 bg-surface-tertiary/40 px-2 py-0.5 font-mono text-[11px] font-medium text-content-secondary"
                 >
                   {key}
                 </kbd>
@@ -842,29 +812,21 @@ function SectionHeading({ title, description }: { title: string; description?: s
   );
 }
 
-/** A bordered card wrapping a settings section with icon + title header. */
 function SectionCard({
-  icon,
   title,
   description,
   children,
 }: {
-  icon: React.ReactNode;
   title: string;
   description?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-edge-primary/40 bg-surface-elevated/30 shadow-sm">
-      {/* Section header */}
-      <div className="flex items-center gap-3 border-b border-edge-primary/30 px-5 py-3.5" style={{ backgroundColor: 'rgb(var(--bg-tertiary) / 0.3)' }}>
-        <span className="text-themed-accent-text">{icon}</span>
-        <div>
-          <div className="text-[13px] font-semibold text-content-primary">{title}</div>
-          {description && <div className="text-[11px] leading-4 text-content-tertiary">{description}</div>}
-        </div>
+    <div className="rounded-xl border border-edge-primary/30 bg-surface-elevated/20">
+      <div className="px-5 pt-4 pb-1">
+        <div className="text-[13px] font-semibold text-content-primary">{title}</div>
+        {description && <div className="mt-0.5 text-[11px] leading-4 text-content-tertiary">{description}</div>}
       </div>
-      {/* Section content */}
       <div className="space-y-4 px-5 py-4">
         {children}
       </div>
@@ -872,26 +834,20 @@ function SectionCard({
   );
 }
 
-/** A polished row for toggle options (Bundled Skills, System Theme, etc.) */
 function OptionRow({
-  icon,
   title,
   description,
   children,
 }: {
-  icon: React.ReactNode;
   title: string;
   description: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-2xl border border-edge-primary/40 bg-surface-elevated/30 px-5 py-3.5 shadow-sm transition-colors hover:bg-surface-elevated/50">
-      <div className="flex items-center gap-3 min-w-0">
-        <span className="flex-shrink-0">{icon}</span>
-        <div className="min-w-0">
-          <div className="text-[13px] font-medium text-content-primary">{title}</div>
-          <div className="mt-0.5 text-[11px] leading-4 text-content-tertiary">{description}</div>
-        </div>
+    <div className="flex items-center justify-between gap-4 rounded-xl border border-edge-primary/30 bg-surface-elevated/20 px-5 py-3.5 transition-colors hover:bg-surface-elevated/40">
+      <div className="min-w-0">
+        <div className="text-[13px] font-medium text-content-primary">{title}</div>
+        <div className="mt-0.5 text-[11px] leading-4 text-content-tertiary">{description}</div>
       </div>
       <div className="flex-shrink-0">{children}</div>
     </div>
@@ -912,7 +868,7 @@ function InfoBanner({
   };
 
   return (
-    <div className={`rounded-xl border px-4 py-3 text-[11.5px] leading-5 ${styles[variant]}`}>
+    <div className={`rounded-lg border px-4 py-3 text-[11.5px] leading-5 ${styles[variant]}`}>
       {children}
     </div>
   );
