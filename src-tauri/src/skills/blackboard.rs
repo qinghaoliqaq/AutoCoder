@@ -263,6 +263,10 @@ impl Blackboard {
         }
         card.latest_review = Some(summary);
         card.review_findings = findings;
+        // Cap review findings to prevent unbounded prompt growth on retries.
+        if card.review_findings.len() > 20 {
+            card.review_findings.truncate(20);
+        }
         card.status = if passed {
             SubtaskState::Done
         } else {
@@ -293,6 +297,9 @@ impl Blackboard {
         }
         card.latest_review = Some(summary);
         card.review_findings = findings;
+        if card.review_findings.len() > 20 {
+            card.review_findings.truncate(20);
+        }
         card.merge_conflict = Some(conflict);
         card.status = SubtaskState::NeedsFix;
         self.updated_at = now_string();

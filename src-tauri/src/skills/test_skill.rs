@@ -617,16 +617,23 @@ fn cleanup_runtime_process(runtime: &TestRuntimePaths) {
     let pid_path = std::path::Path::new(&runtime.pid_path);
     if let Ok(pid_text) = std::fs::read_to_string(pid_path) {
         let pid = pid_text.trim();
-        if !pid.is_empty() {
-            if cfg!(windows) {
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/PID", pid, "/T", "/F"])
-                    .status();
-            } else {
-                let _ = std::process::Command::new("kill")
-                    .args(["-TERM", pid])
-                    .status();
+        // Validate PID is a positive integer to prevent arbitrary signal targets.
+        // The PID file is written by the LLM agent, so untrusted.
+        if let Ok(pid_num) = pid.parse::<u32>() {
+            if pid_num > 0 {
+                let pid_str = pid_num.to_string();
+                if cfg!(windows) {
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/PID", &pid_str, "/T", "/F"])
+                        .status();
+                } else {
+                    let _ = std::process::Command::new("kill")
+                        .args(["-TERM", &pid_str])
+                        .status();
+                }
             }
+        } else {
+            tracing::warn!("Invalid PID in {}: {:?}", runtime.pid_path, pid);
         }
     }
 

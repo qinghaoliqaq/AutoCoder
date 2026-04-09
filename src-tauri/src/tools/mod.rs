@@ -168,6 +168,11 @@ impl ToolRegistry {
         self.tools.push(tool);
     }
 
+    /// Number of registered tools.
+    pub fn len(&self) -> usize {
+        self.tools.len()
+    }
+
     /// Look up a tool by name.
     pub fn get(&self, name: &str) -> Option<&dyn Tool> {
         self.by_name.get(name).map(|&idx| self.tools[idx].as_ref())
@@ -518,9 +523,15 @@ fn maybe_persist_large_result(result: &str, tool_name: &str) -> String {
 
 fn truncate_result(result: &str) -> String {
     if result.len() > MAX_RESULT_CHARS {
+        // Find a valid char boundary at or before MAX_RESULT_CHARS to avoid
+        // panicking on multi-byte UTF-8 sequences.
+        let end = (0..=MAX_RESULT_CHARS)
+            .rev()
+            .find(|&i| result.is_char_boundary(i))
+            .unwrap_or(0);
         format!(
             "{}...\n[output truncated at {} chars]",
-            &result[..MAX_RESULT_CHARS],
+            &result[..end],
             MAX_RESULT_CHARS
         )
     } else {

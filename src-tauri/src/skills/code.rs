@@ -714,9 +714,17 @@ async fn run_single_attempt(
     let (implementation, acceptance) =
         run_implementation_phase(ctx, &card, attempt, isolated).await?;
 
+    if ctx.token.is_cancelled() {
+        return Err("cancelled".to_string());
+    }
+
     // Phase 1.5: Build gate — compile/type-check before review.
     if let Some(resolution) = run_build_gate_phase(ctx, &card, attempt, isolated).await? {
         return Ok(resolution);
+    }
+
+    if ctx.token.is_cancelled() {
+        return Err("cancelled".to_string());
     }
 
     // Phase 2: Verification.
@@ -725,6 +733,10 @@ async fn run_single_attempt(
     let Some(verifier_warnings) = verifier_warnings else {
         return Ok(AttemptResolution::Retry);
     };
+
+    if ctx.token.is_cancelled() {
+        return Err("cancelled".to_string());
+    }
 
     // Phase 3: Codex review + merge.
     run_review_and_merge_phase(

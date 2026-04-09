@@ -149,10 +149,15 @@ impl Tool for ConfigTool {
                 let json_value: Value = serde_json::from_str(value)
                     .unwrap_or_else(|_| Value::String(value.to_string()));
 
-                let obj = config.as_object_mut().unwrap_or_else(|| {
-                    // This shouldn't happen since read_config returns {} by default
-                    panic!("config is not an object");
-                });
+                let obj = match config.as_object_mut() {
+                    Some(o) => o,
+                    None => {
+                        return ToolResult::err(
+                            "Config file is corrupt (not a JSON object). \
+                             Delete .autocoder/config.json and retry.",
+                        )
+                    }
+                };
                 let previous = obj.insert(key.to_string(), json_value.clone());
 
                 if let Err(e) = write_config(ctx.workspace, &config) {

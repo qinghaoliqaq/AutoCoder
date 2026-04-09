@@ -280,12 +280,17 @@ impl Tool for BashTool {
             let cmd_owned = command.to_string();
             let ws = workspace.clone();
             tokio::spawn(async move {
-                let _ = Command::new("sh")
+                let mut child = match Command::new("sh")
                     .arg("-c")
                     .arg(&cmd_owned)
                     .current_dir(&ws)
-                    .output()
-                    .await;
+                    .kill_on_drop(true)
+                    .spawn()
+                {
+                    Ok(c) => c,
+                    Err(_) => return,
+                };
+                let _ = child.wait().await;
             });
             return ToolResult::ok(format!(
                 "Command is running in the background. You will be notified when it completes.\n\

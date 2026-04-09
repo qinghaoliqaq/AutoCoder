@@ -36,8 +36,11 @@ pub(crate) fn run_and_persist(
         .map_err(|e| format!("Cannot serialize {VERIFIER_RESULT_JSON}: {e}"))?;
 
     let isolated_path = isolated_workspace.join(VERIFIER_RESULT_JSON);
-    std::fs::write(&isolated_path, &json)
-        .map_err(|e| format!("Cannot write {}: {e}", isolated_path.display()))?;
+    let tmp_path = isolated_path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, &json)
+        .map_err(|e| format!("Cannot write {}: {e}", tmp_path.display()))?;
+    std::fs::rename(&tmp_path, &isolated_path)
+        .map_err(|e| format!("Cannot rename to {}: {e}", isolated_path.display()))?;
 
     // Archive write is supplementary (for debugging/evidence) — must not
     // kill the subtask if the archive directory is inaccessible.

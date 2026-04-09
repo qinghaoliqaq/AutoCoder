@@ -12,9 +12,11 @@ pub(super) fn build_initial_subtasks(workspace: &str, plan: &str) -> Vec<Subtask
     let checked_ids = parse_checked_subtask_ids(plan);
     match read_plan_graph(workspace) {
         Ok(Some(graph)) => {
+            let mut seen = HashSet::new();
             let subtasks = graph
                 .subtasks
                 .iter()
+                .filter(|s| seen.insert(s.id.clone()))
                 .map(|subtask| {
                     subtask_from_plan_graph(subtask, checked_ids.contains(subtask.id.as_str()))
                 })
@@ -31,7 +33,11 @@ pub(super) fn build_initial_subtasks(workspace: &str, plan: &str) -> Vec<Subtask
 // ── Plan parsing ──────────────────────────────────────────────────────────
 
 pub(super) fn parse_plan_subtasks(plan: &str) -> Vec<SubtaskCard> {
-    plan.lines().filter_map(parse_checklist_line).collect()
+    let mut seen = HashSet::new();
+    plan.lines()
+        .filter_map(parse_checklist_line)
+        .filter(|card| seen.insert(card.id.clone()))
+        .collect()
 }
 
 fn parse_checked_subtask_ids(plan: &str) -> HashSet<String> {

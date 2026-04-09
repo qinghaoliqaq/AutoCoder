@@ -105,7 +105,7 @@ pub async fn chat_with_director(
         Err(e)
             if e.contains("prompt is too long")
                 || e.contains("context_length_exceeded")
-                || e.contains("max_tokens")
+                || e.contains("maximum context length")
                 || e.contains("too many tokens") =>
         {
             reactive_compact(histories, window_label)?;
@@ -265,23 +265,27 @@ fn micro_compact(
     for msg in history.iter_mut() {
         if let Some(content) = msg["content"].as_str() {
             if content.len() > MICRO_TRIM_THRESHOLD {
-                let head = &content[..content
+                let head_end = content
                     .char_indices()
                     .nth(MICRO_HEAD)
                     .map(|(i, _)| i)
-                    .unwrap_or(content.len())];
+                    .unwrap_or(content.len());
                 let tail_start = content
                     .char_indices()
                     .rev()
                     .nth(MICRO_TAIL)
                     .map(|(i, _)| i)
                     .unwrap_or(0);
-                let tail = &content[tail_start..];
-                let trimmed = format!(
-                    "{head}\n\n[... {omitted} chars omitted ...]\n\n{tail}",
-                    omitted = content.len() - head.len() - tail.len()
-                );
-                msg["content"] = json!(trimmed);
+                // Guard against overlap: if head + tail >= total, skip trimming
+                if head_end < tail_start {
+                    let head = &content[..head_end];
+                    let tail = &content[tail_start..];
+                    let trimmed = format!(
+                        "{head}\n\n[... {omitted} chars omitted ...]\n\n{tail}",
+                        omitted = content.len() - head.len() - tail.len()
+                    );
+                    msg["content"] = json!(trimmed);
+                }
             }
         }
     }
@@ -318,13 +322,16 @@ pub(crate) fn reactive_compact(
 
     let mut compacted = Vec::new();
 
-    // Keep the summary if found
-    if let Some(idx) = summary_idx {
-        compacted.push(history[idx].clone());
-    }
-
     // Keep only the last 4 messages
     let keep_from = history.len().saturating_sub(4);
+
+    // Keep the summary if found AND it's not already in the last 4
+    if let Some(idx) = summary_idx {
+        if idx < keep_from {
+            compacted.push(history[idx].clone());
+        }
+    }
+
     compacted.extend_from_slice(&history[keep_from..]);
 
     *history = compacted;
@@ -366,7 +373,12 @@ async fn compact_history(
         let content = msg["content"].as_str().unwrap_or("");
         // Truncate very long individual messages to keep the summary prompt reasonable
         let truncated = if content.len() > 2000 {
-            format!("{}... [truncated]", &content[..2000])
+            let end = content
+                .char_indices()
+                .nth(2000)
+                .map(|(i, _)| i)
+                .unwrap_or(content.len());
+            format!("{}... [truncated]", &content[..end])
         } else {
             content.to_string()
         };
@@ -682,7 +694,14 @@ async fn stream_anthropic(
 
                             if let Some(data) = line.strip_prefix("data: ") {
                                 if let Ok(v) = serde_json::from_str::<Value>(data) {
-                                    if v["type"] == "content_block_delta" {
+                                    let event_type = v["type"].as_str().unwrap_or("");
+                                    if event_type == "error" {
+                                        let msg = v["error"]["message"]
+                                            .as_str()
+                                            .unwrap_or("unknown stream error");
+                                        return Err(format!("Anthropic stream error: {msg}"));
+                                    }
+                                    if event_type == "content_block_delta" {
                                         if let Some(tok) = v["delta"]["text"].as_str() {
                                             if !tok.is_empty() {
                                                 full_response.push_str(tok);
