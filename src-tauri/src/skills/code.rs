@@ -134,6 +134,9 @@ pub(super) async fn run(
     // JoinSet panic (worker crash) is treated as truly fatal.
 
     let fatal_error = loop {
+        if token.is_cancelled() {
+            break Some("Cancelled".to_string());
+        }
         spawn_ready_subtasks(
             &mut join_set,
             total,
@@ -456,6 +459,11 @@ async fn run_subtask(
         {
             Ok(a) => a,
             Err(e) => {
+                // Clean up reused workspace that we couldn't start a new attempt for.
+                if let Some(ws) = reuse_isolated.take() {
+                    let _ = cleanup_isolated_workspace(&ws.root);
+                    let _ = cleanup_isolated_workspace(&ws.base_dir);
+                }
                 // If begin_attempt modified in-memory state but persist failed,
                 // the subtask is InProgress in memory.  Mark it failed so the
                 // scheduler detects it instead of a silent deadlock.
@@ -550,9 +558,11 @@ async fn run_subtask(
         let cleanup_err = if should_reuse {
             None
         } else {
-            cleanup_isolated_workspace(&isolated.root)
-                .and_then(|()| cleanup_isolated_workspace(&isolated.base_dir))
-                .err()
+            {
+                let root_err = cleanup_isolated_workspace(&isolated.root).err();
+                let base_err = cleanup_isolated_workspace(&isolated.base_dir).err();
+                root_err.or(base_err)
+            }
         };
 
         if let Some(err) = clear_board_err.or(finish_active_err).or(cleanup_err) {
@@ -588,6 +598,14 @@ async fn run_subtask(
                 continue;
             }
             Err(e) if attempt < MAX_SUBTASK_ATTEMPTS => {
+                // If cancelled, don't waste remaining retries — exit immediately.
+                if ctx.token.is_cancelled() {
+                    let _ = mutate_board(&ctx.board, workspace, |board| {
+                        board.mark_failed(&subtask_id, "Cancelled".to_string())
+                    })
+                    .await;
+                    return Err("cancelled".to_string());
+                }
                 // Transient error (Claude/Codex crash, network issue, etc.) —
                 // retry with a fresh workspace.
                 tracing::warn!(
@@ -821,7 +839,7 @@ fn resolve_vendored_skill(
     ) {
         (true, Some(skill_id)) => match load_vendored_skill(skill_id) {
             Ok(skill) => {
-                let _ = emit_vendored_skill_log(ctx.app_handle, ctx.window_label, "claude", &skill, card);
+                emit_vendored_skill_log(ctx.app_handle, ctx.window_label, "claude", &skill, card);
                 let _ = emit_blackboard(
                     ctx.workspace,
                     ctx.app_handle,

@@ -337,14 +337,19 @@ pub(super) fn parse_review_report(output: &str) -> ReviewReport {
     let passed = match &explicit_decision {
         Some(decision) => {
             let upper = decision.trim().to_uppercase();
-            // Reject negated / echoed phrases first, then check for PASS.
-            // "CANNOT PASS", "DOES NOT PASS", "CONDITIONAL PASS", and
-            // echoed "PASS or FAIL" must NOT be treated as PASS.
-            let has_negation = upper.contains("PASS OR FAIL")
-                || upper.contains("NOT PASS")
-                || upper.contains("CANNOT PASS")
-                || upper.contains("CONDITIONAL PASS");
-            !has_negation && (upper == "PASS" || upper == "PASSED" || upper.starts_with("PASS "))
+            // Extract just the verdict token (before any dash or explanation).
+            // E.g. "PASS - all tests pass or fail gracefully" → "PASS"
+            let verdict_token = upper
+                .split(|c: char| c == '-' || c == ':' || c == '—')
+                .next()
+                .unwrap_or("")
+                .trim();
+            // Reject negated / echoed phrases in the verdict token only.
+            let has_negation = verdict_token.contains("PASS OR FAIL")
+                || verdict_token.contains("NOT PASS")
+                || verdict_token.contains("CANNOT PASS")
+                || verdict_token.contains("CONDITIONAL PASS");
+            !has_negation && (verdict_token == "PASS" || verdict_token == "PASSED")
         }
         None => {
             // No explicit decision marker — infer from output content.
@@ -379,10 +384,10 @@ fn infer_review_passed(output: &str, findings: &[String]) -> bool {
     let upper = output.to_uppercase();
 
     // Check for SPECIALIST_VERDICT which uses a different format.
-    if upper.contains("SPECIALIST_VERDICT:PASS") {
+    if upper.contains("SPECIALIST_VERDICT:PASS") || upper.contains("SPECIALIST_VERDICT: PASS") {
         return true;
     }
-    if upper.contains("SPECIALIST_VERDICT:FAIL") {
+    if upper.contains("SPECIALIST_VERDICT:FAIL") || upper.contains("SPECIALIST_VERDICT: FAIL") {
         return false;
     }
 

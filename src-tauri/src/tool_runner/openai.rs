@@ -213,8 +213,12 @@ async fn stream_response(
 
     let mut stream = resp.bytes_stream();
     let mut byte_buf: Vec<u8> = Vec::new();
+    let mut stream_done = false;
 
     loop {
+        if stream_done {
+            break;
+        }
         let chunk = tokio::select! {
             _ = token.cancelled() => {
                 return Err("cancelled".to_string());
@@ -248,6 +252,7 @@ async fn stream_response(
             };
 
             if data == "[DONE]" {
+                stream_done = true;
                 break;
             }
 
@@ -296,7 +301,9 @@ async fn stream_response(
                         entry.0 = id.to_string();
                     }
                     if let Some(name) = call["function"]["name"].as_str() {
-                        entry.1.push_str(name);
+                        if entry.1.is_empty() {
+                            entry.1 = name.to_string();
+                        }
                     }
                     if let Some(args) = call["function"]["arguments"].as_str() {
                         entry.2.push_str(args);

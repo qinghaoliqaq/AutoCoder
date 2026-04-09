@@ -402,7 +402,7 @@ impl AppConfig {
                 base_url,
                 model,
                 api_format: draft.api_format,
-                context_budget: default_context_budget(),
+                context_budget: existing.director.context_budget,
             },
             features: FeaturesConfig {
                 vendored_skills: draft.vendored_skills,
@@ -426,8 +426,12 @@ impl AppConfig {
         let path = writable_config_path()?;
         let content = toml::to_string_pretty(&cfg)
             .map_err(|e| format!("Cannot serialize config.toml: {e}"))?;
-        std::fs::write(&path, format!("{content}\n"))
-            .map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
+        // Atomic write: tmp + rename to prevent corrupt config on crash.
+        let tmp_path = path.with_extension("tmp");
+        std::fs::write(&tmp_path, format!("{content}\n"))
+            .map_err(|e| format!("Cannot write {}: {e}", tmp_path.display()))?;
+        std::fs::rename(&tmp_path, &path)
+            .map_err(|e| format!("Cannot rename config {}: {e}", path.display()))?;
         Ok(AppConfig::load())
     }
 }

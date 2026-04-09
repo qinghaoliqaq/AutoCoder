@@ -254,6 +254,10 @@ impl Blackboard {
                 if !impl_summary.is_empty() {
                     card.attempted_fixes
                         .push(format!("Attempt {}: {}", card.attempts, impl_summary));
+                    // Cap to last 10 entries to prevent unbounded growth across retries.
+                    if card.attempted_fixes.len() > 10 {
+                        card.attempted_fixes.drain(..card.attempted_fixes.len() - 10);
+                    }
                 }
             }
         }
@@ -330,6 +334,7 @@ impl Blackboard {
             }
         }
         self.updated_at = now_string();
+        self.complete_if_finished();
     }
 
     pub(crate) fn complete_if_finished(&mut self) {
@@ -388,10 +393,22 @@ pub(crate) fn sanitize_persisted_state(workspace: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    let content = std::fs::read_to_string(&json_path)
-        .map_err(|e| format!("Cannot read {}: {e}", json_path.display()))?;
-    let mut board = serde_json::from_str::<Blackboard>(&content)
-        .map_err(|e| format!("Cannot parse {}: {e}", json_path.display()))?;
+    let content = match std::fs::read_to_string(&json_path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("Cannot read {} (removing corrupt file): {e}", json_path.display());
+            let _ = std::fs::remove_file(&json_path);
+            return Ok(());
+        }
+    };
+    let mut board = match serde_json::from_str::<Blackboard>(&content) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("Cannot parse {} (removing corrupt file): {e}", json_path.display());
+            let _ = std::fs::remove_file(&json_path);
+            return Ok(());
+        }
+    };
 
     // Mark crash-recovered subtasks as Done before resetting transient state.
     for subtask_id in &recovered {

@@ -55,20 +55,20 @@ pub(super) fn emit_vendored_skill_log(
     agent: &str,
     skill: &VendoredSkill,
     card: &SubtaskCard,
-) -> Result<(), String> {
+) {
     let ts = chrono::Utc::now().timestamp_millis() as u64;
-    app_handle
-        .emit_to(
-            EventTarget::webview_window(window_label),
-            "tool-log",
-            ToolLog {
-                agent: agent.to_string(),
-                tool: "BundledSkill".to_string(),
-                input: format!("{} -> {} {}", skill.id.slug(), card.id, card.title),
-                timestamp: ts,
-            },
-        )
-        .map_err(|e| format!("Emit error: {e}"))
+    if let Err(e) = app_handle.emit_to(
+        EventTarget::webview_window(window_label),
+        "tool-log",
+        ToolLog {
+            agent: agent.to_string(),
+            tool: "BundledSkill".to_string(),
+            input: format!("{} -> {} {}", skill.id.slug(), card.id, card.title),
+            timestamp: ts,
+        },
+    ) {
+        tracing::warn!("Failed to emit vendored skill log (non-fatal): {e}");
+    }
 }
 
 fn evidence_agent_for_status(status: &str) -> &'static str {

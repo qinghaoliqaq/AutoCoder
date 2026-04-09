@@ -127,6 +127,18 @@ pub(crate) fn cleanup_orphaned_workspaces(workspace: &str, active_roots: &[Strin
                 continue; // This workspace is still active — don't delete.
             }
             let name = sub_entry.file_name().to_string_lossy().to_string();
+            // Protect base-N dirs whose matching attempt-N is active.
+            // The blackboard only stores the attempt root, not the base dir,
+            // so we must infer protection for base dirs here.
+            if name.starts_with("base-") {
+                let matching_attempt = subtask_dir
+                    .join(name.replacen("base-", "attempt-", 1))
+                    .to_string_lossy()
+                    .to_string();
+                if active_set.contains(matching_attempt.as_str()) {
+                    continue; // Corresponding attempt is active — protect the base.
+                }
+            }
             // Only clean up attempt-N, base-N, and merge-staging directories.
             if name.starts_with("attempt-")
                 || name.starts_with("base-")

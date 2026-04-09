@@ -74,10 +74,22 @@ pub(crate) fn recover_pending_merges(workspace: &str) -> Vec<String> {
         );
 
         let main_root = Path::new(workspace);
-        let staging = Path::new(&journal.staging_dir);
+        // Derive staging dir from known structure instead of trusting the
+        // journal's staging_dir field (defense against tampered journals).
+        let staging = subtask_dir.join("merge-staging");
+        if !staging.exists() {
+            tracing::warn!("Staging dir missing for journal {} — removing stale journal", journal_path.display());
+            let _ = std::fs::remove_file(&journal_path);
+            continue;
+        }
 
         // Complete the merge: copy remaining staged files to main workspace.
         for relative in &journal.copy_files {
+            // Path traversal protection: reject paths with ".." or absolute paths.
+            if relative.contains("..") || Path::new(relative).is_absolute() {
+                tracing::warn!("Skipping suspicious path in merge journal: {relative}");
+                continue;
+            }
             let staged_file = staging.join(relative);
             let target = main_root.join(relative);
             if !staged_file.exists() {
@@ -98,6 +110,10 @@ pub(crate) fn recover_pending_merges(workspace: &str) -> Vec<String> {
 
         // Complete deletes.
         for relative in &journal.delete_files {
+            if relative.contains("..") || Path::new(relative).is_absolute() {
+                tracing::warn!("Skipping suspicious delete path in merge journal: {relative}");
+                continue;
+            }
             let target = main_root.join(relative);
             if target.exists() {
                 let _ = std::fs::remove_file(&target);
@@ -154,6 +170,11 @@ pub(crate) fn merge_isolated_workspace(
         let base = isolated.base_snapshot.get(path);
         let main = main_before.get(path);
         if main != base {
+            // If main also deleted the file (main is None, base is Some),
+            // both sides agree — no conflict.
+            if main.is_none() && base.is_some() {
+                continue;
+            }
             // Cannot three-way merge a delete vs modify — true conflict.
             conflicts.push(path.to_string_lossy().into_owned());
         }
@@ -293,8 +314,12 @@ pub(crate) fn merge_isolated_workspace(
     let journal_path = subtask_scratch.join(MERGE_JOURNAL);
     let journal_json = serde_json::to_string_pretty(&journal)
         .map_err(|e| format!("Cannot serialize merge journal: {e}"))?;
-    std::fs::write(&journal_path, &journal_json)
-        .map_err(|e| format!("Cannot write merge journal {}: {e}", journal_path.display()))?;
+    // Atomic write: tmp + rename to prevent corrupt journal on crash.
+    let journal_tmp = journal_path.with_extension("tmp");
+    std::fs::write(&journal_tmp, &journal_json)
+        .map_err(|e| format!("Cannot write merge journal tmp {}: {e}", journal_tmp.display()))?;
+    std::fs::rename(&journal_tmp, &journal_path)
+        .map_err(|e| format!("Cannot rename merge journal {}: {e}", journal_path.display()))?;
 
     // ── Apply from staging to main workspace ───────────────────────────
     for relative in &touched {

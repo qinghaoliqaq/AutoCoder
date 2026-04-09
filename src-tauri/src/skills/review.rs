@@ -479,7 +479,7 @@ async fn run_specialist_review(
         };
         match result {
             Ok(output) => {
-                if output.contains("SPECIALIST_VERDICT:FAIL") {
+                if output.contains("SPECIALIST_VERDICT:FAIL") || output.contains("SPECIALIST_VERDICT: FAIL") {
                     all_passed = false;
                     // Extract the summary after FAIL: using find+split
                     // (rsplit().next() always returns Some, making the else

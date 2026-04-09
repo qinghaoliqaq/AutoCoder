@@ -367,7 +367,9 @@ fn resolve_agent_provider(
 
 fn truncate_error(text: &str) -> String {
     if text.len() > 200 {
-        format!("{}...", &text[..200])
+        // Find a char boundary at or before byte 200 to avoid panic on multi-byte UTF-8.
+        let end = (0..=200).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0);
+        format!("{}...", &text[..end])
     } else {
         text.to_string()
     }

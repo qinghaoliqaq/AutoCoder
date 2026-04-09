@@ -103,13 +103,13 @@ pub(super) async fn run(
         );
     }
 
-    app_handle
-        .emit_to(
-            EventTarget::webview_window(window_label),
-            "qa-result",
-            result,
-        )
-        .map_err(|e| e.to_string())?;
+    if let Err(e) = app_handle.emit_to(
+        EventTarget::webview_window(window_label),
+        "qa-result",
+        result,
+    ) {
+        tracing::warn!("Failed to emit qa-result (non-fatal): {e}");
+    }
 
     Ok(())
 }
@@ -300,13 +300,15 @@ QA Verdict: PASS
     }
 
     #[test]
-    fn parse_qa_result_fails_closed_without_markers() {
-        let err = parse_qa_result("plain text only", 0).unwrap_err();
-        assert!(err.contains("QA_VERDICT"));
+    fn parse_qa_result_defaults_fail_without_markers() {
+        // Without markers, parse_qa_result now returns Ok with FAIL default
+        // instead of Err, so the orchestrator can continue gracefully.
+        let result = parse_qa_result("plain text only", 0).unwrap();
+        assert_eq!(result.verdict, "FAIL");
     }
 
     #[test]
-    fn parse_qa_result_rejects_invalid_next_step() {
+    fn parse_qa_result_normalizes_invalid_next_step() {
         let text = "\
 [QA_VERDICT:FAIL]
 \n\
@@ -315,12 +317,14 @@ QA Verdict: PASS
 [QA_SUMMARY:Need more evidence]
 \n\
 [QA_ISSUE:no test evidence]";
-        let err = parse_qa_result(text, 0).unwrap_err();
-        assert!(err.contains("Invalid QA next-step marker"));
+        // Invalid next-step is normalized to "review" instead of Err.
+        let result = parse_qa_result(text, 0).unwrap();
+        assert_eq!(result.verdict, "FAIL");
+        assert_eq!(result.recommended_next_step, "review");
     }
 
     #[test]
-    fn parse_qa_result_rejects_invalid_pass_combination() {
+    fn parse_qa_result_normalizes_invalid_pass_combination() {
         let text = "\
 [QA_VERDICT:PASS]
 \n\
@@ -329,12 +333,14 @@ QA Verdict: PASS
 [QA_SUMMARY:Looks good]
 \n\
 [QA_ISSUE:none]";
-        let err = parse_qa_result(text, 0).unwrap_err();
-        assert!(err.contains("Invalid QA verdict/next-step combination"));
+        // Invalid PASS+review combination is normalized: next_step → "review".
+        let result = parse_qa_result(text, 0).unwrap();
+        assert_eq!(result.verdict, "PASS");
+        assert_eq!(result.recommended_next_step, "review");
     }
 
     #[test]
-    fn parse_qa_result_rejects_invalid_pass_with_concerns_combination() {
+    fn parse_qa_result_normalizes_invalid_pass_with_concerns_combination() {
         let text = "\
 [QA_VERDICT:PASS_WITH_CONCERNS]
 \n\
@@ -343,7 +349,9 @@ QA Verdict: PASS
 [QA_SUMMARY:Mostly usable]
 \n\
 [QA_ISSUE:minor gaps]";
-        let err = parse_qa_result(text, 0).unwrap_err();
-        assert!(err.contains("Invalid QA verdict/next-step combination"));
+        // Invalid combination is normalized: next_step → "review".
+        let result = parse_qa_result(text, 0).unwrap();
+        assert_eq!(result.verdict, "PASS_WITH_CONCERNS");
+        assert_eq!(result.recommended_next_step, "review");
     }
 }

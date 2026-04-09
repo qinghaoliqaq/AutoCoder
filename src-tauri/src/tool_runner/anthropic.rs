@@ -177,8 +177,12 @@ async fn stream_response(
 
     let mut stream = resp.bytes_stream();
     let mut byte_buf: Vec<u8> = Vec::new();
+    let mut stream_done = false;
 
     loop {
+        if stream_done {
+            break;
+        }
         let chunk = tokio::select! {
             _ = token.cancelled() => {
                 return Err("cancelled".to_string());
@@ -214,6 +218,7 @@ async fn stream_response(
 
             if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
+                    stream_done = true;
                     break;
                 }
 
