@@ -66,7 +66,7 @@ pub(super) async fn run(
             .unwrap_or_default(),
     );
 
-    emit_blackboard(
+    let _ = emit_blackboard(
         workspace,
         app_handle,
         window_label,
@@ -77,9 +77,9 @@ pub(super) async fn run(
             total,
             parallel_limit
         ),
-    )?;
+    );
     if let Some(warning) = acceptance_warning {
-        emit_blackboard(
+        let _ = emit_blackboard(
             workspace,
             app_handle,
             window_label,
@@ -88,7 +88,7 @@ pub(super) async fn run(
             format!(
                 "Structured acceptance data is unavailable, so code mode is falling back to PLAN.md and blackboard-only review: {warning}"
             ),
-        )?;
+        );
     }
 
     let base_prompt = Prompts::render(&prompts.code_claude, &[("task", task)]);
@@ -224,7 +224,7 @@ pub(super) async fn run(
     let mut board = shared_board.lock().await;
     board.complete_if_finished();
     board.persist(workspace)?;
-    emit_blackboard(
+    let _ = emit_blackboard(
         workspace,
         app_handle,
         window_label,
@@ -232,7 +232,7 @@ pub(super) async fn run(
         "completed",
         "All planned subtasks passed inline review and were merged from isolated workspaces."
             .to_string(),
-    )?;
+    );
     Ok(())
 }
 
@@ -647,14 +647,14 @@ async fn run_single_attempt(
             ctx.ordinal, ctx.total, card.id, card.title, isolated.root.display(), BLACKBOARD_MD
         )
     };
-    emit_blackboard(
+    let _ = emit_blackboard(
         ctx.workspace,
         ctx.app_handle,
         ctx.window_label,
         Some(card.id.clone()),
         "subtask_started",
         summary,
-    )?;
+    );
 
     // Phase 1: Claude implementation.
     let (implementation, acceptance) =
@@ -759,7 +759,7 @@ async fn run_implementation_phase(
     })
     .await?;
 
-    emit_blackboard(
+    let _ = emit_blackboard(
         ctx.workspace,
         ctx.app_handle,
         ctx.window_label,
@@ -769,7 +769,7 @@ async fn run_implementation_phase(
             "Claude finished {} attempt {} in isolation. Verifier is now checking the subtask.",
             card.id, attempt
         ),
-    )?;
+    );
 
     Ok((implementation, acceptance))
 }
@@ -785,8 +785,8 @@ fn resolve_vendored_skill(
     ) {
         (true, Some(skill_id)) => match load_vendored_skill(skill_id) {
             Ok(skill) => {
-                emit_vendored_skill_log(ctx.app_handle, ctx.window_label, "claude", &skill, card)?;
-                emit_blackboard(
+                let _ = emit_vendored_skill_log(ctx.app_handle, ctx.window_label, "claude", &skill, card);
+                let _ = emit_blackboard(
                     ctx.workspace,
                     ctx.app_handle,
                     ctx.window_label,
@@ -797,11 +797,11 @@ fn resolve_vendored_skill(
                         card.id,
                         skill.id.label()
                     ),
-                )?;
+                );
                 Ok(Some(skill))
             }
             Err(err) => {
-                emit_blackboard(
+                let _ = emit_blackboard(
                     ctx.workspace,
                     ctx.app_handle,
                     ctx.window_label,
@@ -811,16 +811,16 @@ fn resolve_vendored_skill(
                         "Packaged helper skill for {} is unavailable, continuing without it: {}",
                         card.id, err
                     ),
-                )?;
+                );
                 Ok(None)
             }
         },
         (false, Some(_)) => {
-            emit_blackboard(
+            let _ = emit_blackboard(
                 ctx.workspace, ctx.app_handle, ctx.window_label,
                 Some(card.id.clone()), "vendored_skill_disabled",
                 format!("Packaged helper skills are disabled in config. Subtask {} is continuing without them.", card.id),
-            )?;
+            );
             Ok(None)
         }
         (_, None) => Ok(None),
@@ -846,7 +846,7 @@ async fn run_build_gate_phase(
     }
 
     let labels: Vec<&str> = commands.iter().map(|c| c.label.as_str()).collect();
-    emit_blackboard(
+    let _ = emit_blackboard(
         ctx.workspace,
         ctx.app_handle,
         ctx.window_label,
@@ -857,12 +857,12 @@ async fn run_build_gate_phase(
             labels.join(", "),
             card.id
         ),
-    )?;
+    );
 
     let result = build_gate::run_build_gate(&isolated.root, &commands).await;
 
     if result.passed {
-        emit_blackboard(
+        let _ = emit_blackboard(
             ctx.workspace,
             ctx.app_handle,
             ctx.window_label,
@@ -872,7 +872,7 @@ async fn run_build_gate_phase(
                 "Build gate passed for {} attempt {}. Proceeding to verification.",
                 card.id, attempt
             ),
-        )?;
+        );
         return Ok(None);
     }
 
@@ -893,7 +893,7 @@ async fn run_build_gate_phase(
     })
     .await?;
 
-    emit_blackboard(
+    let _ = emit_blackboard(
         ctx.workspace,
         ctx.app_handle,
         ctx.window_label,
@@ -909,7 +909,7 @@ async fn run_build_gate_phase(
                 "Claude will retry with error context."
             }
         ),
-    )?;
+    );
 
     if attempt >= MAX_SUBTASK_ATTEMPTS {
         let reason = format!(
@@ -946,7 +946,7 @@ async fn run_verification_phase(
     )?;
 
     if verifier_result.passed {
-        emit_blackboard(
+        let _ = emit_blackboard(
             ctx.workspace,
             ctx.app_handle,
             ctx.window_label,
@@ -956,7 +956,7 @@ async fn run_verification_phase(
                 "Verifier passed {} attempt {}. Codex is now reviewing the subtask.",
                 card.id, attempt
             ),
-        )?;
+        );
         return Ok(Some(verifier_result.warnings));
     }
 
@@ -972,7 +972,7 @@ async fn run_verification_phase(
         Ok(())
     })
     .await?;
-    emit_blackboard(
+    let _ = emit_blackboard(
         ctx.workspace,
         ctx.app_handle,
         ctx.window_label,
@@ -982,7 +982,7 @@ async fn run_verification_phase(
             "Verifier blocked {} attempt {} before Codex review: {}",
             card.id, attempt, verifier_result.summary
         ),
-    )?;
+    );
 
     if attempt >= MAX_SUBTASK_ATTEMPTS {
         let reason = format!(
@@ -993,22 +993,22 @@ async fn run_verification_phase(
             board.mark_failed(&card.id, reason.clone())
         })
         .await?;
-        emit_blackboard(
+        let _ = emit_blackboard(
             ctx.workspace,
             ctx.app_handle,
             ctx.window_label,
             Some(card.id.clone()),
             "failed",
             reason.clone(),
-        )?;
+        );
         return Err(reason);
     }
 
-    emit_blackboard(
+    let _ = emit_blackboard(
         ctx.workspace, ctx.app_handle, ctx.window_label,
         Some(card.id.clone()), "needs_fix",
         format!("Verifier rejected {} on attempt {}. Claude will fix the code in-place using the verifier findings.", card.id, attempt),
-    )?;
+    );
     Ok(None)
 }
 
@@ -1073,22 +1073,22 @@ async fn run_review_and_merge_phase(
             board.mark_failed(&card.id, reason.clone())
         })
         .await?;
-        emit_blackboard(
+        let _ = emit_blackboard(
             ctx.workspace,
             ctx.app_handle,
             ctx.window_label,
             Some(card.id.clone()),
             "failed",
             reason.clone(),
-        )?;
+        );
         return Err(reason);
     }
 
-    emit_blackboard(
+    let _ = emit_blackboard(
         ctx.workspace, ctx.app_handle, ctx.window_label,
         Some(card.id.clone()), "needs_fix",
         format!("Codex rejected {} on attempt {}. Claude will fix the existing code in-place using the shared blackboard findings.", card.id, attempt),
-    )?;
+    );
     Ok(AttemptResolution::Retry)
 }
 
@@ -1122,8 +1122,10 @@ async fn apply_merge(
                 Ok(())
             })
             .await?;
-            tick_plan_checkbox(ctx.workspace, &card.id)?;
-            emit_blackboard(
+            if let Err(e) = tick_plan_checkbox(ctx.workspace, &card.id) {
+                tracing::warn!(subtask = %card.id, "Failed to tick plan checkbox (non-fatal): {e}");
+            }
+            let _ = emit_blackboard(
                 ctx.workspace,
                 ctx.app_handle,
                 ctx.window_label,
@@ -1133,7 +1135,7 @@ async fn apply_merge(
                     "Subtask {} passed Codex review and merged cleanly from isolated workspace.",
                     card.id
                 ),
-            )?;
+            );
             Ok(AttemptResolution::Completed)
         }
         Err(conflict) => {
@@ -1149,14 +1151,14 @@ async fn apply_merge(
                     board.mark_failed(&card.id, reason.clone())
                 })
                 .await?;
-                emit_blackboard(
+                let _ = emit_blackboard(
                     ctx.workspace,
                     ctx.app_handle,
                     ctx.window_label,
                     Some(card.id.clone()),
                     "failed",
                     reason.clone(),
-                )?;
+                );
                 return Err(reason);
             }
 
@@ -1171,11 +1173,11 @@ async fn apply_merge(
                 Ok(())
             })
             .await?;
-            emit_blackboard(
+            let _ = emit_blackboard(
                 ctx.workspace, ctx.app_handle, ctx.window_label,
                 Some(card.id.clone()), "needs_fix",
                 format!("Subtask {} passed review but hit merge conflicts. Claude will fix the code in-place to resolve conflicts.", card.id),
-            )?;
+            );
             Ok(AttemptResolution::Retry)
         }
     }

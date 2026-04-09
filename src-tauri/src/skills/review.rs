@@ -471,7 +471,16 @@ async fn run_specialist_review(
     let mut issues = Vec::new();
 
     while let Some(joined) = join_set.join_next().await {
-        let (name, result) = joined.map_err(|e| format!("Specialist worker crashed: {e}"))?;
+        let (name, result) = match joined {
+            Ok(pair) => pair,
+            Err(e) => {
+                // Specialist task panicked/cancelled — treat as a failed specialist,
+                // not a fatal error that kills the entire review phase.
+                all_passed = false;
+                issues.push(format!("specialist worker crashed: {e}"));
+                continue;
+            }
+        };
         match result {
             Ok(output) => {
                 if output.contains("SPECIALIST_VERDICT:FAIL") {

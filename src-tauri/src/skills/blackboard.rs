@@ -125,10 +125,10 @@ impl Blackboard {
         }
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Cannot serialize blackboard: {e}"))?;
-        std::fs::write(&json_path, json)
-            .map_err(|e| format!("Cannot write {}: {e}", json_path.display()))?;
-        std::fs::write(&md_path, self.render_markdown())
-            .map_err(|e| format!("Cannot write {}: {e}", md_path.display()))?;
+        // Use atomic write-to-temp-then-rename so concurrent readers
+        // (e.g. sync_coordination_files) never see partial content.
+        atomic_write(&json_path, json.as_bytes())?;
+        atomic_write(&md_path, self.render_markdown().as_bytes())?;
         Ok(())
     }
 
@@ -384,14 +384,23 @@ pub(crate) fn tick_plan_checkbox(workspace: &str, subtask_id: &str) -> Result<()
     }
 
     if changed {
-        std::fs::write(&plan_path, format!("{}\n", lines.join("\n")))
-            .map_err(|e| format!("Cannot write {}: {e}", plan_path.display()))?;
+        atomic_write(&plan_path, format!("{}\n", lines.join("\n")).as_bytes())?;
     }
     Ok(())
 }
 
 fn now_string() -> String {
     Utc::now().to_rfc3339()
+}
+
+/// Write data to a temp file then atomically rename, so concurrent readers
+/// never see partial content.
+fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, data)
+        .map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, path)
+        .map_err(|e| format!("Cannot rename {} → {}: {e}", tmp.display(), path.display()))
 }
 
 #[cfg(test)]

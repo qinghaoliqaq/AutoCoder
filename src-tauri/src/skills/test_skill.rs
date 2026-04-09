@@ -52,7 +52,7 @@ pub(super) async fn run_phase(
         format!("## Structured Acceptance ({PLAN_ACCEPTANCE_JSON})\n\n```json\n{json}\n```")
     });
     if let Some(warning) = &acceptance_warning {
-        emit_acceptance_warning_log(app_handle, window_label, warning)?;
+        let _ = emit_acceptance_warning_log(app_handle, window_label, warning);
     }
     let warning_section = acceptance_warning.map(|warning| {
         format!(

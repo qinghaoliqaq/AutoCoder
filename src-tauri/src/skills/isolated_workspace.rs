@@ -67,6 +67,10 @@ pub(crate) fn create_isolated_workspace(
 
     // Keep a frozen copy of the workspace as-is at fork time so we can use it
     // as the common ancestor for three-way merges.
+    // IMPORTANT: Copy from attempt_root (already forked) instead of from
+    // workspace_root again — otherwise a concurrent merge between the two
+    // copy_workspace_tree calls would make the base out of sync with the
+    // working copy (TOCTOU race).
     let base_dir = scratch_root.join(format!("base-{attempt}"));
     if base_dir.exists() {
         std::fs::remove_dir_all(&base_dir).ok();
@@ -74,7 +78,7 @@ pub(crate) fn create_isolated_workspace(
     std::fs::create_dir_all(&base_dir).map_err(|e| {
         format!("Cannot create base dir {}: {e}", base_dir.display())
     })?;
-    copy_workspace_tree(workspace_root, &base_dir, workspace_root)?;
+    copy_workspace_tree(&attempt_root, &base_dir, &attempt_root)?;
 
     Ok(IsolatedWorkspace {
         root: attempt_root,

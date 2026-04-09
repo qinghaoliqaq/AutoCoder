@@ -507,7 +507,11 @@ pub(crate) fn refresh_evidence_index(workspace: &str) -> Result<(), String> {
     }
     let json = serde_json::to_string_pretty(&index)
         .map_err(|e| format!("Cannot serialize {EVIDENCE_INDEX_JSON}: {e}"))?;
-    std::fs::write(&path, json).map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
+    // Atomic write-to-temp-then-rename so concurrent readers never see partial content.
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, json).map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, &path)
+        .map_err(|e| format!("Cannot rename {} → {}: {e}", tmp.display(), path.display()))?;
     Ok(())
 }
 
