@@ -9,30 +9,45 @@ import InlineTodoList, { TodoItem } from './InlineTodoList';
 
 // ── Role config ──────────────────────────────────────────────────────────────
 
-const ROLE_CONFIG: Record<AgentRole, { label: string; icon: string; color: string; borderColor: string }> = {
+const ROLE_CONFIG: Record<AgentRole, {
+  label: string; icon: string; color: string; borderColor: string;
+  gradient: string; glow: string; textGlow: string;
+}> = {
   claude: {
     label: 'Claude',
     icon: 'C',
     color: 'text-[#cc785c]',
     borderColor: 'border-[#cc785c]/25',
+    gradient: 'bg-gradient-to-br from-orange-400 to-amber-600',
+    glow: 'shadow-[0_0_8px_rgba(204,120,92,0.4)]',
+    textGlow: 'text-glow-claude',
   },
   codex: {
     label: 'Codex',
     icon: 'X',
     color: 'text-[#10a37f]',
     borderColor: 'border-[#10a37f]/25',
+    gradient: 'bg-gradient-to-br from-emerald-400 to-teal-600',
+    glow: 'shadow-[0_0_8px_rgba(16,163,127,0.4)]',
+    textGlow: 'text-glow-codex',
   },
   director: {
     label: 'Director',
     icon: 'D',
     color: 'text-themed-accent-text',
     borderColor: 'border-themed-accent/25',
+    gradient: 'bg-gradient-to-br from-violet-400 to-purple-600',
+    glow: 'shadow-[0_0_8px_rgba(139,92,246,0.4)]',
+    textGlow: 'text-glow-director',
   },
   user: {
     label: 'You',
     icon: 'U',
     color: 'text-content-primary',
     borderColor: 'border-edge-primary',
+    gradient: 'bg-gradient-to-br from-zinc-400 to-zinc-600',
+    glow: '',
+    textGlow: '',
   },
 };
 
@@ -158,10 +173,10 @@ function Message({ message, isLast, toolCalls, todos }: MessageProps) {
       <div className={`px-5 py-4 ${isUser ? 'bg-surface-secondary/20' : ''}`}>
         {/* Header: avatar + name + time */}
         <div className="flex items-center gap-2.5 mb-2">
-          <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg border text-[10px] font-bold ${config.borderColor} bg-surface-elevated/70`}>
-            <span className={config.color}>{config.icon}</span>
+          <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg text-[10px] font-bold text-white ${config.gradient} ${config.glow}`}>
+            {config.icon}
           </div>
-          <span className={`text-[12px] font-semibold ${config.color}`}>{config.label}</span>
+          <span className={`text-[12px] font-semibold ${config.textGlow || config.color}`}>{config.label}</span>
           <span className="text-[10px] text-content-tertiary tabular-nums">
             {new Date(message.timestamp).toLocaleTimeString('en-US', {
               hour: 'numeric',
@@ -262,51 +277,53 @@ function SubtaskThread({ group, isLast, defaultExpanded }: { group: Extract<Mess
   const previewMsg = group.messages[group.messages.length - 1];
 
   return (
-    <div className={`animate-slide-up ${!isLast ? 'border-b border-edge-secondary/60' : ''}`}>
-      {/* Thread header */}
-      <button
-        onClick={() => setExpanded(v => !v)}
-        className="flex w-full items-center gap-2.5 px-5 py-3 text-left transition-colors hover:bg-surface-secondary/20"
-      >
-        <svg
-          className={`h-3.5 w-3.5 flex-shrink-0 text-content-tertiary transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-          fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"
+    <div className={`animate-slide-up px-4 py-2 ${!isLast ? 'border-b border-edge-secondary/60' : ''}`}>
+      {/* Thread card with shimmer border */}
+      <div className="shimmer-border rounded-xl bg-surface-secondary/30 backdrop-blur-sm">
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-surface-secondary/20 rounded-xl"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
+          <svg
+            className={`h-3.5 w-3.5 flex-shrink-0 text-content-tertiary transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+            fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
 
-        <span className="inline-flex items-center gap-1.5 rounded-md border border-themed-accent/25 px-2 py-0.5 text-[10.5px] font-semibold text-themed-accent-text" style={{ backgroundColor: 'rgb(var(--accent-soft))' }}>
-          <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
-          {group.label}
-        </span>
-
-        <div className="flex -space-x-1">
-          {agentSet.map(role => {
-            const cfg = ROLE_CONFIG[role];
-            return (
-              <div key={role} className={`flex h-[1.125rem] w-[1.125rem] items-center justify-center rounded-md border text-[8px] font-bold ${cfg.borderColor} bg-surface-elevated/70`}>
-                <span className={cfg.color}>{cfg.icon}</span>
-              </div>
-            );
-          })}
-        </div>
-
-        <span className="text-[10px] text-content-tertiary">{group.messages.length} messages</span>
-
-        {!expanded && previewMsg && (
-          <span className="ml-auto max-w-[40%] truncate text-[11px] text-content-tertiary">
-            {previewMsg.content.slice(0, 80)}
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-500/15 to-purple-500/10 px-2.5 py-1 text-[10.5px] font-semibold text-shimmer">
+            <svg className="h-2.5 w-2.5 text-themed-accent-text" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
+            {group.label}
           </span>
-        )}
-      </button>
 
-      {expanded && (
-        <div className="border-l-2 border-themed-accent/20 ml-5">
-          {group.messages.map((msg, idx) => (
-            <Message key={msg.id} message={msg} isLast={idx === group.messages.length - 1} />
-          ))}
-        </div>
-      )}
+          <div className="flex -space-x-1.5">
+            {agentSet.map(role => {
+              const cfg = ROLE_CONFIG[role];
+              return (
+                <div key={role} className={`flex h-[1.2rem] w-[1.2rem] items-center justify-center rounded-md text-[8px] font-bold text-white ring-1 ring-surface-primary/50 ${cfg.gradient} ${cfg.glow}`}>
+                  {cfg.icon}
+                </div>
+              );
+            })}
+          </div>
+
+          <span className="text-[10px] text-content-tertiary">{group.messages.length} msgs</span>
+
+          {!expanded && previewMsg && (
+            <span className="ml-auto max-w-[40%] truncate text-[11px] text-content-tertiary">
+              {previewMsg.content.slice(0, 80)}
+            </span>
+          )}
+        </button>
+
+        {expanded && (
+          <div className="border-t border-edge-primary/30 mx-2">
+            {group.messages.map((msg, idx) => (
+              <Message key={msg.id} message={msg} isLast={idx === group.messages.length - 1} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
