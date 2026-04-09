@@ -62,7 +62,7 @@ fn detect_tools() -> SystemStatus {
 
 #[tauri::command]
 fn get_config(state: tauri::State<'_, AppState>) -> ConfigStatus {
-    state.config.read().unwrap().status()
+    state.config.read().unwrap_or_else(|e| e.into_inner()).status()
 }
 
 #[tauri::command]
@@ -84,7 +84,7 @@ fn save_config(
 ) -> Result<ConfigStatus, String> {
     let effective = AppConfig::persist_draft(config)?;
     let status = effective.status();
-    *state.config.write().unwrap() = effective;
+    *state.config.write().unwrap_or_else(|e| e.into_inner()) = effective;
     Ok(status)
 }
 
@@ -99,7 +99,7 @@ fn set_execution_access_mode(
     draft.execution_access_mode = mode;
     let effective = AppConfig::persist_draft(draft)?;
     let status = effective.status();
-    *state.config.write().unwrap() = effective;
+    *state.config.write().unwrap_or_else(|e| e.into_inner()) = effective;
     Ok(status)
 }
 
@@ -110,12 +110,12 @@ async fn director_chat(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let config = state.config.read().unwrap().clone();
+    let config = state.config.read().unwrap_or_else(|e| e.into_inner()).clone();
     let window_label = window.label().to_string();
     info!(window = %window_label, "director chat started");
     let token = CancellationToken::new();
     {
-        let mut tokens = state.cancel_tokens.lock().unwrap();
+        let mut tokens = state.cancel_tokens.lock().unwrap_or_else(|e| e.into_inner());
         tokens.insert(window_label.clone(), token.clone());
     }
     let result = chat_with_director(
@@ -128,7 +128,7 @@ async fn director_chat(
         token,
     )
     .await;
-    state.cancel_tokens.lock().unwrap().remove(&window_label);
+    state.cancel_tokens.lock().unwrap_or_else(|e| e.into_inner()).remove(&window_label);
     match &result {
         Err(e) if e == "cancelled" => info!("director chat cancelled"),
         Err(e) => warn!(error = %e, "director chat failed"),
@@ -178,13 +178,13 @@ async fn run_skill(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), SkillError> {
-    let config = state.config.read().unwrap().clone();
+    let config = state.config.read().unwrap_or_else(|e| e.into_inner()).clone();
     let window_label = window.label().to_string();
     info!(mode = %mode, phase = ?phase, window = %window_label, "skill started");
     // Create a fresh cancellation token for this run, replacing any previous one.
     let token = CancellationToken::new();
     {
-        let mut tokens = state.cancel_tokens.lock().unwrap();
+        let mut tokens = state.cancel_tokens.lock().unwrap_or_else(|e| e.into_inner());
         tokens.insert(window_label.clone(), token.clone());
     }
     if mode == "test" {
@@ -192,7 +192,7 @@ async fn run_skill(
             state
                 .test_workspaces
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .insert(window_label.clone(), ws.clone());
         }
     }
@@ -211,9 +211,9 @@ async fn run_skill(
     )
     .await;
     // Remove token after run completes (cancelled or finished normally).
-    state.cancel_tokens.lock().unwrap().remove(&window_label);
+    state.cancel_tokens.lock().unwrap_or_else(|e| e.into_inner()).remove(&window_label);
     if mode == "test" && (result.is_err() || phase.as_deref() == Some("document")) {
-        let cleanup_workspace = state.test_workspaces.lock().unwrap().remove(&window_label);
+        let cleanup_workspace = state.test_workspaces.lock().unwrap_or_else(|e| e.into_inner()).remove(&window_label);
         let _ = skills::test_skill::cleanup_runtime_for_window(
             &window_label,
             cleanup_workspace.as_deref(),
@@ -230,10 +230,10 @@ async fn run_skill(
 #[tauri::command]
 fn cancel_skill(window: tauri::WebviewWindow, state: tauri::State<'_, AppState>) {
     let window_label = window.label();
-    if let Some(token) = state.cancel_tokens.lock().unwrap().get(window_label) {
+    if let Some(token) = state.cancel_tokens.lock().unwrap_or_else(|e| e.into_inner()).get(window_label) {
         token.cancel();
     }
-    let cleanup_workspace = state.test_workspaces.lock().unwrap().remove(window_label);
+    let cleanup_workspace = state.test_workspaces.lock().unwrap_or_else(|e| e.into_inner()).remove(window_label);
     let _ =
         skills::test_skill::cleanup_runtime_for_window(window_label, cleanup_workspace.as_deref());
 }

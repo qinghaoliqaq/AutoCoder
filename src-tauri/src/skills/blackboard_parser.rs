@@ -149,7 +149,7 @@ fn subtask_kind_from_category(category: &SubtaskCategory, id: &str) -> SubtaskKi
                 SubtaskKind::Feature
             }
         }
-        SubtaskCategory::Infra | SubtaskCategory::Docs => SubtaskKind::Task,
+        SubtaskCategory::Infra | SubtaskCategory::Docs | SubtaskCategory::Other => SubtaskKind::Task,
     }
 }
 

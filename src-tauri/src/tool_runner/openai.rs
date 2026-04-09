@@ -5,7 +5,10 @@
 ///
 /// Compatible with: OpenAI, DeepSeek, Zhipu/GLM, MiniMax, Moonshot,
 /// Yi, Baichuan, Qwen, Groq, Together, Fireworks, SiliconFlow, etc.
-use super::{emit_chunk, emit_token_usage, emit_tool_log, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
+use super::{
+    emit_chunk, emit_token_usage, emit_tool_log, CONTEXT_BUDGET_TOKENS, MAX_LOOP_ITERATIONS,
+    MAX_RESPONSE_TOKENS, PRUNE_THRESHOLD,
+};
 use super::errors::{self, AppError};
 use crate::tools::{self, ToolRegistry};
 use futures_util::StreamExt;
@@ -118,6 +121,30 @@ pub async fn run_loop(
                 "tool_call_id": tool_call_id,
                 "content": content
             }));
+        }
+
+        // ── Prune old tool-use rounds if context is growing too large ──────
+        // messages[0] = system, messages[1] = user — always keep.
+        // Subsequent messages form rounds: 1 assistant + N tool result messages.
+        // Round boundaries are identified by assistant messages.
+        let threshold = (CONTEXT_BUDGET_TOKENS as f64 * PRUNE_THRESHOLD) as u64;
+        if in_tok > threshold && messages.len() > 4 {
+            let mut round_starts: Vec<usize> = Vec::new();
+            for (i, msg) in messages.iter().enumerate().skip(2) {
+                if msg["role"].as_str() == Some("assistant") {
+                    round_starts.push(i);
+                }
+            }
+
+            let rounds_to_remove = round_starts.len() / 2;
+            if rounds_to_remove > 0 && rounds_to_remove < round_starts.len() {
+                let end_idx = round_starts[rounds_to_remove];
+                tracing::warn!(
+                    "Context budget {:.0}% full ({in_tok} tokens) — pruning {rounds_to_remove} oldest tool-use rounds",
+                    (in_tok as f64 / CONTEXT_BUDGET_TOKENS as f64) * 100.0
+                );
+                messages.drain(2..end_idx);
+            }
         }
     }
 

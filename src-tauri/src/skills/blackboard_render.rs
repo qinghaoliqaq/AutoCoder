@@ -130,6 +130,7 @@ fn suggested_skill_label(skill: &SuggestedSkill) -> &'static str {
         SuggestedSkill::FrontendDev => "frontend-dev",
         SuggestedSkill::FullstackDev => "fullstack-dev",
         SuggestedSkill::UiDesignSystem => "ui-design-system",
+        SuggestedSkill::Other => "fullstack-dev",
     }
 }
 

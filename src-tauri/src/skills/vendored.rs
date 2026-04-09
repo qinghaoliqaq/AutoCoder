@@ -39,6 +39,7 @@ pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> 
             SuggestedSkill::FrontendDev => VendoredSkillId::FrontendDev,
             SuggestedSkill::FullstackDev => VendoredSkillId::FullstackDev,
             SuggestedSkill::UiDesignSystem => VendoredSkillId::UiDesignSystem,
+            SuggestedSkill::Other => VendoredSkillId::FullstackDev,
         });
     }
 

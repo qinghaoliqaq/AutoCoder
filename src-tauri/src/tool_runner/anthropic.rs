@@ -3,7 +3,10 @@
 /// POST /messages with x-api-key header and `stream: true`.
 /// Parses Server-Sent Events for real-time token streaming.
 /// Bash and editor use Anthropic built-in tool type shorthand.
-use super::{emit_chunk, emit_token_usage, emit_tool_log, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
+use super::{
+    emit_chunk, emit_token_usage, emit_tool_log, CONTEXT_BUDGET_TOKENS, MAX_LOOP_ITERATIONS,
+    MAX_RESPONSE_TOKENS, PRUNE_THRESHOLD,
+};
 use super::errors::{self, AppError};
 use crate::tools::{self, ToolRegistry};
 use futures_util::StreamExt;
@@ -88,6 +91,23 @@ pub async fn run_loop(
         let tool_results =
             tools::run_partitioned(registry, &tool_calls, workspace, &token, read_only).await?;
         messages.push(json!({ "role": "user", "content": tool_results }));
+
+        // ── Prune old tool-use rounds if context is growing too large ──────
+        // messages[0] is always the initial user prompt — keep it.
+        // Subsequent messages are (assistant, user) pairs from tool-use rounds.
+        let threshold = (CONTEXT_BUDGET_TOKENS as f64 * PRUNE_THRESHOLD) as u64;
+        if in_tok > threshold && messages.len() > 3 {
+            let round_count = (messages.len() - 1) / 2;
+            let rounds_to_remove = round_count / 2;
+            if rounds_to_remove > 0 {
+                let msgs_to_remove = rounds_to_remove * 2;
+                tracing::warn!(
+                    "Context budget {:.0}% full ({in_tok} tokens) — pruning {rounds_to_remove} oldest tool-use rounds",
+                    (in_tok as f64 / CONTEXT_BUDGET_TOKENS as f64) * 100.0
+                );
+                messages.drain(1..1 + msgs_to_remove);
+            }
+        }
     }
 
     Ok(full_text)

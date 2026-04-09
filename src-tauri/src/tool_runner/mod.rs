@@ -30,6 +30,14 @@ use tokio_util::sync::CancellationToken;
 const MAX_LOOP_ITERATIONS: usize = 40;
 const MAX_RESPONSE_TOKENS: u32 = 16384;
 
+/// Default context budget for the agent tool-use loop (in tokens).
+/// Models vary (Claude: 200K, GPT-4o: 128K, DeepSeek: 64K), so we use
+/// a conservative value that works for most modern models.
+const CONTEXT_BUDGET_TOKENS: u64 = 100_000;
+
+/// When input_tokens exceeds this fraction of the budget, prune old rounds.
+const PRUNE_THRESHOLD: f64 = 0.75;
+
 // ── Public API ──────────────────────────────────────────────────────────────
 
 /// Run a tool-use agent loop. Auto-detects provider and wire format from config.

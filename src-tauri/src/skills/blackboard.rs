@@ -357,7 +357,7 @@ impl Blackboard {
             .ok_or_else(|| format!("Unknown subtask: {subtask_id}"))
     }
 
-    fn subtask_mut(&mut self, subtask_id: &str) -> Result<&mut SubtaskCard, String> {
+    pub(crate) fn subtask_mut(&mut self, subtask_id: &str) -> Result<&mut SubtaskCard, String> {
         self.subtasks
             .iter_mut()
             .find(|card| card.id == subtask_id)
