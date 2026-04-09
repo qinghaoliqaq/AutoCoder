@@ -20,29 +20,44 @@ fn cron_path(workspace: &std::path::Path) -> PathBuf {
 }
 
 /// Read the cron file, returning an empty array if it doesn't exist.
-fn read_cron_entries(workspace: &std::path::Path) -> Result<Vec<Value>, String> {
+async fn read_cron_entries(workspace: &std::path::Path) -> Result<Vec<Value>, String> {
     let path = cron_path(workspace);
-    if !path.exists() {
-        return Ok(Vec::new());
+    match tokio::fs::read_to_string(&path).await {
+        Ok(content) => {
+            let entries: Vec<Value> = serde_json::from_str(&content)
+                .map_err(|e| format!("Failed to parse cron file: {e}"))?;
+            Ok(entries)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(format!("Failed to read cron file: {e}")),
     }
-    let content =
-        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read cron file: {e}"))?;
-    let entries: Vec<Value> =
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse cron file: {e}"))?;
-    Ok(entries)
 }
 
 /// Write the cron entries back to the file, creating directories as needed.
-fn write_cron_entries(workspace: &std::path::Path, entries: &[Value]) -> Result<(), String> {
+async fn write_cron_entries(workspace: &std::path::Path, entries: &[Value]) -> Result<(), String> {
     let path = cron_path(workspace);
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
+        tokio::fs::create_dir_all(parent)
+            .await
             .map_err(|e| format!("Failed to create cron directory: {e}"))?;
     }
     let content = serde_json::to_string_pretty(entries)
         .map_err(|e| format!("Failed to serialize cron entries: {e}"))?;
-    std::fs::write(&path, content).map_err(|e| format!("Failed to write cron file: {e}"))?;
+    tokio::fs::write(&path, content)
+        .await
+        .map_err(|e| format!("Failed to write cron file: {e}"))?;
     Ok(())
+}
+
+/// Basic validation of a cron schedule expression.
+/// Accepts 5-field (minute hour dom month dow) or 6-field (+ seconds) cron strings.
+fn is_valid_cron_schedule(s: &str) -> bool {
+    let fields: Vec<&str> = s.split_whitespace().collect();
+    (5..=6).contains(&fields.len())
+        && fields.iter().all(|f| {
+            f.chars()
+                .all(|c| c.is_ascii_digit() || matches!(c, '*' | '/' | '-' | ',' | '?'))
+        })
 }
 
 /// Generate a simple unique ID for a cron entry.
@@ -114,7 +129,7 @@ impl Tool for ScheduleCronTool {
 
         match action {
             "list" => {
-                let entries = match read_cron_entries(ctx.workspace) {
+                let entries = match read_cron_entries(ctx.workspace).await {
                     Ok(e) => e,
                     Err(e) => return ToolResult::err(e),
                 };
@@ -160,7 +175,14 @@ impl Tool for ScheduleCronTool {
                     }
                 };
 
-                let mut entries = match read_cron_entries(ctx.workspace) {
+                if !is_valid_cron_schedule(schedule) {
+                    return ToolResult::err(format!(
+                        "Invalid cron schedule '{schedule}'. Expected 5 or 6 space-separated fields \
+                         (e.g. '0 */5 * * *' or '30 2 * * 1-5')."
+                    ));
+                }
+
+                let mut entries = match read_cron_entries(ctx.workspace).await {
                     Ok(e) => e,
                     Err(e) => return ToolResult::err(e),
                 };
@@ -181,7 +203,7 @@ impl Tool for ScheduleCronTool {
                 });
                 entries.push(entry);
 
-                if let Err(e) = write_cron_entries(ctx.workspace, &entries) {
+                if let Err(e) = write_cron_entries(ctx.workspace, &entries).await {
                     return ToolResult::err(e);
                 }
 
@@ -199,7 +221,7 @@ impl Tool for ScheduleCronTool {
                     }
                 };
 
-                let mut entries = match read_cron_entries(ctx.workspace) {
+                let mut entries = match read_cron_entries(ctx.workspace).await {
                     Ok(e) => e,
                     Err(e) => return ToolResult::err(e),
                 };
@@ -211,7 +233,7 @@ impl Tool for ScheduleCronTool {
                     return ToolResult::err(format!("No scheduled task found with name '{name}'"));
                 }
 
-                if let Err(e) = write_cron_entries(ctx.workspace, &entries) {
+                if let Err(e) = write_cron_entries(ctx.workspace, &entries).await {
                     return ToolResult::err(e);
                 }
 
