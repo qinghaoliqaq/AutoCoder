@@ -167,31 +167,22 @@ impl Tool for WebFetchTool {
     }
 }
 
-/// Read the response body up to `limit` bytes.
-async fn read_limited_body(response: reqwest::Response, limit: usize) -> Result<Vec<u8>, String> {
-    // Use content_length hint if available for early rejection
-    if let Some(len) = response.content_length() {
-        if len as usize > limit {
-            // Still read up to the limit rather than failing entirely
-            let bytes = response
-                .bytes()
-                .await
-                .map_err(|e| format!("Failed to read body: {e}"))?;
-            let truncated = &bytes[..limit.min(bytes.len())];
-            return Ok(truncated.to_vec());
+/// Read the response body up to `limit` bytes using streaming to avoid OOM.
+async fn read_limited_body(mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>, String> {
+    let mut buf = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| format!("Failed to read body: {e}"))?
+    {
+        buf.extend_from_slice(&chunk);
+        if buf.len() >= limit {
+            buf.truncate(limit);
+            break;
         }
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read body: {e}"))?;
-
-    if bytes.len() > limit {
-        Ok(bytes[..limit].to_vec())
-    } else {
-        Ok(bytes.to_vec())
-    }
+    Ok(buf)
 }
 
 /// Basic HTML tag stripping to extract text content.

@@ -59,6 +59,13 @@ impl Tool for EnterWorktreeTool {
             }
         };
 
+        // Validate branch name to prevent flag injection (e.g. "--orphan")
+        if branch.starts_with('-') || branch.contains("..") {
+            return ToolResult::err(format!(
+                "Invalid branch name: \"{branch}\". Branch names must not start with '-' or contain '..'."
+            ));
+        }
+
         // Determine worktree path
         let worktree_path = match input.get("path").and_then(|v| v.as_str()) {
             Some(p) if !p.is_empty() => {

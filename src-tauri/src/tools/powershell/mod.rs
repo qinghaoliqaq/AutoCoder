@@ -202,6 +202,7 @@ impl Tool for PowerShellTool {
             .arg("-Command")
             .arg(command)
             .current_dir(&workspace)
+            .kill_on_drop(true)
             .output();
 
         let result = tokio::select! {

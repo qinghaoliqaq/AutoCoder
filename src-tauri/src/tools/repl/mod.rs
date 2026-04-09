@@ -122,6 +122,7 @@ impl Tool for REPLTool {
             .arg(flag)
             .arg(code)
             .current_dir(&workspace)
+            .kill_on_drop(true)
             .output();
 
         let result = tokio::select! {
