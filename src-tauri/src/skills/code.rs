@@ -64,6 +64,15 @@ pub(super) async fn run(
         board.mark_recovered(subtask_id);
     }
 
+    // Clean up orphaned workspace directories from previous runs.
+    // Collect active workspace roots so we don't delete in-use workspaces.
+    let active_roots: Vec<String> = board
+        .subtasks
+        .iter()
+        .filter_map(|card| card.isolated_workspace.clone())
+        .collect();
+    super::isolated_workspace::cleanup_orphaned_workspaces(workspace, &active_roots);
+
     let parallel_limit = config.features.parallel_subtask_limit();
     let total = board.subtasks.len();
     board.persist(workspace)?;
@@ -463,6 +472,11 @@ async fn run_subtask(
 
         // Setup phase: create/reuse isolated workspace.  If any step fails,
         // we must clean up the active-subtask tracking before propagating.
+        //
+        // Save a reference to the reuse workspace before .take() consumes it,
+        // so we can clean it up if setup fails.
+        let reuse_root = reuse_isolated.as_ref().map(|ws| ws.root.clone());
+        let reuse_base = reuse_isolated.as_ref().map(|ws| ws.base_dir.clone());
         let isolated = match setup_isolated_workspace(
             &ctx,
             &subtask_id,
@@ -473,6 +487,14 @@ async fn run_subtask(
         {
             Ok(iso) => iso,
             Err(e) => {
+                // The previous workspace was consumed by .take() but setup
+                // failed — clean up the old directories to prevent disk leaks.
+                if let Some(root) = &reuse_root {
+                    let _ = cleanup_isolated_workspace(root);
+                }
+                if let Some(base) = &reuse_base {
+                    let _ = cleanup_isolated_workspace(base);
+                }
                 // Setup failed — remove from active set so the scheduler
                 // doesn't think we're still running.
                 let _ = mutate_board(&ctx.board, workspace, |board| {

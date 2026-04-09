@@ -87,6 +87,91 @@ pub(crate) fn create_isolated_workspace(
     })
 }
 
+/// Remove all isolated workspace directories that are not referenced by the
+/// blackboard's `isolated_workspace` fields.  Called at startup to reclaim
+/// disk space from previous runs that leaked workspaces (crash, retry→error
+/// transitions, etc.).
+///
+/// This is conservative: it only removes directories under
+/// `.ai-dev-hub/subtasks/` — it never touches the main workspace.
+pub(crate) fn cleanup_orphaned_workspaces(workspace: &str, active_roots: &[String]) {
+    let scratch = Path::new(workspace).join(SCRATCH_ROOT_DIR);
+    if !scratch.exists() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(&scratch) else {
+        return;
+    };
+
+    let active_set: std::collections::HashSet<&str> =
+        active_roots.iter().map(|s| s.as_str()).collect();
+    let mut cleaned = 0u64;
+
+    for entry in entries.flatten() {
+        let subtask_dir = entry.path();
+        if !subtask_dir.is_dir() {
+            continue;
+        }
+        // Check each attempt-N and base-N directory inside the subtask folder.
+        let Ok(sub_entries) = std::fs::read_dir(&subtask_dir) else {
+            continue;
+        };
+        for sub_entry in sub_entries.flatten() {
+            let path = sub_entry.path();
+            if !path.is_dir() {
+                // Skip files (e.g., merge-journal.json — handled by recovery).
+                continue;
+            }
+            let path_str = path.to_string_lossy().to_string();
+            if active_set.contains(path_str.as_str()) {
+                continue; // This workspace is still active — don't delete.
+            }
+            let name = sub_entry.file_name().to_string_lossy().to_string();
+            // Only clean up attempt-N, base-N, and merge-staging directories.
+            if name.starts_with("attempt-")
+                || name.starts_with("base-")
+                || name == "merge-staging"
+            {
+                if let Ok(meta) = std::fs::metadata(&path) {
+                    if meta.is_dir() {
+                        let size = dir_size_approx(&path);
+                        if std::fs::remove_dir_all(&path).is_ok() {
+                            cleaned += size;
+                        }
+                    }
+                }
+            }
+        }
+        // If the subtask dir is now empty, remove it too.
+        if let Ok(mut remaining) = std::fs::read_dir(&subtask_dir) {
+            if remaining.next().is_none() {
+                let _ = std::fs::remove_dir(&subtask_dir);
+            }
+        }
+    }
+
+    if cleaned > 0 {
+        let cleaned_mb = cleaned / (1024 * 1024);
+        tracing::info!("Cleaned up ~{cleaned_mb}MB of orphaned workspace data");
+    }
+}
+
+/// Quick approximate size of a directory tree (best-effort, no errors).
+fn dir_size_approx(path: &Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                total += dir_size_approx(&p);
+            } else if let Ok(meta) = entry.metadata() {
+                total += meta.len();
+            }
+        }
+    }
+    total
+}
+
 pub(crate) fn cleanup_isolated_workspace(root: &Path) -> Result<(), String> {
     if root.exists() {
         std::fs::remove_dir_all(root)
