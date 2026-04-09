@@ -159,6 +159,9 @@ export default function BlackboardPanel({
           relativePath: '.ai-dev-hub/BLACKBOARD.json',
         });
         const parsed = JSON.parse(eJsonStr) as ExecBoard;
+        if (!parsed || !Array.isArray(parsed.subtasks)) {
+          throw new Error('invalid blackboard shape');
+        }
         setExecJson(parsed);
         const preferredSubtaskId = parsed.active_subtask_ids?.[0] ?? parsed.active_subtask_id ?? null;
         if (preferredSubtaskId) {

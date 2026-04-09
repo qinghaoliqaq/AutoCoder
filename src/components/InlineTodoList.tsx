@@ -52,7 +52,7 @@ export default function InlineTodoList({ items }: Props) {
                   ? 'text-content-primary font-medium'
                   : 'text-content-secondary'
             }`}>
-              {item.status === 'in_progress' ? item.content : item.content}
+              {item.content}
             </span>
           </div>
         ))}

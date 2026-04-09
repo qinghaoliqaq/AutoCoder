@@ -419,7 +419,7 @@ export default function App() {
     setBlackboardEvents([]);
     planReportRef.current = '';
     syncSessionIdentity(makeSessionId(), sessionIdRef, setCurrentSessionId);
-    await invoke('clear_history');
+    await invoke('clear_history').catch(console.error);
   }, [flushPendingSessionSave]);
 
   const handleNewWindow = useCallback(() => {
