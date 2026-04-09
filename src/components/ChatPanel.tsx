@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { AnimatedMessageIcon, AnimatedFolderIcon, AnimatedSparklesIcon } from './icons/AnimatedIcons';
-import { ChatMessage, AgentRole } from '../types';
+import { ChatMessage, AgentRole, ToolLog } from '../types';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
+import { InlineToolCallGroup } from './InlineToolCall';
+import InlineTodoList, { TodoItem } from './InlineTodoList';
 
 // ── Role config ──────────────────────────────────────────────────────────────
 
@@ -98,7 +100,40 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-// ── Message component (Cursor-style) ─────────────────────────────────────────
+// ── Markdown components for better rendering ─────────────────────────────────
+
+const markdownComponents = {
+  pre: ({ children }: { children: React.ReactNode }) => {
+    const codeText = extractText(children);
+    return (
+      <div className="group relative my-2.5">
+        <pre className="overflow-x-auto rounded-xl border border-edge-primary/60 px-3.5 py-3 font-mono text-[12px] leading-relaxed text-content-primary" style={{ backgroundColor: 'rgb(var(--bg-tertiary) / 0.7)' }}>
+          {children}
+        </pre>
+        <CopyButton text={codeText} />
+      </div>
+    );
+  },
+  table: ({ children }: { children: React.ReactNode }) => (
+    <div className="my-2.5 overflow-x-auto rounded-lg border border-edge-primary/50">
+      <table className="w-full text-[12px]">{children}</table>
+    </div>
+  ),
+  thead: ({ children }: { children: React.ReactNode }) => (
+    <thead className="bg-surface-tertiary/50 text-content-secondary">{children}</thead>
+  ),
+  th: ({ children }: { children: React.ReactNode }) => (
+    <th className="px-3 py-1.5 text-left text-[11px] font-semibold border-b border-edge-primary/40">{children}</th>
+  ),
+  td: ({ children }: { children: React.ReactNode }) => (
+    <td className="px-3 py-1.5 border-b border-edge-primary/20 text-content-primary">{children}</td>
+  ),
+  hr: () => (
+    <hr className="my-3 border-edge-primary/40" />
+  ),
+};
+
+// ── Message component ────────────────────────────────────────────────────────
 
 function normalizeBubbleContent(content: string) {
   return content.replace(/^(?:\r?\n)+/, '').replace(/(?:\r?\n)+$/, '');
@@ -107,18 +142,22 @@ function normalizeBubbleContent(content: string) {
 interface MessageProps {
   message: ChatMessage;
   isLast: boolean;
+  /** Tool calls that happened between this message and the next. */
+  toolCalls?: ToolLog[];
+  /** Todo list snapshot to show after this message. */
+  todos?: TodoItem[];
 }
 
-function Message({ message, isLast }: MessageProps) {
+function Message({ message, isLast, toolCalls, todos }: MessageProps) {
   const config = ROLE_CONFIG[message.role];
   const isUser = message.role === 'user';
   const displayContent = normalizeBubbleContent(message.content);
 
   return (
-    <div className={`animate-slide-up ${!isLast ? 'border-b border-edge-secondary' : ''}`}>
+    <div className={`animate-slide-up ${!isLast ? 'border-b border-edge-secondary/60' : ''}`}>
       <div className={`px-5 py-4 ${isUser ? 'bg-surface-secondary/20' : ''}`}>
         {/* Header: avatar + name + time */}
-        <div className="flex items-center gap-2.5 mb-2.5">
+        <div className="flex items-center gap-2.5 mb-2">
           <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg border text-[10px] font-bold ${config.borderColor} bg-surface-elevated/70`}>
             <span className={config.color}>{config.icon}</span>
           </div>
@@ -146,30 +185,27 @@ function Message({ message, isLast }: MessageProps) {
           ) : message.isReport ? (
             <ReportCard content={message.content} />
           ) : (
-            <div className="chat-prose text-[13.5px] leading-[1.7] text-content-primary">
+            <div className="chat-prose text-[13px] leading-[1.75] text-content-primary break-words overflow-hidden">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeSanitize]}
-                components={{
-                  pre: ({ children }) => {
-                    // Extract text from code children for copy button
-                    const codeText = extractText(children);
-                    return (
-                      <div className="group relative my-2.5">
-                        <pre className="overflow-x-auto rounded-xl border border-edge-primary/60 px-3.5 py-3 font-mono text-[12px] leading-relaxed text-content-primary" style={{ backgroundColor: 'rgb(var(--bg-tertiary) / 0.7)' }}>
-                          {children}
-                        </pre>
-                        <CopyButton text={codeText} />
-                      </div>
-                    );
-                  },
-                }}
+                components={markdownComponents}
               >
                 {displayContent}
               </ReactMarkdown>
             </div>
           )}
         </div>
+
+        {/* Inline tool calls after this message */}
+        {toolCalls && toolCalls.length > 0 && (
+          <InlineToolCallGroup logs={toolCalls} />
+        )}
+
+        {/* Inline todo list */}
+        {todos && todos.length > 0 && (
+          <InlineTodoList items={todos} />
+        )}
       </div>
     </div>
   );
@@ -194,13 +230,6 @@ type MessageGroup =
   | { kind: 'flat'; message: ChatMessage }
   | { kind: 'thread'; subtaskId: string; label: string; messages: ChatMessage[] };
 
-/**
- * Group messages by subtaskId into threads. Non-subtask messages stay flat.
- * Messages with the same subtaskId are collected into a single thread even if
- * interleaved with other subtask messages (common during parallel execution).
- * Threads are placed at the position of their first message in the stream,
- * preserving chronological order for non-subtask (flat) messages.
- */
 function groupBySubtask(messages: ChatMessage[]): MessageGroup[] {
   const groups: MessageGroup[] = [];
   const threadMap = new Map<string, Extract<MessageGroup, { kind: 'thread' }>>();
@@ -233,13 +262,12 @@ function SubtaskThread({ group, isLast, defaultExpanded }: { group: Extract<Mess
   const previewMsg = group.messages[group.messages.length - 1];
 
   return (
-    <div className={`animate-slide-up ${!isLast ? 'border-b border-edge-secondary' : ''}`}>
+    <div className={`animate-slide-up ${!isLast ? 'border-b border-edge-secondary/60' : ''}`}>
       {/* Thread header */}
       <button
         onClick={() => setExpanded(v => !v)}
         className="flex w-full items-center gap-2.5 px-5 py-3 text-left transition-colors hover:bg-surface-secondary/20"
       >
-        {/* Expand chevron */}
         <svg
           className={`h-3.5 w-3.5 flex-shrink-0 text-content-tertiary transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
           fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"
@@ -247,13 +275,11 @@ function SubtaskThread({ group, isLast, defaultExpanded }: { group: Extract<Mess
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
 
-        {/* Subtask badge */}
         <span className="inline-flex items-center gap-1.5 rounded-md border border-themed-accent/25 px-2 py-0.5 text-[10.5px] font-semibold text-themed-accent-text" style={{ backgroundColor: 'rgb(var(--accent-soft))' }}>
           <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
           {group.label}
         </span>
 
-        {/* Agent avatars */}
         <div className="flex -space-x-1">
           {agentSet.map(role => {
             const cfg = ROLE_CONFIG[role];
@@ -265,10 +291,8 @@ function SubtaskThread({ group, isLast, defaultExpanded }: { group: Extract<Mess
           })}
         </div>
 
-        {/* Message count */}
         <span className="text-[10px] text-content-tertiary">{group.messages.length} messages</span>
 
-        {/* Preview of latest message (when collapsed) */}
         {!expanded && previewMsg && (
           <span className="ml-auto max-w-[40%] truncate text-[11px] text-content-tertiary">
             {previewMsg.content.slice(0, 80)}
@@ -276,7 +300,6 @@ function SubtaskThread({ group, isLast, defaultExpanded }: { group: Extract<Mess
         )}
       </button>
 
-      {/* Thread body */}
       {expanded && (
         <div className="border-l-2 border-themed-accent/20 ml-5">
           {group.messages.map((msg, idx) => (
@@ -288,15 +311,53 @@ function SubtaskThread({ group, isLast, defaultExpanded }: { group: Extract<Mess
   );
 }
 
+// ── Interleave tool calls with messages ─────────────────────────────────────
+
+/**
+ * Assign tool calls to the message they belong after.
+ * Tool calls between message[i] and message[i+1] are grouped with message[i].
+ */
+function assignToolCallsToMessages(
+  messages: ChatMessage[],
+  toolLogs: ToolLog[],
+): Map<string, ToolLog[]> {
+  const map = new Map<string, ToolLog[]>();
+  if (toolLogs.length === 0) return map;
+
+  // Sort messages by timestamp
+  const sorted = [...messages].filter(m => !m.subtaskId).sort((a, b) => a.timestamp - b.timestamp);
+  if (sorted.length === 0) return map;
+
+  for (const log of toolLogs) {
+    // Find the last message whose timestamp <= this log's timestamp
+    let assignTo: ChatMessage | null = null;
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      if (sorted[i].timestamp <= log.timestamp && sorted[i].role !== 'user') {
+        assignTo = sorted[i];
+        break;
+      }
+    }
+    if (assignTo) {
+      const existing = map.get(assignTo.id) ?? [];
+      existing.push(log);
+      map.set(assignTo.id, existing);
+    }
+  }
+
+  return map;
+}
+
 // ── ChatPanel ────────────────────────────────────────────────────────────────
 
 interface ChatPanelProps {
   messages: ChatMessage[];
+  toolLogs?: ToolLog[];
+  todos?: TodoItem[];
   onOpenProject?: () => void;
   workspace?: string | null;
 }
 
-export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPanelProps) {
+export default function ChatPanel({ messages, toolLogs = [], todos = [], onOpenProject, workspace }: ChatPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [heroOrbs] = useState(() => [
     { id: 0, color: 'rgba(139,92,246,0.18)', size: 340, x: -120, y: -80,  dur: '20s', del: '0s' },
@@ -308,9 +369,23 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
 
   const messageGroups = useMemo(() => groupBySubtask(messages), [messages]);
 
+  // Assign tool logs to their nearest preceding message
+  const toolCallMap = useMemo(
+    () => assignToolCallsToMessages(messages, toolLogs),
+    [messages, toolLogs],
+  );
+
+  // Show todos on the last non-user message
+  const lastAgentMsgId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role !== 'user' && !messages[i].subtaskId) return messages[i].id;
+    }
+    return null;
+  }, [messages]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, toolLogs]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden text-content-primary">
@@ -392,7 +467,17 @@ export default function ChatPanel({ messages, onOpenProject, workspace }: ChatPa
             {messageGroups.map((group, idx) => {
               const isLast = idx === messageGroups.length - 1;
               if (group.kind === 'flat') {
-                return <Message key={group.message.id} message={group.message} isLast={isLast} />;
+                const msgToolCalls = toolCallMap.get(group.message.id);
+                const showTodos = group.message.id === lastAgentMsgId && todos.length > 0 ? todos : undefined;
+                return (
+                  <Message
+                    key={group.message.id}
+                    message={group.message}
+                    isLast={isLast}
+                    toolCalls={msgToolCalls}
+                    todos={showTodos}
+                  />
+                );
               }
               return (
                 <SubtaskThread

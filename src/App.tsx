@@ -700,7 +700,7 @@ export default function App() {
             </div>
           ) : (
             <div className="flex flex-1 min-h-0 min-w-0 basis-0 flex-col overflow-hidden relative z-10 bg-transparent shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.05)] dark:shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.4)]">
-              <ChatPanel messages={messages} onOpenProject={handleOpenProject} workspace={workspace} />
+              <ChatPanel messages={messages} toolLogs={toolLogs} onOpenProject={handleOpenProject} workspace={workspace} />
               <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 pointer-events-none z-10 flex flex-col justify-end"
                    style={{ background: `linear-gradient(to top, rgb(var(--bg-primary)), rgb(var(--bg-primary) / 0.8), transparent)` }}>
                 <div className="pointer-events-auto max-w-4xl w-full mx-auto">

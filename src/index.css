@@ -163,18 +163,27 @@
     color: rgb(var(--accent));
   }
 
-  .chat-prose p + p { @apply mt-2; }
-  .chat-prose ul, .chat-prose ol { @apply my-1.5 pl-5; }
-  .chat-prose li { @apply mb-0.5; }
+  .chat-prose p + p { @apply mt-2.5; }
+  .chat-prose ul, .chat-prose ol { @apply my-2 pl-5; }
+  .chat-prose ul { list-style-type: disc; }
+  .chat-prose ol { list-style-type: decimal; }
+  .chat-prose li { @apply mb-1 leading-relaxed; }
+  .chat-prose li::marker { color: rgb(var(--text-tertiary)); }
   .chat-prose blockquote {
-    @apply my-2 border-l-2 pl-3;
+    @apply my-2.5 border-l-2 pl-3 py-0.5;
     border-color: rgb(var(--accent) / 0.4);
     color: rgb(var(--text-secondary));
   }
-  .chat-prose h1, .chat-prose h2, .chat-prose h3 {
-    @apply mt-3 mb-1 font-semibold;
-    color: rgb(var(--text-primary));
-  }
+  .chat-prose h1 { @apply mt-4 mb-1.5 text-[15px] font-bold; color: rgb(var(--text-primary)); }
+  .chat-prose h2 { @apply mt-3.5 mb-1.5 text-[14px] font-bold; color: rgb(var(--text-primary)); }
+  .chat-prose h3 { @apply mt-3 mb-1 text-[13.5px] font-semibold; color: rgb(var(--text-primary)); }
+  .chat-prose h4 { @apply mt-2.5 mb-1 text-[13px] font-semibold; color: rgb(var(--text-primary)); }
+  .chat-prose img { @apply my-2 max-w-full rounded-lg; }
+  .chat-prose table { @apply w-full border-collapse text-[12px]; }
+  .chat-prose th { @apply px-2.5 py-1.5 text-left text-[11px] font-semibold border-b; border-color: rgb(var(--border-primary) / 0.5); color: rgb(var(--text-secondary)); background-color: rgb(var(--bg-tertiary) / 0.5); }
+  .chat-prose td { @apply px-2.5 py-1.5 border-b; border-color: rgb(var(--border-primary) / 0.2); }
+  .chat-prose strong { @apply font-semibold; color: rgb(var(--text-primary)); }
+  .chat-prose em { @apply italic; }
 }
 
 @keyframes smoke {
