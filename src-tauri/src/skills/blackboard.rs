@@ -320,6 +320,18 @@ impl Blackboard {
         Ok(())
     }
 
+    /// Mark a subtask as Done after crash recovery completed its merge.
+    pub(crate) fn mark_recovered(&mut self, subtask_id: &str) {
+        self.remove_active_subtask(subtask_id);
+        if let Ok(card) = self.subtask_mut(subtask_id) {
+            if !matches!(card.status, SubtaskState::Done) {
+                card.status = SubtaskState::Done;
+                card.latest_review = Some("Merge recovered after crash.".to_string());
+            }
+        }
+        self.updated_at = now_string();
+    }
+
     pub(crate) fn complete_if_finished(&mut self) {
         if self
             .subtasks
@@ -368,6 +380,9 @@ impl Blackboard {
 }
 
 pub(crate) fn sanitize_persisted_state(workspace: &str) -> Result<(), String> {
+    // First, recover any merges that were interrupted by a crash.
+    let recovered = super::merge_engine::recover_pending_merges(workspace);
+
     let json_path = Path::new(workspace).join(BLACKBOARD_JSON);
     if !json_path.exists() {
         return Ok(());
@@ -378,7 +393,13 @@ pub(crate) fn sanitize_persisted_state(workspace: &str) -> Result<(), String> {
     let mut board = serde_json::from_str::<Blackboard>(&content)
         .map_err(|e| format!("Cannot parse {}: {e}", json_path.display()))?;
 
-    if board.reset_transient_runtime_state() {
+    // Mark crash-recovered subtasks as Done before resetting transient state.
+    for subtask_id in &recovered {
+        board.mark_recovered(subtask_id);
+    }
+
+    let changed = board.reset_transient_runtime_state() || !recovered.is_empty();
+    if changed {
         board.persist(workspace)?;
     }
 

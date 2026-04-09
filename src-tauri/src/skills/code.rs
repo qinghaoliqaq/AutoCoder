@@ -49,7 +49,21 @@ pub(super) async fn run(
     token: CancellationToken,
 ) -> Result<(), String> {
     let workspace = workspace.ok_or("Code mode requires an existing workspace from plan mode")?;
-    let board = Blackboard::load_or_create(workspace, task)?;
+
+    // Recover any merges that were interrupted by a crash.  This must
+    // happen before loading the blackboard so we can mark recovered
+    // subtasks as Done.
+    let recovered_ids = super::merge_engine::recover_pending_merges(workspace);
+
+    let mut board = Blackboard::load_or_create(workspace, task)?;
+
+    // Mark recovered subtasks as Done — their merge completed successfully
+    // (we just finished applying the staged files).
+    for subtask_id in &recovered_ids {
+        tracing::info!(subtask = %subtask_id, "Marking crash-recovered subtask as Done");
+        board.mark_recovered(subtask_id);
+    }
+
     let parallel_limit = config.features.parallel_subtask_limit();
     let total = board.subtasks.len();
     board.persist(workspace)?;

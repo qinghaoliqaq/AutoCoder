@@ -2,9 +2,119 @@
 ///
 /// When multiple subtasks modify files in parallel, the merge engine detects
 /// conflicts and performs automatic three-way merges where possible.
-use super::isolated_workspace::{snapshot_workspace, workspace_changes, IsolatedWorkspace};
+///
+/// Merges use a **staged journal** pattern for crash safety:
+///   1. All merge results are written to a staging directory first.
+///   2. A `merge-journal.json` records the planned file operations.
+///   3. Files are copied from staging to the main workspace.
+///   4. The journal is removed on completion.
+///
+/// On recovery (`recover_pending_merges`), pending journals are detected
+/// and completed — preventing the double-merge corruption that would
+/// otherwise occur when a subtask re-implements on an already-merged workspace.
+use super::isolated_workspace::{snapshot_workspace, workspace_changes, IsolatedWorkspace, SCRATCH_ROOT_DIR};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+
+// ── Merge journal for crash safety ─────────────────────────────────────────
+
+const MERGE_JOURNAL: &str = "merge-journal.json";
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct MergeJournal {
+    subtask_id: String,
+    /// Files to copy from staging to main workspace (relative paths).
+    copy_files: Vec<String>,
+    /// Files to delete from main workspace (relative paths).
+    delete_files: Vec<String>,
+    /// Staging directory containing the pre-built merge results.
+    staging_dir: String,
+}
+
+/// Check for and complete any pending merges left by a crash.
+///
+/// Called at the start of `run()` and from `sanitize_blackboard_state`.
+/// If a merge journal exists, the merge was interrupted — we complete it
+/// by copying any remaining staged files to the main workspace.
+/// Returns the list of subtask IDs that were recovered.
+pub(crate) fn recover_pending_merges(workspace: &str) -> Vec<String> {
+    let scratch = Path::new(workspace).join(SCRATCH_ROOT_DIR);
+    let Ok(subtask_dirs) = std::fs::read_dir(&scratch) else {
+        return Vec::new();
+    };
+
+    let mut recovered = Vec::new();
+
+    for entry in subtask_dirs.flatten() {
+        let subtask_dir = entry.path();
+        if !subtask_dir.is_dir() {
+            continue;
+        }
+        let journal_path = subtask_dir.join(MERGE_JOURNAL);
+        if !journal_path.exists() {
+            continue;
+        }
+
+        let Ok(text) = std::fs::read_to_string(&journal_path) else {
+            tracing::warn!("Cannot read merge journal {}", journal_path.display());
+            continue;
+        };
+        let Ok(journal) = serde_json::from_str::<MergeJournal>(&text) else {
+            tracing::warn!("Cannot parse merge journal {}", journal_path.display());
+            // Remove corrupt journal so it doesn't block future runs.
+            let _ = std::fs::remove_file(&journal_path);
+            continue;
+        };
+
+        tracing::info!(
+            subtask = %journal.subtask_id,
+            files = journal.copy_files.len(),
+            "Recovering interrupted merge from journal"
+        );
+
+        let main_root = Path::new(workspace);
+        let staging = Path::new(&journal.staging_dir);
+
+        // Complete the merge: copy remaining staged files to main workspace.
+        for relative in &journal.copy_files {
+            let staged_file = staging.join(relative);
+            let target = main_root.join(relative);
+            if !staged_file.exists() {
+                // Already applied or staging was incomplete — skip.
+                continue;
+            }
+            if let Some(parent) = target.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Err(e) = std::fs::copy(&staged_file, &target) {
+                tracing::warn!(
+                    "Failed to recover merge file {} -> {}: {e}",
+                    staged_file.display(),
+                    target.display()
+                );
+            }
+        }
+
+        // Complete deletes.
+        for relative in &journal.delete_files {
+            let target = main_root.join(relative);
+            if target.exists() {
+                let _ = std::fs::remove_file(&target);
+            }
+        }
+
+        // Journal complete — remove it and the staging directory.
+        let _ = std::fs::remove_file(&journal_path);
+        if staging.exists() {
+            let _ = std::fs::remove_dir_all(staging);
+        }
+
+        recovered.push(journal.subtask_id);
+    }
+
+    recovered
+}
 
 // ── Main merge entry point ─────────────────────────────────────────────────
 
@@ -100,51 +210,123 @@ pub(crate) fn merge_isolated_workspace(
         return Err(detail);
     }
 
-    // Apply clean merges.
+    // ── Stage all merge results before touching main workspace ────────
+    //
+    // Write merged/copied files to a staging directory first.  Then write
+    // a merge journal listing all planned operations.  Finally apply from
+    // staging to main.  If the process crashes during apply, recovery can
+    // complete the remaining copies from the journal on next startup.
+
+    // Derive subtask scratch dir from the isolated root path
+    // (e.g., .../subtasks/F1/attempt-1 → .../subtasks/F1/).
+    let subtask_scratch = isolated
+        .root
+        .parent()
+        .unwrap_or(&isolated.root);
+    let staging_dir = subtask_scratch.join("merge-staging");
+    if staging_dir.exists() {
+        let _ = std::fs::remove_dir_all(&staging_dir);
+    }
+    std::fs::create_dir_all(&staging_dir)
+        .map_err(|e| format!("Cannot create staging dir {}: {e}", staging_dir.display()))?;
+
+    // Stage three-way merge results.
     for (path, merged_content) in &merge_results {
-        let target = main_root.join(path);
-        if let Some(parent) = target.parent() {
+        let staged = staging_dir.join(path);
+        if let Some(parent) = staged.parent() {
             std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+                .map_err(|e| format!("Cannot create staging subdir {}: {e}", parent.display()))?;
         }
-        std::fs::write(&target, merged_content)
-            .map_err(|e| format!("Cannot write merged {}: {e}", target.display()))?;
+        std::fs::write(&staged, merged_content)
+            .map_err(|e| format!("Cannot stage merged {}: {e}", staged.display()))?;
         touched.push(path.to_string_lossy().into_owned());
     }
 
-    // Copy files that only we changed (no divergence in main).
+    // Stage files that only we changed (no divergence in main).
     let merge_set: HashSet<&PathBuf> = needs_merge.iter().collect();
     for path in &changes.changed_or_created {
         if merge_set.contains(path) {
-            continue; // Already handled above.
+            continue; // Already staged above.
         }
         let source = isolated.root.join(path);
-        let target = main_root.join(path);
-        if let Some(parent) = target.parent() {
+        let staged = staging_dir.join(path);
+        if let Some(parent) = staged.parent() {
             std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+                .map_err(|e| format!("Cannot create staging subdir {}: {e}", parent.display()))?;
         }
-        std::fs::copy(&source, &target).map_err(|e| {
-            format!(
-                "Cannot merge {} -> {}: {e}",
-                source.display(),
-                target.display()
-            )
+        std::fs::copy(&source, &staged).map_err(|e| {
+            format!("Cannot stage {} -> {}: {e}", source.display(), staged.display())
         })?;
         touched.push(path.to_string_lossy().into_owned());
     }
 
-    for path in &changes.deleted {
-        let target = main_root.join(path);
-        if target.exists() {
-            std::fs::remove_file(&target)
-                .map_err(|e| format!("Cannot remove {} during merge: {e}", target.display()))?;
-            touched.push(path.to_string_lossy().into_owned());
-        }
-    }
+    let delete_files: Vec<String> = changes
+        .deleted
+        .iter()
+        .filter(|path| {
+            // Only delete if main hasn't diverged (conflicts already handled).
+            let base = isolated.base_snapshot.get(*path);
+            let main = main_before.get(*path);
+            main == base
+        })
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
 
     touched.sort();
     touched.dedup();
+
+    // Derive subtask_id from the scratch dir name.
+    let subtask_id = subtask_scratch
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Write the merge journal BEFORE applying — this is the crash-safety
+    // invariant.  If we crash after this point, recovery will complete
+    // the merge from the staged files.
+    let journal = MergeJournal {
+        subtask_id: subtask_id.clone(),
+        copy_files: touched.clone(),
+        delete_files: delete_files.clone(),
+        staging_dir: staging_dir.to_string_lossy().into_owned(),
+    };
+    let journal_path = subtask_scratch.join(MERGE_JOURNAL);
+    let journal_json = serde_json::to_string_pretty(&journal)
+        .map_err(|e| format!("Cannot serialize merge journal: {e}"))?;
+    std::fs::write(&journal_path, &journal_json)
+        .map_err(|e| format!("Cannot write merge journal {}: {e}", journal_path.display()))?;
+
+    // ── Apply from staging to main workspace ───────────────────────────
+    for relative in &touched {
+        let staged = staging_dir.join(relative);
+        let target = main_root.join(relative);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+        }
+        std::fs::copy(&staged, &target).map_err(|e| {
+            format!(
+                "Cannot apply merge {} -> {}: {e}",
+                staged.display(),
+                target.display()
+            )
+        })?;
+    }
+
+    for relative in &delete_files {
+        let target = main_root.join(relative);
+        if target.exists() {
+            std::fs::remove_file(&target)
+                .map_err(|e| format!("Cannot remove {} during merge: {e}", target.display()))?;
+        }
+        if !touched.contains(relative) {
+            touched.push(relative.clone());
+        }
+    }
+
+    // Merge fully applied — remove journal and staging.
+    let _ = std::fs::remove_file(&journal_path);
+    let _ = std::fs::remove_dir_all(&staging_dir);
 
     if touched.is_empty() {
         tracing::warn!(
@@ -476,5 +658,89 @@ mod tests {
             new_lines: vec![],
         }];
         assert!(!hunks_overlap(&a, &b));
+    }
+
+    #[test]
+    fn recover_pending_merge_completes_staged_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path();
+
+        // Create a file that should already exist in main.
+        std::fs::write(workspace.join("existing.txt"), "original").unwrap();
+
+        // Simulate a crash mid-merge: staging dir + journal exist but
+        // files haven't been applied to the workspace yet.
+        let subtask_dir = workspace.join(SCRATCH_ROOT_DIR).join("F1");
+        let staging_dir = subtask_dir.join("merge-staging");
+        std::fs::create_dir_all(&staging_dir).unwrap();
+        std::fs::write(staging_dir.join("new_file.txt"), "merged content").unwrap();
+        std::fs::create_dir_all(staging_dir.join("src")).unwrap();
+        std::fs::write(staging_dir.join("src/app.rs"), "fn main() {}").unwrap();
+
+        let journal = MergeJournal {
+            subtask_id: "F1".to_string(),
+            copy_files: vec!["new_file.txt".to_string(), "src/app.rs".to_string()],
+            delete_files: vec![],
+            staging_dir: staging_dir.to_string_lossy().into_owned(),
+        };
+        let journal_json = serde_json::to_string_pretty(&journal).unwrap();
+        std::fs::write(subtask_dir.join(MERGE_JOURNAL), &journal_json).unwrap();
+
+        // Run recovery.
+        let recovered = recover_pending_merges(workspace.to_str().unwrap());
+        assert_eq!(recovered, vec!["F1"]);
+
+        // Verify files were applied.
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("new_file.txt")).unwrap(),
+            "merged content"
+        );
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("src/app.rs")).unwrap(),
+            "fn main() {}"
+        );
+        // Journal should be cleaned up.
+        assert!(!subtask_dir.join(MERGE_JOURNAL).exists());
+        // Staging should be cleaned up.
+        assert!(!staging_dir.exists());
+        // Pre-existing file should be untouched.
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("existing.txt")).unwrap(),
+            "original"
+        );
+    }
+
+    #[test]
+    fn recover_pending_merge_handles_deletes() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path();
+        std::fs::write(workspace.join("to_delete.txt"), "old").unwrap();
+
+        let subtask_dir = workspace.join(SCRATCH_ROOT_DIR).join("F2");
+        let staging_dir = subtask_dir.join("merge-staging");
+        std::fs::create_dir_all(&staging_dir).unwrap();
+
+        let journal = MergeJournal {
+            subtask_id: "F2".to_string(),
+            copy_files: vec![],
+            delete_files: vec!["to_delete.txt".to_string()],
+            staging_dir: staging_dir.to_string_lossy().into_owned(),
+        };
+        std::fs::write(
+            subtask_dir.join(MERGE_JOURNAL),
+            serde_json::to_string(&journal).unwrap(),
+        )
+        .unwrap();
+
+        let recovered = recover_pending_merges(workspace.to_str().unwrap());
+        assert_eq!(recovered, vec!["F2"]);
+        assert!(!workspace.join("to_delete.txt").exists());
+    }
+
+    #[test]
+    fn no_recovery_when_no_journals() {
+        let dir = tempfile::tempdir().unwrap();
+        let recovered = recover_pending_merges(dir.path().to_str().unwrap());
+        assert!(recovered.is_empty());
     }
 }
