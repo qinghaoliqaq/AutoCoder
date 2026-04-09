@@ -5,7 +5,7 @@ import AccessModeToggle from './AccessModeToggle';
 import ToggleSwitch from './ToggleSwitch';
 import ProviderSelect from './ProviderSelect';
 import { useTheme, THEMES } from './ThemeProvider';
-import { ProviderIconColor } from './ProviderSelect';
+import { ClaudeRoleIcon, CodexRoleIcon } from './icons/RoleIcons';
 import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, Keyboard, Zap, Palette, Lightbulb } from 'lucide-react';
 
 // ── Settings tab definitions ─────────────────────────────────────────────────
@@ -434,6 +434,7 @@ function AgentTab({
       <AgentIdentityCard
         title="主身份 (Claude)"
         description="编码、方案起草阶段使用的模型。请参考右侧链接中的模型名称手动输入。"
+        roleIcon={<ClaudeRoleIcon size={22} />}
         raw={primary}
         effective={primary}
         providerHint={undefined}
@@ -449,6 +450,7 @@ function AgentTab({
       <AgentIdentityCard
         title="副身份 (Codex)"
         description="审阅、诊断、测试、评估阶段使用的模型。留空则自动跟随主身份。"
+        roleIcon={<CodexRoleIcon size={22} />}
         raw={{
           provider: draft.agent_second_provider,
           apiKey: draft.agent_second_api_key,
@@ -473,6 +475,7 @@ function AgentTab({
 function AgentIdentityCard({
   title,
   description,
+  roleIcon,
   raw,
   effective,
   providerHint,
@@ -486,6 +489,7 @@ function AgentIdentityCard({
 }: {
   title: string;
   description: string;
+  roleIcon: React.ReactNode;
   raw: AgentIdentityValues;
   effective: AgentIdentityValues;
   providerHint?: string;
@@ -532,7 +536,7 @@ function AgentIdentityCard({
     <div className="rounded-xl border border-edge-primary/30 bg-surface-elevated/20">
       {/* Card header */}
       <div className="flex items-center gap-3 px-5 pt-4 pb-3">
-        <ProviderIconColor provider={effective.provider} size={22} />
+        {roleIcon}
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-semibold text-content-primary">{title}</div>
           <div className="text-[11px] leading-4 text-content-tertiary truncate">{description}</div>
