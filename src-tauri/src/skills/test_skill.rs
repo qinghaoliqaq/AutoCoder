@@ -527,7 +527,8 @@ pub(super) async fn run_phase(
         )
         .map_err(|e| e.to_string())?;
     if let Some(workspace) = workspace {
-        evidence::record_event(
+        // Evidence recording is best-effort — must never fail the test skill.
+        let _ = evidence::record_event(
             workspace,
             EvidenceEvent {
                 ts: Utc::now().timestamp_millis() as u64,
@@ -541,7 +542,7 @@ pub(super) async fn run_phase(
                 },
                 artifacts: artifacts_for_test_phase(phase),
             },
-        )?;
+        );
     }
 
     Ok(())

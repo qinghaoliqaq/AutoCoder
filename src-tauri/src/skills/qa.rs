@@ -78,7 +78,8 @@ pub(super) async fn run(
         .unwrap_or(0);
     let result = parse_qa_result(&output, health_score)?;
     if let Some(workspace) = workspace {
-        evidence::record_event(
+        // Evidence recording is best-effort — must never fail the QA skill.
+        let _ = evidence::record_event(
             workspace,
             EvidenceEvent {
                 ts: Utc::now().timestamp_millis() as u64,
@@ -99,7 +100,7 @@ pub(super) async fn run(
                     "bugs.md".to_string(),
                 ],
             },
-        )?;
+        );
     }
 
     app_handle

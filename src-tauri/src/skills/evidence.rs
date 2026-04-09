@@ -534,9 +534,14 @@ fn append_event(workspace: &str, event: &EvidenceEvent) -> Result<(), String> {
         .append(true)
         .open(&path)
         .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
-    let line = serde_json::to_string(event)
+    let mut line = serde_json::to_string(event)
         .map_err(|e| format!("Cannot serialize {BLACKBOARD_EVENTS_JSONL} line: {e}"))?;
-    writeln!(file, "{line}").map_err(|e| format!("Cannot append {}: {e}", path.display()))
+    line.push('\n');
+    // Use a single write_all so the JSON + newline cannot be split across
+    // two syscalls — prevents interleaving when parallel subtasks append
+    // to the same JSONL file concurrently.
+    file.write_all(line.as_bytes())
+        .map_err(|e| format!("Cannot append {}: {e}", path.display()))
 }
 
 fn read_blackboard(workspace: &str) -> Result<Option<Blackboard>, String> {
@@ -558,13 +563,20 @@ fn read_events(workspace: &str) -> Result<Vec<EvidenceEvent>, String> {
     }
     let text = std::fs::read_to_string(&path)
         .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-    text.lines()
+    // Tolerate malformed lines — concurrent parallel subtask writes can
+    // corrupt a line (e.g. two JSON objects on one line).  Skipping bad
+    // lines is better than failing every subsequent subtask.
+    Ok(text
+        .lines()
         .filter(|line| !line.trim().is_empty())
-        .map(|line| {
-            serde_json::from_str::<EvidenceEvent>(line)
-                .map_err(|e| format!("Cannot parse {} line: {e}", path.display()))
+        .filter_map(|line| match serde_json::from_str::<EvidenceEvent>(line) {
+            Ok(event) => Some(event),
+            Err(e) => {
+                tracing::warn!("Skipping malformed line in {}: {e}", path.display());
+                None
+            }
         })
-        .collect()
+        .collect())
 }
 
 fn build_evidence_index(

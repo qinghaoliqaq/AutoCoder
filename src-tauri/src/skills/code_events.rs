@@ -31,7 +31,9 @@ pub(super) fn emit_blackboard(
             },
         )
         .map_err(|e| format!("Emit error: {e}"))?;
-    evidence::record_event(
+    // Evidence recording is best-effort — it must never kill a subtask.
+    // The Tauri event above is the critical path; evidence is supplementary.
+    if let Err(e) = evidence::record_event(
         workspace,
         EvidenceEvent {
             ts: chrono::Utc::now().timestamp_millis() as u64,
@@ -41,7 +43,10 @@ pub(super) fn emit_blackboard(
             summary: event_summary,
             artifacts: evidence_artifacts_for_status(status),
         },
-    )
+    ) {
+        tracing::warn!("Evidence recording failed (non-fatal): {e}");
+    }
+    Ok(())
 }
 
 pub(super) fn emit_vendored_skill_log(
