@@ -61,6 +61,11 @@ impl SkillRegistry {
         self.skills.push(skill);
     }
 
+    /// Number of registered skills.
+    pub fn len(&self) -> usize {
+        self.skills.len()
+    }
+
     /// Look up a skill by slug.
     pub fn get(&self, slug: &str) -> Option<&SkillDef> {
         self.by_slug.get(slug).map(|&idx| &self.skills[idx])

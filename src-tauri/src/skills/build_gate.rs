@@ -283,7 +283,11 @@ fn truncate_output(text: &str) -> String {
     if text.len() <= MAX_OUTPUT_CHARS {
         return text.to_string();
     }
-    let start = text.len() - MAX_OUTPUT_CHARS;
+    let mut start = text.len() - MAX_OUTPUT_CHARS;
+    // Ensure start is on a valid UTF-8 char boundary.
+    while !text.is_char_boundary(start) && start < text.len() {
+        start += 1;
+    }
     // Advance to next newline to avoid cutting mid-line.
     let start = text[start..]
         .find('\n')

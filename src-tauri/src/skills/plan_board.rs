@@ -126,7 +126,13 @@ impl PlanBoard {
 
 /// Write to a temp file then rename for crash safety.
 fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
-    let tmp = path.with_extension("tmp");
+    // Include original extension in temp name to avoid collision when
+    // persisting .json and .md files with the same stem sequentially.
+    let ext = path
+        .extension()
+        .map(|e| format!("{}.tmp", e.to_string_lossy()))
+        .unwrap_or_else(|| "tmp".to_string());
+    let tmp = path.with_extension(ext);
     std::fs::write(&tmp, data)
         .map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, path)
