@@ -121,14 +121,16 @@ pub(crate) fn sync_coordination_files(
     main_workspace: &str,
     isolated_workspace: &Path,
 ) -> Result<(), String> {
-    for relative in [
-        PLAN_MD,
-        PLAN_BOARD_MD,
-        PLAN_BOARD_JSON,
-        PLAN_GRAPH_JSON,
-        BLACKBOARD_MD,
-        BLACKBOARD_JSON,
-    ] {
+    // BLACKBOARD.json is the only strictly required file — without it the
+    // subtask has no context.  All other coordination files are supplementary
+    // (PLAN.md context, markdown renderings).  We copy BLACKBOARD.json with
+    // error propagation and treat the rest as best-effort, because concurrent
+    // persist()/tick_plan_checkbox() calls can make any of these files
+    // transiently unreadable.
+    let critical = [BLACKBOARD_JSON];
+    let supplementary = [PLAN_MD, PLAN_BOARD_MD, PLAN_BOARD_JSON, PLAN_GRAPH_JSON, BLACKBOARD_MD];
+
+    for relative in critical {
         let source = Path::new(main_workspace).join(relative);
         if !source.exists() {
             continue;
@@ -139,12 +141,22 @@ pub(crate) fn sync_coordination_files(
                 .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
         }
         std::fs::copy(&source, &target).map_err(|e| {
-            format!(
-                "Cannot sync {} -> {}: {e}",
-                source.display(),
-                target.display()
-            )
+            format!("Cannot sync {} -> {}: {e}", source.display(), target.display())
         })?;
+    }
+
+    for relative in supplementary {
+        let source = Path::new(main_workspace).join(relative);
+        if !source.exists() {
+            continue;
+        }
+        let target = isolated_workspace.join(relative);
+        if let Some(parent) = target.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::copy(&source, &target) {
+            tracing::warn!("Failed to sync {relative} to isolated workspace (non-fatal): {e}");
+        }
     }
     Ok(())
 }

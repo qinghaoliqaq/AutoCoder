@@ -492,7 +492,12 @@ pub(crate) fn build_subtask_context(workspace: &str, subtask_id: &str) -> Option
 
 pub(crate) fn record_event(workspace: &str, event: EvidenceEvent) -> Result<(), String> {
     append_event(workspace, &event)?;
-    refresh_evidence_index(workspace)?;
+    // Index refresh is best-effort — the event is already appended.
+    // Concurrent BLACKBOARD.json writes can make read_blackboard fail
+    // transiently, which must not bubble up.
+    if let Err(e) = refresh_evidence_index(workspace) {
+        tracing::warn!("Evidence index refresh failed (non-fatal): {e}");
+    }
     Ok(())
 }
 

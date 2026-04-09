@@ -128,7 +128,11 @@ impl Blackboard {
         // Use atomic write-to-temp-then-rename so concurrent readers
         // (e.g. sync_coordination_files) never see partial content.
         atomic_write(&json_path, json.as_bytes())?;
-        atomic_write(&md_path, self.render_markdown().as_bytes())?;
+        // BLACKBOARD.md is a human-readable rendering of the JSON — supplementary.
+        // Its failure must not kill persist() since the JSON is the source of truth.
+        if let Err(e) = atomic_write(&md_path, self.render_markdown().as_bytes()) {
+            tracing::warn!("Failed to write {} (non-fatal): {e}", md_path.display());
+        }
         Ok(())
     }
 

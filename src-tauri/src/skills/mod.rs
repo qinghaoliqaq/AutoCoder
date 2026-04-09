@@ -137,17 +137,20 @@ pub(super) fn emit_skill_event(
     status: &str,
     summary: String,
 ) -> Result<(), String> {
-    app_handle
-        .emit_to(
-            EventTarget::webview_window(window_label),
-            "blackboard-updated",
-            BlackboardEvent {
-                subtask_id: None,
-                status: status.to_string(),
-                summary,
-            },
-        )
-        .map_err(|e| format!("Emit error: {e}"))
+    // UI event emission is best-effort — a closed/unavailable window must
+    // never kill the skill workflow (plan rounds, debug phases, etc.).
+    if let Err(e) = app_handle.emit_to(
+        EventTarget::webview_window(window_label),
+        "blackboard-updated",
+        BlackboardEvent {
+            subtask_id: None,
+            status: status.to_string(),
+            summary,
+        },
+    ) {
+        tracing::warn!("emit_skill_event failed (non-fatal): {e}");
+    }
+    Ok(())
 }
 
 /// Record an evidence event for a skill phase.

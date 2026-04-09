@@ -39,13 +39,15 @@ pub(crate) fn run_and_persist(
     std::fs::write(&isolated_path, &json)
         .map_err(|e| format!("Cannot write {}: {e}", isolated_path.display()))?;
 
+    // Archive write is supplementary (for debugging/evidence) — must not
+    // kill the subtask if the archive directory is inaccessible.
     let archive_path = archive_path(workspace, &card.id, card.attempts);
     if let Some(parent) = archive_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+        let _ = std::fs::create_dir_all(parent);
     }
-    std::fs::write(&archive_path, json)
-        .map_err(|e| format!("Cannot write {}: {e}", archive_path.display()))?;
+    if let Err(e) = std::fs::write(&archive_path, json) {
+        tracing::warn!("Failed to archive verifier result (non-fatal): {e}");
+    }
 
     Ok(result)
 }
