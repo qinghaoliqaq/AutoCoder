@@ -9,6 +9,7 @@ use tokio::process::Command;
 
 const MAX_OUTPUT_CHARS: usize = 6000;
 const BUILD_TIMEOUT_SECS: u64 = 180;
+const INSTALL_TIMEOUT_SECS: u64 = 300;
 
 // ── Data types ───────────────────────────────────────────────────────────
 
@@ -191,14 +192,18 @@ async fn ensure_node_deps(workspace: &Path) -> Option<CommandResult> {
         program: program.to_string(),
         args: args.into_iter().map(|s| s.to_string()).collect(),
     };
-    Some(run_command(workspace, &install_cmd).await)
+    Some(run_command_with_timeout(workspace, &install_cmd, INSTALL_TIMEOUT_SECS).await)
 }
 
 async fn run_command(workspace: &Path, cmd: &BuildCommand) -> CommandResult {
+    run_command_with_timeout(workspace, cmd, BUILD_TIMEOUT_SECS).await
+}
+
+async fn run_command_with_timeout(workspace: &Path, cmd: &BuildCommand, timeout_secs: u64) -> CommandResult {
     let command_str = format!("{} {}", cmd.program, cmd.args.join(" "));
 
     let output = tokio::time::timeout(
-        std::time::Duration::from_secs(BUILD_TIMEOUT_SECS),
+        std::time::Duration::from_secs(timeout_secs),
         Command::new(&cmd.program)
             .args(&cmd.args)
             .current_dir(workspace)
@@ -227,7 +232,7 @@ async fn run_command(workspace: &Path, cmd: &BuildCommand) -> CommandResult {
             label: cmd.label.clone(),
             command: command_str,
             passed: false,
-            output: format!("Command timed out after {BUILD_TIMEOUT_SECS}s"),
+            output: format!("Command timed out after {timeout_secs}s"),
         },
     }
 }

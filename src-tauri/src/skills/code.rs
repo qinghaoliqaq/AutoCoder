@@ -497,7 +497,15 @@ async fn run_subtask(
         if let Some(err) = clear_board_err.or(finish_active_err).or(cleanup_err) {
             return match attempt_result {
                 Ok(_) => Err(err),
-                Err(primary) => Err(format!("{primary} (cleanup error: {err})")),
+                Err(primary) => {
+                    // Mark failed so the scheduler doesn't leave this subtask
+                    // stuck in InProgress (which would block dependents).
+                    let _ = mutate_board(&ctx.board, workspace, |board| {
+                        board.mark_failed(&subtask_id, format!("{primary} (cleanup error: {err})"))
+                    })
+                    .await;
+                    Err(format!("{primary} (cleanup error: {err})"))
+                }
             };
         }
 

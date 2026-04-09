@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 const PLAN_MD: &str = ".ai-dev-hub/PLAN.md";
 const PLAN_BOARD_MD: &str = ".ai-dev-hub/PLAN_BLACKBOARD.md";
 const PLAN_BOARD_JSON: &str = ".ai-dev-hub/PLAN_BLACKBOARD.json";
+const PLAN_GRAPH_JSON: &str = ".ai-dev-hub/PLAN_GRAPH.json";
 pub(crate) const SCRATCH_ROOT_DIR: &str = ".ai-dev-hub/subtasks";
 
 // ── Data types ─────────────────────────────────────────────────────────────
@@ -120,6 +121,7 @@ pub(crate) fn sync_coordination_files(
         PLAN_MD,
         PLAN_BOARD_MD,
         PLAN_BOARD_JSON,
+        PLAN_GRAPH_JSON,
         BLACKBOARD_MD,
         BLACKBOARD_JSON,
     ] {
@@ -301,7 +303,11 @@ pub(crate) fn should_skip_workspace_dir(name: &str) -> bool {
             | "__pycache__"
             | "target"
             | "dist"
+            | "build"
+            | "out"
             | ".next"
+            | ".turbo"
+            | ".cache"
             | ".aws"
             | ".ssh"
             | ".gnupg"
@@ -321,10 +327,7 @@ pub(crate) fn should_skip_workspace_file(name: &str) -> bool {
         || lower.starts_with(".env.")
         || matches!(
             lower.as_str(),
-            ".npmrc"
-                | ".yarnrc"
-                | ".yarnrc.yml"
-                | ".pypirc"
+            ".pypirc"
                 | ".netrc"
                 | "service-account.json"
                 | "credentials.json"

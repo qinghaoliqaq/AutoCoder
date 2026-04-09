@@ -170,7 +170,7 @@ fn matches_expected_touch(path: &str, expected_touch: &[String]) -> bool {
 
     expected_touch.iter().any(|expected| {
         let expected = expected.trim_matches('/');
-        path == expected || path.starts_with(&format!("{expected}/")) || path.contains(expected)
+        path == expected || path.starts_with(&format!("{expected}/"))
     })
 }
 
@@ -185,8 +185,8 @@ fn is_sensitive_path(path: &str) -> bool {
         || lowered.starts_with(".github/")
         || lowered.starts_with("infra/")
         || lowered.starts_with("deploy/")
-        || lowered.starts_with("src-tauri/src/lib.rs")
-        || lowered.starts_with("src-tauri/tauri.conf")
+        || lowered == "src-tauri/src/lib.rs"
+        || lowered == "src-tauri/tauri.conf.json"
 }
 
 fn is_test_path(path: &str) -> bool {
