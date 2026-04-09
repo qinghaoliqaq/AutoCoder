@@ -334,7 +334,7 @@ impl Tool for GrepTool {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext<'_>) -> ToolResult {
-        let pattern = match input["pattern"].as_str() {
+        match input["pattern"].as_str() {
             Some(p) if !p.is_empty() => p,
             _ => return ToolResult::err("Missing or empty 'pattern' parameter"),
         };

@@ -117,6 +117,11 @@ pub trait Tool: Send + Sync {
     /// Whether this specific invocation is read-only (safe for concurrent execution).
     fn is_read_only(&self, input: &Value) -> bool;
 
+    /// Whether this specific invocation is destructive (potentially harmful).
+    fn is_destructive(&self, _input: &Value) -> bool {
+        false
+    }
+
     /// Execute the tool with the given input and context.
     async fn execute(&self, input: Value, ctx: &ToolContext<'_>) -> ToolResult;
 

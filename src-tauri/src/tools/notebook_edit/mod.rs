@@ -167,7 +167,9 @@ impl Tool for NotebookEditTool {
                 }
 
                 let new_count = cells.len();
-                write_notebook(&full_path, &notebook).await?;
+                if let Err(result) = write_notebook(&full_path, &notebook).await {
+                    return result;
+                }
 
                 ToolResult::ok(format!(
                     "Added {cell_type} cell to notebook. Total cells: {new_count}"
@@ -220,7 +222,9 @@ impl Tool for NotebookEditTool {
                     cell["outputs"] = json!([]);
                 }
 
-                write_notebook(&full_path, &notebook).await?;
+                if let Err(result) = write_notebook(&full_path, &notebook).await {
+                    return result;
+                }
 
                 ToolResult::ok(format!(
                     "Edited cell {cell_index}. Total cells: {cell_count}"
@@ -246,7 +250,9 @@ impl Tool for NotebookEditTool {
                 cells.remove(cell_index);
                 let new_count = cells.len();
 
-                write_notebook(&full_path, &notebook).await?;
+                if let Err(result) = write_notebook(&full_path, &notebook).await {
+                    return result;
+                }
 
                 ToolResult::ok(format!(
                     "Deleted cell {cell_index}. Total cells: {new_count}"
