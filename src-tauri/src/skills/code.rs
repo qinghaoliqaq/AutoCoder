@@ -426,10 +426,26 @@ async fn run_subtask(
     let mut reuse_isolated: Option<IsolatedWorkspace> = None;
 
     loop {
-        let attempt = mutate_board(&ctx.board, workspace, |board| {
+        let attempt = match mutate_board(&ctx.board, workspace, |board| {
             board.begin_attempt(&subtask_id)
         })
-        .await?;
+        .await
+        {
+            Ok(a) => a,
+            Err(e) => {
+                // If begin_attempt modified in-memory state but persist failed,
+                // the subtask is InProgress in memory.  Mark it failed so the
+                // scheduler detects it instead of a silent deadlock.
+                let _ = mutate_board(&ctx.board, workspace, |board| {
+                    board.mark_failed(
+                        &subtask_id,
+                        format!("begin_attempt failed: {e}"),
+                    )
+                })
+                .await;
+                return Err(e);
+            }
+        };
 
         // Setup phase: create/reuse isolated workspace.  If any step fails,
         // we must clean up the active-subtask tracking before propagating.
@@ -495,8 +511,18 @@ async fn run_subtask(
         };
 
         if let Some(err) = clear_board_err.or(finish_active_err).or(cleanup_err) {
-            return match attempt_result {
-                Ok(_) => Err(err),
+            match &attempt_result {
+                Ok(_) => {
+                    // Cleanup error is non-critical when the attempt itself
+                    // succeeded (Completed) or requested retry (Retry).
+                    // Returning Err here would prevent the retry loop and
+                    // cause a launched_ids deadlock since the subtask is
+                    // NeedsFix but can never be re-spawned in this session.
+                    tracing::warn!(
+                        subtask = %subtask_id,
+                        "Non-fatal cleanup error (attempt result OK): {err}"
+                    );
+                }
                 Err(primary) => {
                     // Mark failed so the scheduler doesn't leave this subtask
                     // stuck in InProgress (which would block dependents).
@@ -504,9 +530,9 @@ async fn run_subtask(
                         board.mark_failed(&subtask_id, format!("{primary} (cleanup error: {err})"))
                     })
                     .await;
-                    Err(format!("{primary} (cleanup error: {err})"))
+                    return Err(format!("{primary} (cleanup error: {err})"));
                 }
-            };
+            }
         }
 
         match attempt_result {
