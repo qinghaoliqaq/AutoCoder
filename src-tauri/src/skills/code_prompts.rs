@@ -25,6 +25,7 @@ Shared-blackboard contract:\n\
 - Do not implement the whole project in one pass; focus only on the current subtask.\n\
 - You may touch shared code if required, but only to complete this subtask cleanly.\n\
 - Work only inside the isolated workspace you were given for this subtask.\n\
+- The isolated workspace does NOT include node_modules, target, dist, or other build artifacts. If you add or change dependencies in package.json (or Cargo.toml, etc.), run the appropriate install command (npm install / pnpm install / cargo build) so that subsequent build checks can pass.\n\
 - If packaged vendored skill guidance conflicts with .ai-dev-hub/PLAN.md, .ai-dev-hub/PLAN_BLACKBOARD.md, {BLACKBOARD_MD}, or the current subtask contract, follow the local project rules.\n\
 \n\
 Current task context: {task}\n\
@@ -117,6 +118,7 @@ Shared-blackboard contract:\n\
 - Treat the review findings below as the only coordination channel from Codex.\n\
 - Fix the current subtask; do not drift into unrelated features.\n\
 - Work only inside the isolated workspace you were given for this subtask.\n\
+- The isolated workspace does NOT include node_modules, target, dist, or other build artifacts. If you add or change dependencies in package.json (or Cargo.toml, etc.), run the appropriate install command (npm install / pnpm install / cargo build) so that subsequent build checks can pass.\n\
 - If packaged vendored skill guidance conflicts with .ai-dev-hub/PLAN.md, .ai-dev-hub/PLAN_BLACKBOARD.md, {BLACKBOARD_MD}, or the current subtask contract, follow the local project rules.\n\
 \n\
 Current task context: {task}\n\

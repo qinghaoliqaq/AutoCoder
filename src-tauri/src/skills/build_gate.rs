@@ -166,19 +166,21 @@ pub(crate) async fn run_build_gate(workspace: &Path, commands: &[BuildCommand]) 
 
 /// Detect the package manager and install dependencies.
 /// Returns None if no lock file is found (nothing to install).
+///
+/// Uses non-strict install mode (`npm install` instead of `npm ci`,
+/// no `--frozen-lockfile`) because Claude's implementation step may
+/// have added new dependencies to package.json that aren't yet in
+/// the lock file.  Strict modes would fail every time in that case.
 async fn ensure_node_deps(workspace: &Path) -> Option<CommandResult> {
     let (program, args, label) = if workspace.join("pnpm-lock.yaml").exists() {
-        ("pnpm", vec!["install", "--frozen-lockfile"], "pnpm install")
+        ("pnpm", vec!["install"], "pnpm install")
     } else if workspace.join("yarn.lock").exists() {
-        ("yarn", vec!["install", "--frozen-lockfile"], "yarn install")
+        ("yarn", vec!["install"], "yarn install")
     } else if workspace.join("bun.lockb").exists()
         || workspace.join("bun.lock").exists()
     {
-        ("bun", vec!["install", "--frozen-lockfile"], "bun install")
-    } else if workspace.join("package-lock.json").exists() {
-        ("npm", vec!["ci"], "npm ci")
+        ("bun", vec!["install"], "bun install")
     } else {
-        // No lock file — use plain npm install as fallback.
         ("npm", vec!["install"], "npm install")
     };
 
