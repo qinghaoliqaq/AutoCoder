@@ -359,6 +359,12 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     const unlistenToolLog = await appWindow.listen<ToolLog>('tool-log', (event) => {
       setToolLogs(prev => [...prev, event.payload]);
     });
+    const unlistenTokenUsage = await appWindow.listen<TokenUsage>('token-usage', (event) => {
+      setTokenUsages(prev => [...prev, event.payload]);
+    });
+    const unlistenBlackboard = await appWindow.listen<BlackboardEvent>('blackboard-updated', (event) => {
+      setBlackboardEvents(prev => [...prev, event.payload]);
+    });
 
     try {
       await invoke('run_skill', {
@@ -373,6 +379,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       unlistenQaResult();
       unlistenToolLog();
       unlistenTokenUsage();
+      unlistenBlackboard();
       setCurrentMode('chat');
     }
 
