@@ -245,8 +245,11 @@ impl AppConfig {
     pub fn load_persisted() -> Option<Self> {
         for path in config_search_paths_for_load() {
             if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(cfg) = toml::from_str::<Self>(&content) {
-                    return Some(cfg);
+                match toml::from_str::<Self>(&content) {
+                    Ok(cfg) => return Some(cfg),
+                    Err(e) => {
+                        tracing::warn!("Config file {} has invalid TOML, skipping: {e}", path.display());
+                    }
                 }
             }
         }
@@ -339,8 +342,11 @@ impl AppConfig {
 
     pub fn status(&self) -> ConfigStatus {
         let key = &self.director.api_key;
-        let hint = if key.len() >= 8 {
-            format!("{}****{}", &key[..4], &key[key.len() - 4..])
+        let key_chars: Vec<char> = key.chars().collect();
+        let hint = if key_chars.len() >= 8 {
+            let prefix: String = key_chars[..4].iter().collect();
+            let suffix: String = key_chars[key_chars.len() - 4..].iter().collect();
+            format!("{prefix}****{suffix}")
         } else if key.is_empty() {
             "(not set)".to_string()
         } else {

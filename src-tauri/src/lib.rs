@@ -230,7 +230,9 @@ async fn run_skill(
 #[tauri::command]
 fn cancel_skill(window: tauri::WebviewWindow, state: tauri::State<'_, AppState>) {
     let window_label = window.label();
-    if let Some(token) = state.cancel_tokens.lock().unwrap_or_else(|e| e.into_inner()).get(window_label) {
+    let token = state.cancel_tokens.lock().unwrap_or_else(|e| e.into_inner())
+        .get(window_label).cloned();
+    if let Some(token) = token {
         token.cancel();
     }
     let cleanup_workspace = state.test_workspaces.lock().unwrap_or_else(|e| e.into_inner()).remove(window_label);
@@ -265,9 +267,10 @@ async fn write_bug_report(
     let path = if let Some(ws) = workspace.filter(|s| !s.is_empty()) {
         std::path::PathBuf::from(ws).join("bugs.md")
     } else {
-        let home = std::env::var("HOME").map_err(|e| e.to_string())?;
-        std::path::PathBuf::from(home)
-            .join("Desktop")
+        dirs::desktop_dir()
+            .unwrap_or_else(|| {
+                dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."))
+            })
             .join("bugs.md")
     };
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
