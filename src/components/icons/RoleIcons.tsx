@@ -1,6 +1,6 @@
 /**
- * Role identity icons for agent cards.
- * These represent the app-level roles (Claude / Codex),
+ * Role identity icons for agent cards and chat avatars.
+ * These represent the app-level roles (Claude / Codex / Director),
  * independent of the underlying API provider.
  */
 
@@ -48,6 +48,32 @@ export function CodexRoleIcon({ size = 24, className }: IconProps) {
         d="M12 7L16.33 9.5V14.5L12 17L7.67 14.5V9.5L12 7Z"
         fill="white"
         opacity="0.2"
+      />
+    </svg>
+  );
+}
+
+/**
+ * Director (orchestrator) — diamond/rhombus mark.
+ * Violet-purple gradient.
+ */
+export function DirectorRoleIcon({ size = 24, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <defs>
+        <linearGradient id="role-director" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#A78BFA" />
+          <stop offset="1" stopColor="#7C3AED" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M12 2L22 12L12 22L2 12L12 2Z"
+        fill="url(#role-director)"
+      />
+      <path
+        d="M12 6L18 12L12 18L6 12L12 6Z"
+        fill="white"
+        opacity="0.15"
       />
     </svg>
   );

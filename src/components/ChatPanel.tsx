@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { AnimatedMessageIcon, AnimatedFolderIcon, AnimatedSparklesIcon } from './icons/AnimatedIcons';
-import { ChatMessage, AgentRole, ToolLog, ConfigStatus } from '../types';
+import { ChatMessage, AgentRole, ToolLog } from '../types';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import { InlineToolCallGroup } from './InlineToolCall';
 import InlineTodoList, { TodoItem } from './InlineTodoList';
-import { ProviderIcon } from './icons/ProviderIcons';
+import { ClaudeRoleIcon, CodexRoleIcon, DirectorRoleIcon } from './icons/RoleIcons';
 
 // ── Role config ──────────────────────────────────────────────────────────────
 
 const ROLE_CONFIG: Record<AgentRole, {
   label: string; fallbackIcon: string; color: string;
   gradient: string; glow: string; textGlow: string;
-  defaultProvider: string;
+  roleIcon: ((size: number) => React.ReactNode) | null;
 }> = {
   claude: {
     label: 'Claude',
@@ -22,7 +22,7 @@ const ROLE_CONFIG: Record<AgentRole, {
     gradient: 'bg-gradient-to-br from-orange-400 to-amber-600',
     glow: 'shadow-[0_0_8px_rgba(204,120,92,0.4)]',
     textGlow: 'text-glow-claude',
-    defaultProvider: 'anthropic',
+    roleIcon: (s) => <ClaudeRoleIcon size={s} />,
   },
   codex: {
     label: 'Codex',
@@ -31,7 +31,7 @@ const ROLE_CONFIG: Record<AgentRole, {
     gradient: 'bg-gradient-to-br from-emerald-400 to-teal-600',
     glow: 'shadow-[0_0_8px_rgba(16,163,127,0.4)]',
     textGlow: 'text-glow-codex',
-    defaultProvider: 'openai',
+    roleIcon: (s) => <CodexRoleIcon size={s} />,
   },
   director: {
     label: 'Director',
@@ -40,7 +40,7 @@ const ROLE_CONFIG: Record<AgentRole, {
     gradient: 'bg-gradient-to-br from-violet-400 to-purple-600',
     glow: 'shadow-[0_0_8px_rgba(139,92,246,0.4)]',
     textGlow: 'text-glow-director',
-    defaultProvider: '',
+    roleIcon: (s) => <DirectorRoleIcon size={s} />,
   },
   user: {
     label: 'You',
@@ -49,7 +49,7 @@ const ROLE_CONFIG: Record<AgentRole, {
     gradient: 'bg-gradient-to-br from-zinc-400 to-zinc-600',
     glow: '',
     textGlow: '',
-    defaultProvider: '',
+    roleIcon: null,
   },
 };
 
@@ -156,16 +156,6 @@ function normalizeBubbleContent(content: string) {
   return content.replace(/^(?:\r?\n)+/, '').replace(/(?:\r?\n)+$/, '');
 }
 
-/** Resolve provider key for a role based on config. */
-function resolveProvider(role: AgentRole, providerMap?: { claude?: string; codex?: string; director?: string }): string {
-  if (providerMap) {
-    if (role === 'claude' && providerMap.claude) return providerMap.claude;
-    if (role === 'codex' && providerMap.codex) return providerMap.codex;
-    if (role === 'director' && providerMap.director) return providerMap.director;
-  }
-  return ROLE_CONFIG[role].defaultProvider;
-}
-
 interface MessageProps {
   message: ChatMessage;
   isLast: boolean;
@@ -173,27 +163,20 @@ interface MessageProps {
   toolCalls?: ToolLog[];
   /** Todo list snapshot to show after this message. */
   todos?: TodoItem[];
-  /** Provider mapping from config for icon resolution. */
-  providerMap?: { claude?: string; codex?: string; director?: string };
 }
 
-function Message({ message, isLast, toolCalls, todos, providerMap }: MessageProps) {
+function Message({ message, isLast, toolCalls, todos }: MessageProps) {
   const config = ROLE_CONFIG[message.role];
   const isUser = message.role === 'user';
   const displayContent = normalizeBubbleContent(message.content);
-  const provider = resolveProvider(message.role, providerMap);
 
   return (
     <div className={`animate-slide-up ${!isLast ? 'border-b border-edge-secondary/60' : ''}`}>
       <div className={`px-5 py-4 ${isUser ? 'bg-surface-secondary/20' : ''}`}>
         {/* Header: avatar + name + time */}
         <div className="flex items-center gap-2.5 mb-2">
-          <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg ${config.glow} ${provider ? 'bg-surface-elevated/80 border border-edge-primary/30' : `${config.gradient} text-[10px] font-bold text-white`}`}>
-            {provider ? (
-              <ProviderIcon provider={provider} size={16} />
-            ) : (
-              config.fallbackIcon
-            )}
+          <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg ${config.glow} ${config.roleIcon ? '' : `${config.gradient} text-[10px] font-bold text-white`}`}>
+            {config.roleIcon ? config.roleIcon(18) : config.fallbackIcon}
           </div>
           <span className={`text-[12px] font-semibold ${config.textGlow || config.color}`}>{config.label}</span>
           <span className="text-[10px] text-content-tertiary tabular-nums">
@@ -290,7 +273,7 @@ function groupBySubtask(messages: ChatMessage[]): MessageGroup[] {
 }
 
 /** Collapsible card that wraps all messages belonging to a single subtask. */
-function SubtaskThread({ group, isLast, defaultExpanded, providerMap }: { group: Extract<MessageGroup, { kind: 'thread' }>; isLast: boolean; defaultExpanded: boolean; providerMap?: { claude?: string; codex?: string; director?: string } }) {
+function SubtaskThread({ group, isLast, defaultExpanded }: { group: Extract<MessageGroup, { kind: 'thread' }>; isLast: boolean; defaultExpanded: boolean }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const agentSet = [...new Set(group.messages.map(m => m.role))];
   const previewMsg = group.messages[group.messages.length - 1];
@@ -318,10 +301,9 @@ function SubtaskThread({ group, isLast, defaultExpanded, providerMap }: { group:
           <div className="flex -space-x-1.5">
             {agentSet.map(role => {
               const cfg = ROLE_CONFIG[role];
-              const prov = resolveProvider(role, providerMap);
               return (
-                <div key={role} className={`flex h-[1.2rem] w-[1.2rem] items-center justify-center rounded-md ring-1 ring-surface-primary/50 ${prov ? 'bg-surface-elevated/80' : `${cfg.gradient} text-[8px] font-bold text-white`} ${cfg.glow}`}>
-                  {prov ? <ProviderIcon provider={prov} size={12} /> : cfg.fallbackIcon}
+                <div key={role} className={`flex h-[1.2rem] w-[1.2rem] items-center justify-center rounded-md ring-1 ring-surface-primary/50 ${cfg.roleIcon ? '' : `${cfg.gradient} text-[8px] font-bold text-white`} ${cfg.glow}`}>
+                  {cfg.roleIcon ? cfg.roleIcon(14) : cfg.fallbackIcon}
                 </div>
               );
             })}
@@ -339,7 +321,7 @@ function SubtaskThread({ group, isLast, defaultExpanded, providerMap }: { group:
         {expanded && (
           <div className="border-t border-edge-primary/30 mx-2">
             {group.messages.map((msg, idx) => (
-              <Message key={msg.id} message={msg} isLast={idx === group.messages.length - 1} providerMap={providerMap} />
+              <Message key={msg.id} message={msg} isLast={idx === group.messages.length - 1} />
             ))}
           </div>
         )}
@@ -390,12 +372,11 @@ interface ChatPanelProps {
   messages: ChatMessage[];
   toolLogs?: ToolLog[];
   todos?: TodoItem[];
-  configStatus?: ConfigStatus | null;
   onOpenProject?: () => void;
   workspace?: string | null;
 }
 
-export default function ChatPanel({ messages, toolLogs = [], todos = [], configStatus, onOpenProject, workspace }: ChatPanelProps) {
+export default function ChatPanel({ messages, toolLogs = [], todos = [], onOpenProject, workspace }: ChatPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [heroOrbs] = useState(() => [
     { id: 0, color: 'rgba(139,92,246,0.18)', size: 340, x: -120, y: -80,  dur: '20s', del: '0s' },
@@ -404,16 +385,6 @@ export default function ChatPanel({ messages, toolLogs = [], todos = [], configS
     { id: 3, color: 'rgba(167,139,250,0.10)', size: 220, x: -180, y:  60, dur: '26s', del: '-9s' },
     { id: 4, color: 'rgba(244,114,182,0.08)', size: 260, x:  200, y:  80, dur: '18s', del: '-12s' },
   ]);
-
-  // Resolve provider icons from config
-  const providerMap = useMemo(() => {
-    if (!configStatus) return undefined;
-    return {
-      claude: configStatus.agent_provider || undefined,
-      codex: configStatus.agent_second_provider || configStatus.agent_provider || undefined,
-      director: configStatus.api_format === 'anthropic' ? 'anthropic' : configStatus.api_format === 'openai' ? 'openai' : undefined,
-    };
-  }, [configStatus]);
 
   const messageGroups = useMemo(() => groupBySubtask(messages), [messages]);
 
@@ -524,7 +495,6 @@ export default function ChatPanel({ messages, toolLogs = [], todos = [], configS
                     isLast={isLast}
                     toolCalls={msgToolCalls}
                     todos={showTodos}
-                    providerMap={providerMap}
                   />
                 );
               }
@@ -533,7 +503,6 @@ export default function ChatPanel({ messages, toolLogs = [], todos = [], configS
                   key={`thread-${group.subtaskId}`}
                   group={group}
                   isLast={isLast}
-                  providerMap={providerMap}
                   defaultExpanded={isLast}
                 />
               );
