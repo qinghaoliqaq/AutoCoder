@@ -57,7 +57,7 @@ export default function InlineToolCall({ log }: InlineToolCallProps) {
       >
         <ChevronRight className={`h-3 w-3 flex-shrink-0 text-content-tertiary transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`} />
         <span className={`flex items-center ${meta.color}`}>{meta.icon}</span>
-        <span className="text-[11px] font-semibold text-content-primary">{log.tool}</span>
+        <span className="text-[11px] font-semibold text-shimmer">{log.tool}</span>
         {!expanded && summary && (
           <span className="truncate text-[11px] text-content-tertiary font-mono">{summary}</span>
         )}

@@ -62,12 +62,10 @@ const TIPS = [
 function TipsCarousel() {
   const [displayIndex, setDisplayIndex] = useState(() => Math.floor(Math.random() * TIPS.length));
   const [fadingOut, setFadingOut] = useState(false);
-  // nextIndex is the tip waiting to be shown after fade-out completes
   const nextIndex = (displayIndex + 1) % TIPS.length;
 
   useEffect(() => {
     const timer = setInterval(() => {
-      // Start fade-out
       setFadingOut(true);
     }, 5000);
     return () => clearInterval(timer);
@@ -75,7 +73,6 @@ function TipsCarousel() {
 
   const handleTransitionEnd = () => {
     if (fadingOut) {
-      // Fade-out done — swap content and fade back in
       setDisplayIndex(nextIndex);
       setFadingOut(false);
     }
@@ -84,12 +81,16 @@ function TipsCarousel() {
   return (
     <div className="flex items-start gap-2.5 rounded-xl border border-edge-primary/30 bg-surface-secondary/30 px-4 py-2.5">
       <Lightbulb className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-amber-500/70" />
-      <span
-        className={`text-[11px] leading-5 text-content-secondary transition-opacity duration-300 ${fadingOut ? 'opacity-0' : 'opacity-100'}`}
-        onTransitionEnd={handleTransitionEnd}
-      >
-        {TIPS[displayIndex]}
-      </span>
+      <div className="relative min-h-[20px] flex-1 overflow-hidden">
+        <span
+          className={`text-[11px] leading-5 text-content-secondary transition-all duration-300 ${
+            fadingOut ? 'opacity-0 translate-y-1' : 'opacity-100 translate-y-0'
+          }`}
+          onTransitionEnd={handleTransitionEnd}
+        >
+          {TIPS[displayIndex]}
+        </span>
+      </div>
     </div>
   );
 }
