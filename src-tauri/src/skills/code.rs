@@ -191,7 +191,8 @@ pub(super) async fn run(
 
         if let Err(err) = result {
             // Single subtask failure — log it but let other subtasks continue.
-            // The subtask is already marked Failed on the board by run_subtask.
+            // run_subtask marks the subtask as Failed on the board before
+            // returning Err, so dependents won't be blocked indefinitely.
             tracing::warn!(
                 subtask = %subtask_id,
                 "Subtask exhausted retries: {err}"
@@ -204,8 +205,6 @@ pub(super) async fn run(
                 "subtask_failed",
                 format!("Subtask {} failed: {err}. Other subtasks continue.", subtask_id),
             );
-            // The subtask is already marked Failed on the board.
-            // Do NOT cancel — let remaining subtasks finish.
         }
     };
 
@@ -459,6 +458,10 @@ async fn run_subtask(
                     );
                     continue;
                 }
+                let _ = mutate_board(&ctx.board, workspace, |board| {
+                    board.mark_failed(&subtask_id, format!("Workspace setup failed after {MAX_SUBTASK_ATTEMPTS} attempts: {e}"))
+                })
+                .await;
                 return Err(e);
             }
         };
@@ -526,7 +529,16 @@ async fn run_subtask(
                 );
                 continue;
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                // All retries exhausted with transient errors — mark as
+                // Failed so the scheduler can detect it (instead of leaving
+                // the subtask stuck in InProgress which blocks dependents).
+                let _ = mutate_board(&ctx.board, workspace, |board| {
+                    board.mark_failed(&subtask_id, format!("Exhausted {MAX_SUBTASK_ATTEMPTS} attempts: {e}"))
+                })
+                .await;
+                return Err(e);
+            }
         }
     }
 }
