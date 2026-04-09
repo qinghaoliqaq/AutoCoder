@@ -564,6 +564,8 @@ fn append_event(workspace: &str, event: &EvidenceEvent) -> Result<(), String> {
 }
 
 /// Truncate the events JSONL file to the last N lines.
+/// Uses atomic write-to-tmp-then-rename to prevent concurrent readers
+/// from seeing partial content.
 fn truncate_events_file(path: &Path) {
     let Ok(text) = std::fs::read_to_string(path) else {
         return;
@@ -575,8 +577,12 @@ fn truncate_events_file(path: &Path) {
     let kept = &lines[lines.len() - TRUNCATE_KEEP_LINES..];
     let mut content = kept.join("\n");
     content.push('\n');
-    // Best-effort — if this fails, the next append will still work.
-    let _ = std::fs::write(path, content);
+    // Atomic: write to temp then rename so concurrent readers never see
+    // partial content.
+    let tmp = path.with_extension("jsonl.tmp");
+    if std::fs::write(&tmp, &content).is_ok() {
+        let _ = std::fs::rename(&tmp, path);
+    }
 }
 
 fn read_blackboard(workspace: &str) -> Result<Option<Blackboard>, String> {

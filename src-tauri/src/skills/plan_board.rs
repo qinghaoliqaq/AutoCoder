@@ -58,10 +58,13 @@ impl PlanBoard {
         }
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Cannot serialize plan blackboard: {e}"))?;
-        std::fs::write(&json_path, json)
-            .map_err(|e| format!("Cannot write {}: {e}", json_path.display()))?;
-        std::fs::write(&md_path, self.render_markdown())
-            .map_err(|e| format!("Cannot write {}: {e}", md_path.display()))?;
+        // Atomic write: write to temp then rename to prevent partial reads.
+        atomic_write(&json_path, json.as_bytes())?;
+        // Markdown is a derived rendering — its failure must not kill the
+        // planning phase since the authoritative JSON was already written.
+        if let Err(e) = atomic_write(&md_path, self.render_markdown().as_bytes()) {
+            tracing::warn!("Failed to write {} (non-fatal): {e}", md_path.display());
+        }
         Ok(())
     }
 
@@ -119,6 +122,15 @@ impl PlanBoard {
         out.push('\n');
         out
     }
+}
+
+/// Write to a temp file then rename for crash safety.
+fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, data)
+        .map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, path)
+        .map_err(|e| format!("Cannot rename {} -> {}: {e}", tmp.display(), path.display()))
 }
 
 fn now_string() -> String {

@@ -881,7 +881,10 @@ async fn run_build_gate_phase(
     let failure_summary = result.failure_summary();
     let finding = format!("Build gate failed:\n{failure_summary}");
 
-    mutate_board(&ctx.board, ctx.workspace, |board| {
+    // Recording build-gate findings is supplementary context for the fix
+    // prompt.  If persist fails, we still want to retry — killing the
+    // subtask here would waste an attempt with no benefit.
+    if let Err(e) = mutate_board(&ctx.board, ctx.workspace, |board| {
         board.record_review(
             &card.id,
             false,
@@ -891,7 +894,10 @@ async fn run_build_gate_phase(
         board.finish_active_subtask(&card.id);
         Ok(())
     })
-    .await?;
+    .await
+    {
+        tracing::warn!(subtask = %card.id, "Failed to record build-gate findings (non-fatal): {e}");
+    }
 
     let _ = emit_blackboard(
         ctx.workspace,
@@ -916,10 +922,11 @@ async fn run_build_gate_phase(
             "Subtask {} failed build gate after {} attempts.",
             card.id, MAX_SUBTASK_ATTEMPTS
         );
-        mutate_board(&ctx.board, ctx.workspace, |board| {
+        // Best-effort — the outer run_subtask handler has a fallback mark_failed.
+        let _ = mutate_board(&ctx.board, ctx.workspace, |board| {
             board.mark_failed(&card.id, reason.clone())
         })
-        .await?;
+        .await;
         return Err(reason);
     }
 
@@ -961,7 +968,8 @@ async fn run_verification_phase(
     }
 
     // Verifier failed — record findings and decide whether to retry or abort.
-    mutate_board(&ctx.board, ctx.workspace, |board| {
+    // Non-fatal: losing findings is better than killing the subtask.
+    if let Err(e) = mutate_board(&ctx.board, ctx.workspace, |board| {
         board.record_review(
             &card.id,
             false,
@@ -971,7 +979,10 @@ async fn run_verification_phase(
         board.finish_active_subtask(&card.id);
         Ok(())
     })
-    .await?;
+    .await
+    {
+        tracing::warn!(subtask = %card.id, "Failed to record verifier findings (non-fatal): {e}");
+    }
     let _ = emit_blackboard(
         ctx.workspace,
         ctx.app_handle,
@@ -989,10 +1000,10 @@ async fn run_verification_phase(
             "Subtask {} failed verifier after {} attempts: {}",
             card.id, MAX_SUBTASK_ATTEMPTS, verifier_result.summary
         );
-        mutate_board(&ctx.board, ctx.workspace, |board| {
+        let _ = mutate_board(&ctx.board, ctx.workspace, |board| {
             board.mark_failed(&card.id, reason.clone())
         })
-        .await?;
+        .await;
         let _ = emit_blackboard(
             ctx.workspace,
             ctx.app_handle,
@@ -1051,8 +1062,9 @@ async fn run_review_and_merge_phase(
         return apply_merge(ctx, card, &review_card, attempt, isolated, &review).await;
     }
 
-    // Review rejected — record and decide whether to retry or abort.
-    mutate_board(&ctx.board, ctx.workspace, |board| {
+    // Review rejected — record findings for fix prompt context.
+    // Non-fatal: losing findings is better than killing the subtask.
+    if let Err(e) = mutate_board(&ctx.board, ctx.workspace, |board| {
         board.record_review(
             &card.id,
             false,
@@ -1062,17 +1074,20 @@ async fn run_review_and_merge_phase(
         board.finish_active_subtask(&card.id);
         Ok(())
     })
-    .await?;
+    .await
+    {
+        tracing::warn!(subtask = %card.id, "Failed to record review findings (non-fatal): {e}");
+    }
 
     if attempt >= MAX_SUBTASK_ATTEMPTS {
         let reason = format!(
             "Subtask {} failed inline review after {} attempts: {}",
             card.id, MAX_SUBTASK_ATTEMPTS, review.summary
         );
-        mutate_board(&ctx.board, ctx.workspace, |board| {
+        let _ = mutate_board(&ctx.board, ctx.workspace, |board| {
             board.mark_failed(&card.id, reason.clone())
         })
-        .await?;
+        .await;
         let _ = emit_blackboard(
             ctx.workspace,
             ctx.app_handle,
@@ -1105,7 +1120,12 @@ async fn apply_merge(
     let _merge_guard = ctx.merge_lock.lock().await;
     match merge_isolated_workspace(ctx.workspace, isolated) {
         Ok(merged_files) => {
-            mutate_board(&ctx.board, ctx.workspace, |board| {
+            // CRITICAL: The merge has already written files to the main
+            // workspace — this is irreversible.  If mutate_board fails
+            // here (e.g., disk full on BLACKBOARD.json), we must NOT
+            // propagate the error.  Retrying would cause a double-merge
+            // (reimplementing on top of already-merged code).
+            if let Err(e) = mutate_board(&ctx.board, ctx.workspace, |board| {
                 board.record_implementation(
                     &card.id,
                     review_card
@@ -1121,7 +1141,10 @@ async fn apply_merge(
                 board.complete_if_finished();
                 Ok(())
             })
-            .await?;
+            .await
+            {
+                tracing::error!(subtask = %card.id, "Failed to update board after successful merge: {e}");
+            }
             if let Err(e) = tick_plan_checkbox(ctx.workspace, &card.id) {
                 tracing::warn!(subtask = %card.id, "Failed to tick plan checkbox (non-fatal): {e}");
             }
@@ -1147,10 +1170,10 @@ async fn apply_merge(
                     "Subtask {} hit merge conflicts after {} attempts: {}",
                     card.id, MAX_SUBTASK_ATTEMPTS, conflict
                 );
-                mutate_board(&ctx.board, ctx.workspace, |board| {
+                let _ = mutate_board(&ctx.board, ctx.workspace, |board| {
                     board.mark_failed(&card.id, reason.clone())
                 })
-                .await?;
+                .await;
                 let _ = emit_blackboard(
                     ctx.workspace,
                     ctx.app_handle,
@@ -1162,7 +1185,7 @@ async fn apply_merge(
                 return Err(reason);
             }
 
-            mutate_board(&ctx.board, ctx.workspace, |board| {
+            if let Err(e) = mutate_board(&ctx.board, ctx.workspace, |board| {
                 board.record_merge_conflict(
                     &card.id,
                     "Codex approved the isolated implementation, but the merge back to the main workspace conflicted.".to_string(),
@@ -1172,7 +1195,10 @@ async fn apply_merge(
                 board.finish_active_subtask(&card.id);
                 Ok(())
             })
-            .await?;
+            .await
+            {
+                tracing::warn!(subtask = %card.id, "Failed to record merge conflict (non-fatal): {e}");
+            }
             let _ = emit_blackboard(
                 ctx.workspace, ctx.app_handle, ctx.window_label,
                 Some(card.id.clone()), "needs_fix",

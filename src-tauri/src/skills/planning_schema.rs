@@ -60,6 +60,11 @@ pub(crate) enum SubtaskCategory {
     Fullstack,
     Infra,
     Docs,
+    /// Fallback for any category the LLM invents that we don't recognize.
+    /// Without this, an unexpected value like "testing" or "database" would
+    /// crash the entire plan parsing phase.
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -70,6 +75,9 @@ pub(crate) enum SuggestedSkill {
     FullstackDev,
     #[serde(rename = "ui-design-system")]
     UiDesignSystem,
+    /// Fallback for any skill name the LLM invents that we don't recognize.
+    #[serde(other)]
+    Other,
 }
 
 fn default_true() -> bool {

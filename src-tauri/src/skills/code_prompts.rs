@@ -336,10 +336,15 @@ pub(super) fn parse_review_report(output: &str) -> ReviewReport {
 
     let passed = match &explicit_decision {
         Some(decision) => {
-            let upper = decision.to_uppercase();
-            // Match "PASS" but reject "PASS or FAIL" which is just the prompt
-            // instruction echoed back.
-            upper.contains("PASS") && !upper.contains("PASS OR FAIL")
+            let upper = decision.trim().to_uppercase();
+            // Reject negated / echoed phrases first, then check for PASS.
+            // "CANNOT PASS", "DOES NOT PASS", "CONDITIONAL PASS", and
+            // echoed "PASS or FAIL" must NOT be treated as PASS.
+            let has_negation = upper.contains("PASS OR FAIL")
+                || upper.contains("NOT PASS")
+                || upper.contains("CANNOT PASS")
+                || upper.contains("CONDITIONAL PASS");
+            !has_negation && (upper == "PASS" || upper == "PASSED" || upper.starts_with("PASS "))
         }
         None => {
             // No explicit decision marker — infer from output content.
@@ -434,24 +439,36 @@ fn extract_marker_line(output: &str, prefix: &str) -> Option<String> {
     })
 }
 
+/// Extract a bulleted list following a header line.
+///
+/// Scans bottom-up (like `extract_marker_line`) so that we always
+/// parse the LAST occurrence of the header, matching the decision
+/// marker scan direction.  This prevents mismatched findings/decision
+/// when the LLM echoes the format early then outputs the real block later.
 fn extract_list_after_header(output: &str, header: &str) -> Vec<String> {
-    let mut collecting = false;
-    let mut items = Vec::new();
+    let lines: Vec<&str> = output.lines().collect();
+    // Find the LAST occurrence of the header.
+    let header_idx = lines
+        .iter()
+        .rposition(|line| line.trim() == header);
+    let Some(header_idx) = header_idx else {
+        return Vec::new();
+    };
 
-    for line in output.lines() {
+    let mut items = Vec::new();
+    for line in &lines[header_idx + 1..] {
         let trimmed = line.trim();
-        if trimmed == header {
-            collecting = true;
+        if let Some(item) = trimmed.strip_prefix("- ") {
+            items.push(item.trim().to_string());
             continue;
         }
-        if collecting {
-            if let Some(item) = trimmed.strip_prefix("- ") {
-                items.push(item.trim().to_string());
-                continue;
-            }
-            if !items.is_empty() && !trimmed.is_empty() {
-                break;
-            }
+        // Skip blank lines between items.
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Non-list, non-blank line — stop collecting.
+        if !items.is_empty() {
+            break;
         }
     }
 

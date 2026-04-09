@@ -136,7 +136,8 @@ pub(super) async fn run_phase(
                 ),
             );
             let claude_out = claude_res?;
-            let codex_out = codex_res?;
+            // Codex cross-check is best-effort; don't fail the phase if it errors.
+            let codex_out = codex_res.unwrap_or_default();
 
             // Merge Codex additions into test.md
             let merge_prompt = format!(
@@ -500,13 +501,11 @@ pub(super) async fn run_phase(
 
             // Emit to UI so it appears in the chat (scoped to the requesting window)
             if !report_content.is_empty() {
-                app_handle
-                    .emit_to(
-                        EventTarget::webview_window(window_label),
-                        "completion-report",
-                        &report_content,
-                    )
-                    .map_err(|e| format!("Emit error: {e}"))?;
+                let _ = app_handle.emit_to(
+                    EventTarget::webview_window(window_label),
+                    "completion-report",
+                    &report_content,
+                );
             }
 
             parse_result(&result_line)
@@ -515,17 +514,16 @@ pub(super) async fn run_phase(
         unknown => return Err(format!("Unknown test phase: {unknown}")),
     };
 
-    app_handle
-        .emit_to(
-            EventTarget::webview_window(window_label),
-            "review-phase-result",
-            ReviewPhaseResult {
-                phase: phase.to_string(),
-                passed,
-                issue: found_issue.clone(),
-            },
-        )
-        .map_err(|e| e.to_string())?;
+    // UI event emission is best-effort — window may be closed.
+    let _ = app_handle.emit_to(
+        EventTarget::webview_window(window_label),
+        "review-phase-result",
+        ReviewPhaseResult {
+            phase: phase.to_string(),
+            passed,
+            issue: found_issue.clone(),
+        },
+    );
     if let Some(workspace) = workspace {
         // Evidence recording is best-effort — must never fail the test skill.
         let _ = evidence::record_event(

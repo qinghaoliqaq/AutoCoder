@@ -18,33 +18,33 @@ pub(super) fn emit_blackboard(
     status: &str,
     summary: String,
 ) -> Result<(), String> {
-    let event_subtask_id = subtask_id.clone();
-    let event_summary = summary.clone();
-    app_handle
-        .emit_to(
-            EventTarget::webview_window(window_label),
-            "blackboard-updated",
-            BlackboardEvent {
-                subtask_id,
-                status: status.to_string(),
-                summary,
-            },
-        )
-        .map_err(|e| format!("Emit error: {e}"))?;
-    // Evidence recording is best-effort — it must never kill a subtask.
-    // The Tauri event above is the critical path; evidence is supplementary.
+    // Record evidence FIRST — it must not be skipped if the Tauri emit
+    // fails (e.g., window closed).  Evidence is the durable audit trail;
+    // the UI event is ephemeral.
     if let Err(e) = evidence::record_event(
         workspace,
         EvidenceEvent {
             ts: chrono::Utc::now().timestamp_millis() as u64,
             event_type: status.to_string(),
             agent: evidence_agent_for_status(status).to_string(),
-            subtask_id: event_subtask_id,
-            summary: event_summary,
+            subtask_id: subtask_id.clone(),
+            summary: summary.clone(),
             artifacts: evidence_artifacts_for_status(status),
         },
     ) {
         tracing::warn!("Evidence recording failed (non-fatal): {e}");
+    }
+    // Tauri UI event is best-effort — window may be closed.
+    if let Err(e) = app_handle.emit_to(
+        EventTarget::webview_window(window_label),
+        "blackboard-updated",
+        BlackboardEvent {
+            subtask_id,
+            status: status.to_string(),
+            summary,
+        },
+    ) {
+        tracing::warn!("Tauri emit failed (non-fatal): {e}");
     }
     Ok(())
 }

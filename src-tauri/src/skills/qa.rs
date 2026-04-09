@@ -156,31 +156,52 @@ fn emit_acceptance_warning_log(
 }
 
 fn parse_qa_result(text: &str, health_score: u32) -> Result<QaResult, String> {
+    // Tolerate missing markers by falling back to sensible defaults.
+    // The LLM may get truncated or fail to emit markers; crashing the
+    // entire QA phase with no actionable feedback is worse than returning
+    // a conservative FAIL verdict.
     let verdict = extract_marker_value(text, "QA_VERDICT")
-        .ok_or_else(|| "QA output missing [QA_VERDICT:*] marker".to_string())?;
+        .unwrap_or_else(|| "FAIL".to_string());
     let recommended_next_step = extract_marker_value(text, "QA_NEXT")
-        .ok_or_else(|| "QA output missing [QA_NEXT:*] marker".to_string())?;
+        .unwrap_or_else(|| "review".to_string());
     let summary = extract_marker_value(text, "QA_SUMMARY")
-        .ok_or_else(|| "QA output missing [QA_SUMMARY:*] marker".to_string())?;
+        .unwrap_or_else(|| "QA markers missing from output — defaulting to FAIL.".to_string());
     let issue = extract_marker_value(text, "QA_ISSUE")
-        .ok_or_else(|| "QA output missing [QA_ISSUE:*] marker".to_string())?;
+        .unwrap_or_else(|| "Unable to parse QA output markers.".to_string());
     let confidence_score = extract_marker_value(text, "QA_CONFIDENCE")
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(0)
         .min(100);
 
-    if !matches!(verdict.as_str(), "PASS" | "PASS_WITH_CONCERNS" | "FAIL") {
-        return Err(format!("Invalid QA verdict marker: {verdict}"));
-    }
-    if !matches!(
+    // Normalize unexpected values instead of crashing.
+    let verdict = if matches!(verdict.as_str(), "PASS" | "PASS_WITH_CONCERNS" | "FAIL") {
+        verdict
+    } else {
+        tracing::warn!("Unexpected QA verdict '{verdict}', treating as FAIL");
+        "FAIL".to_string()
+    };
+    let recommended_next_step = if matches!(
         recommended_next_step.as_str(),
         "complete" | "review" | "debug" | "code"
     ) {
-        return Err(format!(
-            "Invalid QA next-step marker: {recommended_next_step}"
-        ));
+        recommended_next_step
+    } else {
+        tracing::warn!("Unexpected QA next-step '{recommended_next_step}', treating as 'review'");
+        "review".to_string()
+    };
+
+    // Validate transition — normalize instead of crashing.
+    if let Err(e) = validate_qa_transition(&verdict, &recommended_next_step) {
+        tracing::warn!("Invalid QA transition: {e}; overriding next_step to 'review'");
+        return Ok(QaResult {
+            verdict,
+            recommended_next_step: "review".to_string(),
+            summary,
+            issue,
+            confidence_score,
+            health_score,
+        });
     }
-    validate_qa_transition(&verdict, &recommended_next_step)?;
 
     Ok(QaResult {
         verdict,

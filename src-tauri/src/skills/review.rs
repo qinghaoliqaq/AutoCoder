@@ -111,7 +111,8 @@ pub(super) async fn run_phase(
                 ),
             );
             let claude_out = claude_result?;
-            let codex_out = codex_result?;
+            // Codex cross-check is best-effort; don't fail the phase if it errors.
+            let codex_out = codex_result.unwrap_or_default();
 
             // Union the missing lists from both agents
             let missing = union_missing(&claude_out, &codex_out);
@@ -204,17 +205,15 @@ pub(super) async fn run_phase(
 
             if file_list.is_empty() {
                 // No change.log or empty — emit PASS and return immediately
-                app_handle
-                    .emit_to(
-                        EventTarget::webview_window(window_label),
-                        "review-phase-result",
-                        ReviewPhaseResult {
-                            phase: phase.to_string(),
-                            passed: true,
-                            issue: String::new(),
-                        },
-                    )
-                    .map_err(|e| e.to_string())?;
+                let _ = app_handle.emit_to(
+                    EventTarget::webview_window(window_label),
+                    "review-phase-result",
+                    ReviewPhaseResult {
+                        phase: phase.to_string(),
+                        passed: true,
+                        issue: String::new(),
+                    },
+                );
                 return Ok(());
             }
 
@@ -271,17 +270,15 @@ pub(super) async fn run_phase(
                 .collect();
 
             if ui_files.is_empty() {
-                app_handle
-                    .emit_to(
-                        EventTarget::webview_window(window_label),
-                        "review-phase-result",
-                        ReviewPhaseResult {
-                            phase: phase.to_string(),
-                            passed: true,
-                            issue: String::new(),
-                        },
-                    )
-                    .map_err(|e| e.to_string())?;
+                let _ = app_handle.emit_to(
+                    EventTarget::webview_window(window_label),
+                    "review-phase-result",
+                    ReviewPhaseResult {
+                        phase: phase.to_string(),
+                        passed: true,
+                        issue: String::new(),
+                    },
+                );
                 return Ok(());
             }
 
@@ -312,17 +309,16 @@ pub(super) async fn run_phase(
         unknown => return Err(format!("Unknown review phase: {unknown}")),
     };
 
-    app_handle
-        .emit_to(
-            EventTarget::webview_window(window_label),
-            "review-phase-result",
-            ReviewPhaseResult {
-                phase: phase.to_string(),
-                passed,
-                issue: found_issue.clone(),
-            },
-        )
-        .map_err(|e| e.to_string())?;
+    // UI event emission is best-effort — window may be closed.
+    let _ = app_handle.emit_to(
+        EventTarget::webview_window(window_label),
+        "review-phase-result",
+        ReviewPhaseResult {
+            phase: phase.to_string(),
+            passed,
+            issue: found_issue.clone(),
+        },
+    );
     if let Some(workspace) = workspace {
         // Evidence recording is best-effort — must never fail the review skill.
         let _ = evidence::record_event(
@@ -485,13 +481,17 @@ async fn run_specialist_review(
             Ok(output) => {
                 if output.contains("SPECIALIST_VERDICT:FAIL") {
                     all_passed = false;
-                    // Extract the summary after FAIL:
-                    if let Some(rest) = output.rsplit("SPECIALIST_VERDICT:FAIL:").next() {
-                        let summary = rest.lines().next().unwrap_or("issues found").trim();
-                        issues.push(format!("{name}: {summary}"));
+                    // Extract the summary after FAIL: using find+split
+                    // (rsplit().next() always returns Some, making the else
+                    // branch unreachable and extracting garbage when the
+                    // trailing colon variant is absent).
+                    let summary = if let Some(pos) = output.rfind("SPECIALIST_VERDICT:FAIL:") {
+                        let rest = &output[pos + "SPECIALIST_VERDICT:FAIL:".len()..];
+                        rest.lines().next().unwrap_or("issues found").trim().to_string()
                     } else {
-                        issues.push(format!("{name}: issues found"));
-                    }
+                        "issues found".to_string()
+                    };
+                    issues.push(format!("{name}: {summary}"));
                 }
             }
             Err(err) => {

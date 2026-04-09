@@ -296,11 +296,26 @@ impl Blackboard {
     }
 
     pub(crate) fn mark_failed(&mut self, subtask_id: &str, reason: String) -> Result<(), String> {
-        self.state = BoardState::Failed;
+        // Only set board state to Failed if ALL non-Done subtasks have now
+        // failed.  Previously this was set unconditionally, which would
+        // mark the board Failed while other subtasks were still running
+        // successfully.
         self.remove_active_subtask(subtask_id);
         let card = self.subtask_mut(subtask_id)?;
         card.status = SubtaskState::Failed;
         card.latest_review = Some(reason);
+        // Recalculate board state: Failed only if no subtask is still
+        // Pending/InProgress/NeedsFix (i.e., all are Done or Failed, and
+        // at least one Failed).
+        let any_runnable = self.subtasks.iter().any(|c| {
+            matches!(
+                c.status,
+                SubtaskState::Pending | SubtaskState::InProgress | SubtaskState::NeedsFix
+            )
+        });
+        if !any_runnable {
+            self.state = BoardState::Failed;
+        }
         self.updated_at = now_string();
         Ok(())
     }
@@ -379,7 +394,13 @@ pub(crate) fn tick_plan_checkbox(workspace: &str, subtask_id: &str) -> Result<()
     let mut lines = Vec::new();
 
     for line in content.lines() {
-        if !changed && line.contains(&target) && line.trim_start().starts_with("- [") {
+        if !changed
+            && line.contains(&target)
+            && line.trim_start().starts_with("- [ ]")
+        {
+            // Only match unchecked boxes ("- [ ]"), not already-checked
+            // ("- [x]").  This prevents unnecessary rewrites and avoids
+            // matching the wrong line when IDs share a prefix.
             lines.push(line.replacen("- [ ]", "- [x]", 1));
             changed = true;
         } else {
