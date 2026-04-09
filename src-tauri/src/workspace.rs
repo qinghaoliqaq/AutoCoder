@@ -92,7 +92,12 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
             return;
         }
         let chunk = if content.len() > remaining {
-            content[..remaining].to_string()
+            // Find a valid UTF-8 char boundary at or before `remaining`
+            let end = (0..=remaining)
+                .rev()
+                .find(|&i| content.is_char_boundary(i))
+                .unwrap_or(0);
+            content[..end].to_string()
         } else {
             content
         };

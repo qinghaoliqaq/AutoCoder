@@ -133,7 +133,9 @@ pub fn save_session(workspace: Option<String>, session: SessionJson) -> Result<(
     let path = dir.join(session_file_name(&session.meta.id)?);
     let json =
         serde_json::to_string_pretty(&session).map_err(|e| format!("Serialize error: {e}"))?;
-    std::fs::write(&path, json).map_err(|e| format!("Write error: {e}"))
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, &json).map_err(|e| format!("Write error: {e}"))?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| format!("Rename error: {e}"))
 }
 
 #[tauri::command]

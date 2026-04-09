@@ -111,9 +111,14 @@ fn truncate_entrypoint(content: &str) -> String {
 
     // Byte-truncate at last newline before cap
     if truncated.len() > MAX_ENTRYPOINT_BYTES {
-        let cut_at = truncated[..MAX_ENTRYPOINT_BYTES]
+        // Find a valid char boundary at or before the byte limit
+        let safe_end = (0..=MAX_ENTRYPOINT_BYTES)
+            .rev()
+            .find(|&i| truncated.is_char_boundary(i))
+            .unwrap_or(0);
+        let cut_at = truncated[..safe_end]
             .rfind('\n')
-            .unwrap_or(MAX_ENTRYPOINT_BYTES);
+            .unwrap_or(safe_end);
         truncated.truncate(cut_at);
     }
 
@@ -208,7 +213,11 @@ fn select_relevant_topics(workspace: Option<&str>, task_hint: &str) -> Vec<(Stri
             let name = path.file_name()?.to_str()?.to_string();
             let content = std::fs::read_to_string(path).ok()?;
             let truncated = if content.len() > MAX_TOPIC_FILE_BYTES {
-                format!("{}...\n[truncated]", &content[..MAX_TOPIC_FILE_BYTES])
+                let end = (0..=MAX_TOPIC_FILE_BYTES)
+                    .rev()
+                    .find(|&i| content.is_char_boundary(i))
+                    .unwrap_or(0);
+                format!("{}...\n[truncated]", &content[..end])
             } else {
                 content
             };
