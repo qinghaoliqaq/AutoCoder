@@ -55,8 +55,21 @@ pub(crate) fn merge_isolated_workspace(
         // Three versions: base (frozen at fork time), main (current workspace),
         // ours (isolated workspace after subtask edits).
         let base_content = read_base_content(&isolated.base_dir, path);
-        let main_content = std::fs::read_to_string(main_root.join(path)).unwrap_or_default();
-        let ours_content = std::fs::read_to_string(isolated.root.join(path)).unwrap_or_default();
+        // Binary files (non-UTF8) cannot be three-way merged — treat as conflict.
+        let main_content = match std::fs::read_to_string(main_root.join(path)) {
+            Ok(s) => s,
+            Err(_) => {
+                conflicts.push(path.to_string_lossy().into_owned());
+                continue;
+            }
+        };
+        let ours_content = match std::fs::read_to_string(isolated.root.join(path)) {
+            Ok(s) => s,
+            Err(_) => {
+                conflicts.push(path.to_string_lossy().into_owned());
+                continue;
+            }
+        };
 
         match three_way_merge(&base_content, &main_content, &ours_content) {
             Ok(merged) => merge_results.push((path.clone(), merged)),
@@ -230,6 +243,11 @@ pub(crate) fn three_way_merge(base: &str, main: &str, ours: &str) -> Result<Stri
     if ours == base {
         return Ok(main.to_string());
     }
+    // If both sides made identical changes (e.g., two subtasks independently
+    // created the same new file), no conflict — just take either.
+    if main == ours {
+        return Ok(main.to_string());
+    }
     // Both sides changed — do line-level diff3.
 
     let base_lines: Vec<&str> = base.lines().collect();
@@ -349,7 +367,12 @@ fn apply_non_overlapping_hunks(
             base_pos += 1;
         }
         result.extend(hunk.new_lines.iter().cloned());
-        base_pos = hunk.base_end;
+        // Guard against base_pos going backwards (e.g., a pure-insertion hunk
+        // with base_end == base_start that is less than current base_pos).
+        // Going backwards would re-emit lines and corrupt the merged output.
+        if hunk.base_end > base_pos {
+            base_pos = hunk.base_end;
+        }
     }
 
     while base_pos < base.len() {
