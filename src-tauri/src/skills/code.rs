@@ -472,6 +472,15 @@ async fn run_subtask(
                         attempt,
                         "Workspace setup failed, will retry fresh: {e}"
                     );
+                    // Clear stale review findings — same rationale as the
+                    // transient error path: fresh workspace + fix prompt = confusion.
+                    let _ = mutate_board(&ctx.board, workspace, |board| {
+                        let card = board.subtask_mut(&subtask_id)?;
+                        card.review_findings.clear();
+                        card.merge_conflict = None;
+                        Ok(())
+                    })
+                    .await;
                     continue;
                 }
                 let _ = mutate_board(&ctx.board, workspace, |board| {
@@ -550,6 +559,17 @@ async fn run_subtask(
                     attempt,
                     "Subtask attempt errored, will retry fresh: {e}"
                 );
+                // Clear stale review findings from the previous Retry iteration.
+                // A fresh workspace has no prior code, so using the fix prompt
+                // ("do NOT rewrite from scratch") would mislead Claude into
+                // making targeted edits on a blank slate → guaranteed failure.
+                let _ = mutate_board(&ctx.board, workspace, |board| {
+                    let card = board.subtask_mut(&subtask_id)?;
+                    card.review_findings.clear();
+                    card.merge_conflict = None;
+                    Ok(())
+                })
+                .await;
                 let _ = emit_blackboard(
                     workspace,
                     app_handle,
@@ -557,7 +577,7 @@ async fn run_subtask(
                     Some(subtask_id.clone()),
                     "needs_fix",
                     format!(
-                        "Subtask {} attempt {} hit a transient error: {e}. Retrying.",
+                        "Subtask {} attempt {} hit a transient error: {e}. Retrying fresh.",
                         subtask_id, attempt
                     ),
                 );
