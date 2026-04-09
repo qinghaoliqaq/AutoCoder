@@ -322,14 +322,7 @@ pub(super) struct ReviewReport {
 
 pub(super) fn parse_review_report(output: &str) -> ReviewReport {
     let explicit_decision = extract_marker_line(output, "REVIEW_DECISION:");
-    let passed = match &explicit_decision {
-        Some(decision) => decision.to_uppercase().contains("PASS"),
-        None => {
-            // No explicit decision marker — infer from output content.
-            // Look for strong positive signals that indicate a pass.
-            infer_review_passed(output)
-        }
-    };
+
     let summary = extract_marker_line(output, "REVIEW_SUMMARY:")
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| fallback_summary(output, "Codex review completed"));
@@ -339,6 +332,15 @@ pub(super) fn parse_review_report(output: &str) -> ReviewReport {
         Vec::new()
     } else {
         findings
+    };
+
+    let passed = match &explicit_decision {
+        Some(decision) => decision.to_uppercase().contains("PASS"),
+        None => {
+            // No explicit decision marker — infer from output content.
+            // Consider both signal words AND whether actionable findings exist.
+            infer_review_passed(output, &findings)
+        }
     };
 
     ReviewReport {
@@ -351,7 +353,12 @@ pub(super) fn parse_review_report(output: &str) -> ReviewReport {
 /// When the explicit REVIEW_DECISION marker is missing, try to infer the
 /// result from the review body.  We look for strong positive language that
 /// indicates approval and check for the absence of blocking language.
-fn infer_review_passed(output: &str) -> bool {
+///
+/// The parsed `findings` list is used as a tiebreaker: if there are no
+/// signal words in either direction AND no actionable findings, the review
+/// is treated as a pass.  This prevents the "fail with nothing to fix"
+/// loop that wastes all retry attempts.
+fn infer_review_passed(output: &str, findings: &[String]) -> bool {
     let upper = output.to_uppercase();
 
     // Check for SPECIALIST_VERDICT which uses a different format.
@@ -395,7 +402,14 @@ fn infer_review_passed(output: &str) -> bool {
     if has_fail_signal {
         return false;
     }
-    has_pass_signal
+    if has_pass_signal {
+        return true;
+    }
+
+    // No strong signal in either direction.  Use findings as tiebreaker:
+    // if the reviewer listed no actionable findings, treat as pass.
+    // This prevents "fail with nothing to fix" retry loops.
+    findings.is_empty()
 }
 
 // ── String helpers ────────────────────────────────────────────────────────
@@ -606,10 +620,21 @@ mod tests {
     }
 
     #[test]
-    fn parse_review_report_no_marker_no_signal_defaults_to_fail() {
+    fn parse_review_report_no_marker_no_signal_no_findings_defaults_to_pass() {
+        // No signal words, no findings → treat as pass to avoid
+        // "fail with nothing to fix" retry loops.
         let output = "Some random text without any clear verdict.\n";
         let report = parse_review_report(output);
+        assert!(report.passed);
+    }
+
+    #[test]
+    fn parse_review_report_no_marker_no_signal_with_findings_defaults_to_fail() {
+        // No signal words but has actionable findings → fail.
+        let output = "The code has issues.\nREVIEW_FINDINGS:\n- Missing error handling in auth module\n";
+        let report = parse_review_report(output);
         assert!(!report.passed);
+        assert_eq!(report.findings, vec!["Missing error handling in auth module"]);
     }
 
     #[test]

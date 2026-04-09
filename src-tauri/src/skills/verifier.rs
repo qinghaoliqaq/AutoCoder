@@ -98,8 +98,12 @@ fn verify(
         .cloned()
         .collect::<Vec<_>>();
     if !sensitive_without_plan.is_empty() {
-        findings.push(format!(
-            "Sensitive paths were changed without explicit plan coverage: {}.",
+        // Warn instead of block.  Subtasks often need to touch package.json
+        // or Cargo.toml (e.g. adding dependencies) even if expected_touch
+        // doesn't list them.  Blocking here wastes all retry attempts on an
+        // issue Claude cannot fix.  Codex review will catch truly wrong edits.
+        warnings.push(format!(
+            "Sensitive paths were changed without explicit plan coverage: {}. Codex should verify these changes are necessary.",
             sensitive_without_plan.join(", ")
         ));
     }
@@ -242,14 +246,16 @@ mod tests {
     }
 
     #[test]
-    fn verifier_rejects_sensitive_touch_without_plan() {
+    fn verifier_warns_on_sensitive_touch_without_plan() {
         let card = sample_card();
         let result = verify(&card, None, &["Cargo.toml".to_string()], "Updated deps");
-        assert!(!result.passed);
+        // Sensitive touches without plan coverage are now warnings, not
+        // blocking findings — Codex review decides if they are justified.
+        assert!(result.passed);
         assert!(result
-            .findings
+            .warnings
             .iter()
-            .any(|f| f.contains("Sensitive paths")));
+            .any(|w| w.contains("Sensitive paths")));
     }
 
     #[test]

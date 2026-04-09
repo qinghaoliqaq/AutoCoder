@@ -67,10 +67,24 @@ pub(crate) fn merge_isolated_workspace(
     if !conflicts.is_empty() {
         conflicts.sort();
         conflicts.dedup();
-        return Err(format!(
-            "Merge conflict on files already changed in the main workspace: {}",
+        // Include actual diff context so Claude can restructure code to avoid
+        // conflicting regions instead of blindly retrying.
+        let mut detail = format!(
+            "Merge conflict on files already changed in the main workspace: {}\n\n",
             conflicts.join(", ")
-        ));
+        );
+        for conflict_path in &conflicts {
+            let path = Path::new(conflict_path);
+            let base_content = read_base_content(&isolated.base_dir, path);
+            let main_content =
+                std::fs::read_to_string(main_root.join(path)).unwrap_or_default();
+            let ours_content =
+                std::fs::read_to_string(isolated.root.join(path)).unwrap_or_default();
+            detail.push_str(&format!("--- {conflict_path} ---\n"));
+            detail.push_str(&summarize_conflict(&base_content, &main_content, &ours_content));
+            detail.push('\n');
+        }
+        return Err(detail);
     }
 
     // Apply clean merges.
@@ -140,6 +154,63 @@ pub(crate) fn merge_isolated_workspace(
 /// Read the base (pre-fork) content of a file from the frozen base directory.
 fn read_base_content(base_dir: &Path, relative: &Path) -> String {
     std::fs::read_to_string(base_dir.join(relative)).unwrap_or_default()
+}
+
+/// Build a human-readable summary showing what each side changed so Claude
+/// can restructure its code to avoid the conflicting regions.
+fn summarize_conflict(base: &str, main: &str, ours: &str) -> String {
+    const MAX_DIFF_LINES: usize = 40;
+    let mut out = String::new();
+
+    let main_changed_lines = count_diff_lines(base, main);
+    let ours_changed_lines = count_diff_lines(base, ours);
+    out.push_str(&format!(
+        "Main workspace changed ~{main_changed_lines} lines, your subtask changed ~{ours_changed_lines} lines.\n"
+    ));
+
+    // Show the lines that main changed (the side Claude cannot control).
+    out.push_str("Lines changed in main workspace (by another subtask):\n");
+    let main_diffs = abbreviated_diff(base, main, MAX_DIFF_LINES);
+    if main_diffs.is_empty() {
+        out.push_str("  (file is new in main)\n");
+    } else {
+        out.push_str(&main_diffs);
+    }
+    out
+}
+
+fn count_diff_lines(a: &str, b: &str) -> usize {
+    let a_lines: Vec<&str> = a.lines().collect();
+    let b_lines: Vec<&str> = b.lines().collect();
+    a_lines
+        .iter()
+        .zip(b_lines.iter())
+        .filter(|(la, lb)| la != lb)
+        .count()
+        + a_lines.len().abs_diff(b_lines.len())
+}
+
+fn abbreviated_diff(base: &str, changed: &str, max_lines: usize) -> String {
+    let base_lines: Vec<&str> = base.lines().collect();
+    let changed_lines: Vec<&str> = changed.lines().collect();
+    let mut out = String::new();
+    let mut shown = 0;
+
+    let len = base_lines.len().max(changed_lines.len());
+    for i in 0..len {
+        let b = base_lines.get(i).copied().unwrap_or("");
+        let c = changed_lines.get(i).copied().unwrap_or("");
+        if b != c {
+            if shown < max_lines {
+                out.push_str(&format!("  L{}: -{}\n  L{}: +{}\n", i + 1, b, i + 1, c));
+                shown += 2;
+            } else {
+                out.push_str("  ... (truncated)\n");
+                break;
+            }
+        }
+    }
+    out
 }
 
 /// Line-level three-way merge.
