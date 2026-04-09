@@ -117,11 +117,6 @@ pub trait Tool: Send + Sync {
     /// Whether this specific invocation is read-only (safe for concurrent execution).
     fn is_read_only(&self, input: &Value) -> bool;
 
-    /// Whether this invocation is destructive (delete, overwrite, etc.).
-    fn is_destructive(&self, _input: &Value) -> bool {
-        false
-    }
-
     /// Execute the tool with the given input and context.
     async fn execute(&self, input: Value, ctx: &ToolContext<'_>) -> ToolResult;
 
@@ -171,16 +166,6 @@ impl ToolRegistry {
     /// Look up a tool by name.
     pub fn get(&self, name: &str) -> Option<&dyn Tool> {
         self.by_name.get(name).map(|&idx| self.tools[idx].as_ref())
-    }
-
-    /// All registered tool names.
-    pub fn names(&self) -> Vec<&str> {
-        self.tools.iter().map(|t| t.name()).collect()
-    }
-
-    /// Number of registered tools.
-    pub fn len(&self) -> usize {
-        self.tools.len()
     }
 
     /// Build a combined tool-usage instruction section for injection into the

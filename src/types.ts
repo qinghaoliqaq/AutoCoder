@@ -18,6 +18,8 @@ export interface ConfigStatus {
   vendored_skills: boolean;
   max_parallel_subtasks: number;
   execution_access_mode: 'sandbox' | 'full_access';
+  agent_provider: string;
+  agent_second_provider: string;
 }
 
 export interface ConfigDraft {
@@ -95,6 +97,12 @@ export interface ToolLog {
   tool: string;
   input: string;
   timestamp: number;
+}
+
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  subtask_id?: string;
 }
 
 export interface BlackboardEvent {

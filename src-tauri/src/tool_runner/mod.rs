@@ -18,7 +18,7 @@ pub mod providers;
 mod system_prompt;
 
 use crate::config::AppConfig;
-use crate::skills::{SkillChunk, ToolLog};
+use crate::skills::{SkillChunk, ToolLog, TokenUsage};
 use crate::tools::{self, ToolRegistry};
 use providers::{ProviderConfig, WireFormat};
 use reqwest::Client;
@@ -261,6 +261,27 @@ fn emit_chunk(
             agent: "claude".to_string(),
             text: text.to_string(),
             reset,
+            subtask_id: subtask_id.map(ToString::to_string),
+        },
+    );
+}
+
+fn emit_token_usage(
+    app_handle: &tauri::AppHandle,
+    window_label: &str,
+    input_tokens: u64,
+    output_tokens: u64,
+    subtask_id: Option<&str>,
+) {
+    if input_tokens == 0 && output_tokens == 0 {
+        return;
+    }
+    let _ = app_handle.emit_to(
+        EventTarget::webview_window(window_label),
+        "token-usage",
+        TokenUsage {
+            input_tokens,
+            output_tokens,
             subtask_id: subtask_id.map(ToString::to_string),
         },
     );

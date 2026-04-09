@@ -77,6 +77,16 @@ pub struct ToolLog {
     pub timestamp: u64,
 }
 
+/// Token usage report emitted via "token-usage" after each API response.
+#[derive(Serialize, Clone, Default)]
+pub struct TokenUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// Subtask ID if this usage is from a subtask agent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtask_id: Option<String>,
+}
+
 /// Shared-blackboard update emitted by code mode when a subtask advances.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct BlackboardEvent {

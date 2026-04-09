@@ -3,7 +3,7 @@
 /// POST /messages with x-api-key header and `stream: true`.
 /// Parses Server-Sent Events for real-time token streaming.
 /// Bash and editor use Anthropic built-in tool type shorthand.
-use super::{emit_chunk, emit_tool_log, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
+use super::{emit_chunk, emit_token_usage, emit_tool_log, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
 use super::errors::{self, AppError};
 use crate::tools::{self, ToolRegistry};
 use futures_util::StreamExt;
@@ -49,7 +49,7 @@ pub async fn run_loop(
         });
 
         // Parse the SSE stream into a complete response
-        let (stop_reason, content_blocks) = stream_response(
+        let (stop_reason, content_blocks, in_tok, out_tok) = stream_response(
             client,
             &endpoint,
             api_key,
@@ -62,6 +62,9 @@ pub async fn run_loop(
             subtask_id,
         )
         .await?;
+
+        // Emit token usage
+        emit_token_usage(app_handle, window_label, in_tok, out_tok, subtask_id);
 
         // Collect tool calls from content blocks
         let mut tool_calls: Vec<(String, String, Value)> = Vec::new();
@@ -92,7 +95,7 @@ pub async fn run_loop(
 
 /// Stream an Anthropic SSE response, emitting chunks in real-time.
 ///
-/// Returns (stop_reason, content_blocks) on success.
+/// Returns (stop_reason, content_blocks, input_tokens, output_tokens) on success.
 /// Retries on transient errors (429, 5xx, network).
 async fn stream_response(
     client: &Client,
@@ -105,7 +108,7 @@ async fn stream_response(
     full_text: &mut String,
     is_first_chunk: &mut bool,
     subtask_id: Option<&str>,
-) -> Result<(String, Vec<Value>), String> {
+) -> Result<(String, Vec<Value>, u64, u64), String> {
     // Use retry wrapper for transient failures
     let resp = {
         let client = client.clone();
@@ -144,6 +147,8 @@ async fn stream_response(
     // Parse SSE stream
     let mut content_blocks: Vec<Value> = Vec::new();
     let mut stop_reason = String::from("end_turn");
+    let mut input_tokens: u64 = 0;
+    let mut output_tokens: u64 = 0;
 
     // Track in-progress content block for accumulating deltas
     let mut current_block_index: Option<usize> = None;
@@ -287,9 +292,24 @@ async fn stream_response(
                         current_input_json.clear();
                     }
 
+                    "message_start" => {
+                        // Extract input token count from message_start.message.usage
+                        if let Some(usage) = event["message"]["usage"].as_object() {
+                            if let Some(it) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
+                                input_tokens = it;
+                            }
+                        }
+                    }
+
                     "message_delta" => {
                         if let Some(sr) = event["delta"]["stop_reason"].as_str() {
                             stop_reason = sr.to_string();
+                        }
+                        // Extract output token count from message_delta.usage
+                        if let Some(usage) = event.get("usage") {
+                            if let Some(ot) = usage["output_tokens"].as_u64() {
+                                output_tokens = ot;
+                            }
                         }
                     }
 
@@ -305,7 +325,7 @@ async fn stream_response(
                     }
 
                     _ => {
-                        // message_start, ping, etc. — ignore
+                        // ping, etc. — ignore
                     }
                 }
             }
@@ -315,5 +335,5 @@ async fn stream_response(
     // Filter out any null placeholders
     content_blocks.retain(|b| !b.is_null());
 
-    Ok((stop_reason, content_blocks))
+    Ok((stop_reason, content_blocks, input_tokens, output_tokens))
 }

@@ -134,6 +134,10 @@ pub struct ConfigStatus {
     pub vendored_skills: bool,
     pub max_parallel_subtasks: usize,
     pub execution_access_mode: String,
+    /// Agent primary provider identifier (e.g. "anthropic", "openai", "deepseek").
+    pub agent_provider: String,
+    /// Agent secondary provider identifier. Empty means follows primary.
+    pub agent_second_provider: String,
 }
 
 /// Editable config payload used by the settings UI.
@@ -352,6 +356,8 @@ impl AppConfig {
             vendored_skills: self.features.vendored_skills,
             max_parallel_subtasks: self.features.parallel_subtask_limit(),
             execution_access_mode: self.features.execution_access_mode.as_str().to_string(),
+            agent_provider: self.agent.provider.clone(),
+            agent_second_provider: self.agent.second_provider.clone(),
         }
     }
 

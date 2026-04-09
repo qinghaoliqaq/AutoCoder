@@ -6,7 +6,7 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 // Scope all event listeners to the current window so multiple windows
 // don't receive each other's skill-chunk / tool-log / director events.
 const appWindow = getCurrentWebviewWindow();
-import { AppMode, ChatMessage, ToolLog, ConfigStatus, ConfigDraft, MODES, SessionMeta, BlackboardEvent } from './types';
+import { AppMode, ChatMessage, ToolLog, TokenUsage, ConfigStatus, ConfigDraft, MODES, SessionMeta, BlackboardEvent } from './types';
 import { ThemeProvider, useTheme, THEMES } from './components/ThemeProvider';
 import ModeActivated from './components/ModeActivated';
 import ChatPanel from './components/ChatPanel';
@@ -75,6 +75,7 @@ export default function App() {
   const [previousSidebarTab, setPreviousSidebarTab] = useState<Exclude<SidebarTab, 'blackboard'> | null>(null);
   const [blackboardSeenMessageAt, setBlackboardSeenMessageAt] = useState(0);
   const [toolLogs, setToolLogs] = useState<ToolLog[]>([]);
+  const [tokenUsages, setTokenUsages] = useState<TokenUsage[]>([]);
   const [blackboardEvents, setBlackboardEvents] = useState<BlackboardEvent[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>(makeSessionId);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
@@ -376,7 +377,7 @@ export default function App() {
   const { runReview, runTest, runQa, runSkill, handleStop } = createSkillRunner({
     workspaceRef, projectContextRef, projectContextMetaRef, planReportRef, stopRequestedRef,
     addMessage, updateMessage,
-    setCurrentMode, setToolLogs, setBlackboardEvents, setMessages, setWorkspace, setIsStopping,
+    setCurrentMode, setToolLogs, setTokenUsages, setBlackboardEvents, setMessages, setWorkspace, setIsStopping,
     isRunning, isStopping,
   });
 
@@ -663,6 +664,7 @@ export default function App() {
               <div className={`absolute inset-0 transition-opacity duration-300 ${activeSidebarTab === 'logs' ? 'opacity-100 z-10 pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'}`}>
                 <ToolLogPanel
                   logs={toolLogs}
+                  tokenUsages={tokenUsages}
                   onClose={() => setActiveSidebarTab(null)}
                 />
               </div>
@@ -700,7 +702,7 @@ export default function App() {
             </div>
           ) : (
             <div className="flex flex-1 min-h-0 min-w-0 basis-0 flex-col overflow-hidden relative z-10 bg-transparent shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.05)] dark:shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.4)]">
-              <ChatPanel messages={messages} toolLogs={toolLogs} onOpenProject={handleOpenProject} workspace={workspace} />
+              <ChatPanel messages={messages} toolLogs={toolLogs} configStatus={configStatus} onOpenProject={handleOpenProject} workspace={workspace} />
               <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 pointer-events-none z-10 flex flex-col justify-end"
                    style={{ background: `linear-gradient(to top, rgb(var(--bg-primary)), rgb(var(--bg-primary) / 0.8), transparent)` }}>
                 <div className="pointer-events-auto max-w-4xl w-full mx-auto">

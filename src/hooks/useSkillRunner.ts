@@ -7,7 +7,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AppMode, ChatMessage, ReviewPhaseResult, QaResult, ToolLog, BlackboardEvent, SkillError } from '../types';
+import type { AppMode, ChatMessage, ReviewPhaseResult, QaResult, ToolLog, TokenUsage, BlackboardEvent, SkillError } from '../types';
 import { makeId } from '../utils';
 import { toast } from 'sonner';
 
@@ -69,6 +69,7 @@ export interface SkillRunnerDeps {
   // State setters
   setCurrentMode: React.Dispatch<React.SetStateAction<AppMode | null>>;
   setToolLogs: React.Dispatch<React.SetStateAction<ToolLog[]>>;
+  setTokenUsages: React.Dispatch<React.SetStateAction<TokenUsage[]>>;
   setBlackboardEvents: React.Dispatch<React.SetStateAction<BlackboardEvent[]>>;
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   setWorkspace: React.Dispatch<React.SetStateAction<string | null>>;
@@ -102,7 +103,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
   const {
     workspaceRef, projectContextRef, projectContextMetaRef, planReportRef, stopRequestedRef,
     addMessage, updateMessage,
-    setCurrentMode, setToolLogs, setBlackboardEvents, setMessages, setWorkspace, setIsStopping,
+    setCurrentMode, setToolLogs, setTokenUsages, setBlackboardEvents, setMessages, setWorkspace, setIsStopping,
     isRunning, isStopping,
   } = deps;
 
@@ -156,6 +157,9 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     const unlistenToolLog = await appWindow.listen<ToolLog>('tool-log', (event) => {
       setToolLogs(prev => [...prev, event.payload]);
     });
+    const unlistenTokenUsage = await appWindow.listen<TokenUsage>('token-usage', (event) => {
+      setTokenUsages(prev => [...prev, event.payload]);
+    });
     const unlistenBlackboard = await appWindow.listen<BlackboardEvent>('blackboard-updated', (event) => {
       setBlackboardEvents(prev => [...prev, event.payload]);
       setMessages(prev => [...prev, {
@@ -183,6 +187,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       unlistenChunks();
       unlistenResult();
       unlistenToolLog();
+      unlistenTokenUsage();
       unlistenBlackboard();
       unlistenCompletionReport();
     }
@@ -367,6 +372,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       unlistenChunks();
       unlistenQaResult();
       unlistenToolLog();
+      unlistenTokenUsage();
       setCurrentMode('chat');
     }
 
@@ -399,6 +405,9 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     });
     const unlistenToolLog = await appWindow.listen<ToolLog>('tool-log', (event) => {
       setToolLogs(prev => [...prev, event.payload]);
+    });
+    const unlistenTokenUsage = await appWindow.listen<TokenUsage>('token-usage', (event) => {
+      setTokenUsages(prev => [...prev, event.payload]);
     });
     const unlistenBlackboard = await appWindow.listen<BlackboardEvent>('blackboard-updated', (event) => {
       setBlackboardEvents(prev => [...prev, event.payload]);
@@ -438,6 +447,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       unlistenReport();
       unlistenPlanWs();
       unlistenToolLog();
+      unlistenTokenUsage();
       unlistenBlackboard();
     }
 

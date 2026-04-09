@@ -5,7 +5,7 @@
 ///
 /// Compatible with: OpenAI, DeepSeek, Zhipu/GLM, MiniMax, Moonshot,
 /// Yi, Baichuan, Qwen, Groq, Together, Fireworks, SiliconFlow, etc.
-use super::{emit_chunk, emit_tool_log, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
+use super::{emit_chunk, emit_token_usage, emit_tool_log, MAX_LOOP_ITERATIONS, MAX_RESPONSE_TOKENS};
 use super::errors::{self, AppError};
 use crate::tools::{self, ToolRegistry};
 use futures_util::StreamExt;
@@ -51,11 +51,12 @@ pub async fn run_loop(
             "tools": oai_tools,
             "max_tokens": MAX_RESPONSE_TOKENS,
             "temperature": 0.3,
-            "stream": true
+            "stream": true,
+            "stream_options": { "include_usage": true }
         });
 
         // Parse the SSE stream into a complete response
-        let (finish_reason, content, tool_calls) = stream_response(
+        let (finish_reason, content, tool_calls, in_tok, out_tok) = stream_response(
             client,
             &endpoint,
             api_key,
@@ -68,6 +69,9 @@ pub async fn run_loop(
             subtask_id,
         )
         .await?;
+
+        // Emit token usage
+        emit_token_usage(app_handle, window_label, in_tok, out_tok, subtask_id);
 
         // Emit tool logs
         for (_, name, input) in &tool_calls {
@@ -122,7 +126,7 @@ pub async fn run_loop(
 
 /// Stream an OpenAI-compatible SSE response, emitting chunks in real-time.
 ///
-/// Returns (finish_reason, content_text, tool_calls) on success.
+/// Returns (finish_reason, content_text, tool_calls, input_tokens, output_tokens) on success.
 /// Retries on transient errors (429, 5xx, network).
 async fn stream_response(
     client: &Client,
@@ -135,7 +139,7 @@ async fn stream_response(
     full_text: &mut String,
     is_first_chunk: &mut bool,
     subtask_id: Option<&str>,
-) -> Result<(String, String, Vec<(String, String, Value)>), String> {
+) -> Result<(String, String, Vec<(String, String, Value)>, u64, u64), String> {
     // Use retry wrapper for transient failures
     let resp = {
         let client = client.clone();
@@ -173,6 +177,8 @@ async fn stream_response(
     // Parse SSE stream
     let mut content_text = String::new();
     let mut finish_reason = String::from("stop");
+    let mut input_tokens: u64 = 0;
+    let mut output_tokens: u64 = 0;
 
     // Tool call accumulation: index -> (id, name, arguments_json_string)
     let mut tool_call_map: std::collections::HashMap<u64, (String, String, String)> =
@@ -232,6 +238,16 @@ async fn stream_response(
                 finish_reason = fr.to_string();
             }
 
+            // Extract usage (OpenAI includes in final chunk with stream_options)
+            if let Some(usage) = event.get("usage") {
+                if let Some(pt) = usage["prompt_tokens"].as_u64() {
+                    input_tokens = pt;
+                }
+                if let Some(ct) = usage["completion_tokens"].as_u64() {
+                    output_tokens = ct;
+                }
+            }
+
             // Accumulate text content
             if let Some(text) = delta["content"].as_str() {
                 if !text.is_empty() {
@@ -274,5 +290,5 @@ async fn stream_response(
         }
     }
 
-    Ok((finish_reason, content_text, tool_calls))
+    Ok((finish_reason, content_text, tool_calls, input_tokens, output_tokens))
 }

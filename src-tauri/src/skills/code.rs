@@ -280,7 +280,6 @@ async fn spawn_ready_subtasks(
         active_subtasks.insert(
             card.id.clone(),
             ActiveSubtaskMeta {
-                can_run_in_parallel: card.can_run_in_parallel,
                 parallel_group: card.parallel_group.clone(),
             },
         );
@@ -1140,7 +1139,6 @@ async fn read_card(
 
 #[derive(Clone, Debug)]
 struct ActiveSubtaskMeta {
-    can_run_in_parallel: bool,
     parallel_group: Option<String>,
 }
 
@@ -1196,7 +1194,6 @@ mod tests {
         let active = HashMap::from([(
             "F1".to_string(),
             ActiveSubtaskMeta {
-                can_run_in_parallel: true,
                 parallel_group: Some("api".to_string()),
             },
         )]);
@@ -1210,7 +1207,6 @@ mod tests {
         let active = HashMap::from([(
             "F1".to_string(),
             ActiveSubtaskMeta {
-                can_run_in_parallel: true,
                 parallel_group: Some("api".to_string()),
             },
         )]);
@@ -1226,7 +1222,6 @@ mod tests {
         let active = HashMap::from([(
             "F1".to_string(),
             ActiveSubtaskMeta {
-                can_run_in_parallel: false,
                 parallel_group: None,
             },
         )]);
@@ -1240,7 +1235,6 @@ mod tests {
         let active = HashMap::from([(
             "F1".to_string(),
             ActiveSubtaskMeta {
-                can_run_in_parallel: true,
                 parallel_group: Some("api".to_string()),
             },
         )]);

@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
-import { Terminal, FileText, FilePen, Pencil, Search, SearchCode, Sparkles, CheckCircle2, Wrench } from 'lucide-react';
-import { ToolLog } from '../types';
+import { Terminal, FileText, FilePen, Pencil, Search, SearchCode, Sparkles, CheckCircle2, Wrench, Coins } from 'lucide-react';
+import { ToolLog, TokenUsage } from '../types';
 
 interface Props {
   logs: ToolLog[];
+  tokenUsages?: TokenUsage[];
   onClose: () => void;
 }
 
@@ -43,7 +44,22 @@ interface AgentStat {
   bg: string;
 }
 
-export default function ToolLogPanel({ logs, onClose }: Props) {
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+export default function ToolLogPanel({ logs, tokenUsages = [], onClose }: Props) {
+  const tokenStats = useMemo(() => {
+    let input = 0, output = 0;
+    for (const u of tokenUsages) {
+      input += u.input_tokens;
+      output += u.output_tokens;
+    }
+    return { input, output, total: input + output, requests: tokenUsages.length };
+  }, [tokenUsages]);
+
   const { toolStats, agentStats, totalCalls } = useMemo(() => {
     const toolMap = new Map<string, number>();
     const agentMap = new Map<string, number>();
@@ -115,6 +131,43 @@ export default function ToolLogPanel({ logs, onClose }: Props) {
           </div>
         ) : (
           <>
+            {/* Token usage */}
+            {tokenStats.total > 0 && (
+              <section>
+                <h3 className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary mb-2.5">Token Usage</h3>
+                <div className="rounded-xl border border-edge-primary/40 bg-surface-elevated/30 p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Coins className="h-4 w-4 text-amber-500" />
+                      <span className="text-[13px] font-semibold text-content-primary">{formatTokenCount(tokenStats.total)}</span>
+                    </div>
+                    <span className="text-[10px] text-content-tertiary">{tokenStats.requests} requests</span>
+                  </div>
+                  <div className="flex gap-3">
+                    <div className="flex-1 rounded-lg bg-surface-tertiary/40 px-2.5 py-1.5">
+                      <div className="text-[9px] font-semibold uppercase tracking-wider text-content-tertiary">Input</div>
+                      <div className="text-[12px] font-bold tabular-nums text-sky-500">{formatTokenCount(tokenStats.input)}</div>
+                    </div>
+                    <div className="flex-1 rounded-lg bg-surface-tertiary/40 px-2.5 py-1.5">
+                      <div className="text-[9px] font-semibold uppercase tracking-wider text-content-tertiary">Output</div>
+                      <div className="text-[12px] font-bold tabular-nums text-emerald-500">{formatTokenCount(tokenStats.output)}</div>
+                    </div>
+                  </div>
+                  {/* Usage bar */}
+                  <div className="h-2 rounded-full bg-surface-tertiary/60 overflow-hidden flex">
+                    <div
+                      className="h-full rounded-l-full bg-sky-500/70 transition-all duration-500"
+                      style={{ width: `${Math.round((tokenStats.input / tokenStats.total) * 100)}%` }}
+                    />
+                    <div
+                      className="h-full rounded-r-full bg-emerald-500/70 transition-all duration-500"
+                      style={{ width: `${Math.round((tokenStats.output / tokenStats.total) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </section>
+            )}
+
             {/* Agent breakdown */}
             <section>
               <h3 className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary mb-2.5">By Agent</h3>

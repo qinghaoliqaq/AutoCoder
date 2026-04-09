@@ -74,10 +74,6 @@ impl SkillRegistry {
             .collect()
     }
 
-    /// Number of registered skills.
-    pub fn len(&self) -> usize {
-        self.skills.len()
-    }
 }
 
 /// Build the default skill registry with all bundled skills.
