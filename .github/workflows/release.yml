@@ -1,0 +1,132 @@
+name: Release
+
+# Trigger:
+#   - Push a tag like `v0.1.0` → builds + creates a draft GitHub Release
+#     with installers for Windows, macOS (universal), and Linux.
+#   - Manual `workflow_dispatch` → builds only, uploads as artifacts
+#     (useful for testing the build without cutting a release).
+#
+# Signing is intentionally NOT configured — the artifacts will show an
+# "unverified developer" warning on first launch.  To enable signing
+# later, add these secrets and uncomment the matching env vars below:
+#
+#   macOS (Apple Developer, $99/yr):
+#     APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
+#     APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
+#
+#   Windows (EV cert, ~$300/yr):
+#     TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS — single universal binary (Intel + Apple Silicon)
+          - platform: macos-latest
+            args: '--target universal-apple-darwin'
+            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          # Linux — .deb, .rpm, .AppImage
+          - platform: ubuntu-22.04
+            args: ''
+            rust-targets: ''
+          # Windows — .msi and .exe (NSIS)
+          - platform: windows-latest
+            args: ''
+            rust-targets: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            patchelf \
+            file \
+            libfuse2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # ── Tag push: build + attach to draft GitHub Release ───────────────
+      - name: Build & publish (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'FlowForge ${{ github.ref_name }}'
+          releaseBody: |
+            ## FlowForge ${{ github.ref_name }}
+
+            Download the installer for your platform below.
+
+            > Note: Binaries are **not code-signed**.  macOS will show
+            > an "unverified developer" warning on first launch — open
+            > System Settings → Privacy & Security → "Open Anyway" to
+            > allow it.  Windows SmartScreen may also require a click
+            > through on first run.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      # ── Manual dispatch: build only, upload as artifact ────────────────
+      - name: Build only (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: ${{ matrix.args }}
+
+      - name: Upload artifacts (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowforge-${{ matrix.platform }}
+          path: |
+            src-tauri/target/release/bundle/**/*.dmg
+            src-tauri/target/release/bundle/**/*.app.tar.gz
+            src-tauri/target/release/bundle/**/*.msi
+            src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.deb
+            src-tauri/target/release/bundle/**/*.rpm
+            src-tauri/target/release/bundle/**/*.AppImage
+            src-tauri/target/universal-apple-darwin/release/bundle/**/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/**/*.app.tar.gz
+          if-no-files-found: ignore
+          retention-days: 7
