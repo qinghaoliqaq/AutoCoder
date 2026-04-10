@@ -595,6 +595,11 @@ fn build_cleanup_file_list(change_log: &str) -> Vec<String> {
 /// Fail-closed: no explicit [RESULT:PASS] marker → treated as failure so that
 /// truncated output or missing markers never silently appear as success.
 fn parse_result(text: &str) -> (bool, String) {
+    // Only search the last 20 lines for the marker to avoid matching
+    // [RESULT:PASS] / [RESULT:FAIL:...] that appears inside code blocks,
+    // quoted examples, or echoed prompt instructions earlier in the output.
+    let tail: String = text.lines().rev().take(20).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+    let text = &tail;
     if let Some(pos) = text.rfind("[RESULT:") {
         let suffix = &text[pos..];
         if suffix.starts_with("[RESULT:PASS]") {

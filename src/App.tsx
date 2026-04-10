@@ -394,14 +394,14 @@ export default function App() {
       const switchingWorkspace = workspaceRef.current !== validated;
       if (switchingWorkspace) {
         await flushPendingSessionSave();
-      }
-      const meta = projectContextMetaRef.current;
-      if (meta.workspace && meta.workspace !== validated) {
+        // Clear project context BEFORE setting the new workspace so that
+        // the auto-load useEffect (which watches [workspace, projectContext])
+        // always sees projectContext === null and triggers a fresh load.
+        // Clearing the ref synchronously ensures no stale value leaks
+        // even if React batches the state updates.
         projectContextMetaRef.current = { source: null, workspace: null };
         projectContextRef.current = null;
         setProjectContext(null);
-      }
-      if (switchingWorkspace) {
         setMessages([]);
         setToolLogs([]);
         setBlackboardEvents([]);
@@ -409,6 +409,14 @@ export default function App() {
         hasAutoShownLogsRef.current = false;
         syncSessionIdentity(makeSessionId(), sessionIdRef, setCurrentSessionId);
         await invoke('clear_history');
+      } else {
+        // Same workspace — still check if old context was from a different workspace
+        const meta = projectContextMetaRef.current;
+        if (meta.workspace && meta.workspace !== validated) {
+          projectContextMetaRef.current = { source: null, workspace: null };
+          projectContextRef.current = null;
+          setProjectContext(null);
+        }
       }
       setWorkspace(validated);
     } catch (err) {

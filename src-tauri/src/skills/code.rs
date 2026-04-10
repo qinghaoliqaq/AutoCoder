@@ -950,19 +950,38 @@ async fn run_build_gate_phase(
     // Recording build-gate findings is supplementary context for the fix
     // prompt.  If persist fails, we still want to retry — killing the
     // subtask here would waste an attempt with no benefit.
-    if let Err(e) = mutate_board(&ctx.board, ctx.workspace, |board| {
+    // Try once, and if it fails, retry once to tolerate transient I/O errors.
+    let finding_clone = finding.clone();
+    let card_id = card.id.clone();
+    let persist_result = mutate_board(&ctx.board, ctx.workspace, |board| {
         board.record_review(
-            &card.id,
+            &card_id,
             false,
             "Build gate: compile/type-check failed.".to_string(),
-            vec![finding],
+            vec![finding_clone.clone()],
         )?;
-        board.finish_active_subtask(&card.id);
+        board.finish_active_subtask(&card_id);
         Ok(())
     })
-    .await
-    {
-        tracing::warn!(subtask = %card.id, "Failed to record build-gate findings (non-fatal): {e}");
+    .await;
+    if let Err(e) = persist_result {
+        tracing::warn!(subtask = %card.id, "Build-gate persist failed, retrying once: {e}");
+        let card_id = card.id.clone();
+        let finding_clone2 = finding.clone();
+        if let Err(e2) = mutate_board(&ctx.board, ctx.workspace, |board| {
+            board.record_review(
+                &card_id,
+                false,
+                "Build gate: compile/type-check failed.".to_string(),
+                vec![finding_clone2],
+            )?;
+            board.finish_active_subtask(&card_id);
+            Ok(())
+        })
+        .await
+        {
+            tracing::warn!(subtask = %card.id, "Build-gate persist retry also failed (non-fatal): {e2}");
+        }
     }
 
     let _ = emit_blackboard(
@@ -1035,19 +1054,32 @@ async fn run_verification_phase(
 
     // Verifier failed — record findings and decide whether to retry or abort.
     // Non-fatal: losing findings is better than killing the subtask.
-    if let Err(e) = mutate_board(&ctx.board, ctx.workspace, |board| {
-        board.record_review(
-            &card.id,
-            false,
-            verifier_result.summary.clone(),
-            verifier_result.findings.clone(),
-        )?;
-        board.finish_active_subtask(&card.id);
-        Ok(())
-    })
-    .await
+    // Retry once on failure to tolerate transient I/O errors.
     {
-        tracing::warn!(subtask = %card.id, "Failed to record verifier findings (non-fatal): {e}");
+        let card_id = card.id.clone();
+        let summary = verifier_result.summary.clone();
+        let findings = verifier_result.findings.clone();
+        let persist_result = mutate_board(&ctx.board, ctx.workspace, |board| {
+            board.record_review(&card_id, false, summary.clone(), findings.clone())?;
+            board.finish_active_subtask(&card_id);
+            Ok(())
+        })
+        .await;
+        if let Err(e) = persist_result {
+            tracing::warn!(subtask = %card.id, "Verifier persist failed, retrying once: {e}");
+            let card_id = card.id.clone();
+            let summary = verifier_result.summary.clone();
+            let findings = verifier_result.findings.clone();
+            if let Err(e2) = mutate_board(&ctx.board, ctx.workspace, |board| {
+                board.record_review(&card_id, false, summary.clone(), findings.clone())?;
+                board.finish_active_subtask(&card_id);
+                Ok(())
+            })
+            .await
+            {
+                tracing::warn!(subtask = %card.id, "Verifier persist retry also failed (non-fatal): {e2}");
+            }
+        }
     }
     let _ = emit_blackboard(
         ctx.workspace,

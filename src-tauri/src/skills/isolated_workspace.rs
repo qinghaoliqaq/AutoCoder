@@ -18,6 +18,10 @@ pub(crate) const SCRATCH_ROOT_DIR: &str = ".ai-dev-hub/subtasks";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FileFingerprint {
     pub len: u64,
+    /// Lightweight content checksum: XOR of the first and last 4KB of the file.
+    /// Catches same-length edits that coarse-mtime filesystems (HFS+, ext3 with
+    /// 1-second resolution) would miss.
+    pub content_checksum: u64,
     pub modified_unix_nanos: u128,
 }
 
@@ -368,14 +372,57 @@ fn collect_workspace_files(root: &Path, dir: &Path, files: &mut HashMap<PathBuf,
         let Ok(relative) = path.strip_prefix(root) else {
             continue;
         };
+        // Compute a lightweight content checksum from the first and last 4KB
+        // to detect same-length edits on coarse-mtime filesystems.
+        let content_checksum = quick_checksum(&path);
+
         files.insert(
             relative.to_path_buf(),
             FileFingerprint {
                 len: metadata.len(),
                 modified_unix_nanos,
+                content_checksum,
             },
         );
     }
+}
+
+/// Cheap content checksum: read up to the first and last 4KB of a file and
+/// XOR their bytes into a u64.  This is NOT cryptographic — it's a fast
+/// probabilistic guard against same-length changes that coarse-mtime
+/// filesystems would miss.
+fn quick_checksum(path: &Path) -> u64 {
+    use std::io::Read;
+    const CHUNK: usize = 4096;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return 0;
+    };
+    let mut hasher: u64 = 0;
+
+    // Read head
+    let mut buf = [0u8; CHUNK];
+    let n = file.read(&mut buf).unwrap_or(0);
+    for chunk in buf[..n].chunks(8) {
+        let mut word = [0u8; 8];
+        word[..chunk.len()].copy_from_slice(chunk);
+        hasher ^= u64::from_le_bytes(word);
+    }
+
+    // Read tail (seek backwards from end; for small files this overlaps with
+    // head, which is fine — the multiplier makes the contribution different).
+    use std::io::{Seek, SeekFrom};
+    let seek_ok = file
+        .seek(SeekFrom::End(-(CHUNK as i64)))
+        .or_else(|_| file.seek(SeekFrom::Start(0)));
+    if seek_ok.is_ok() {
+        let n = file.read(&mut buf).unwrap_or(0);
+        for chunk in buf[..n].chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            hasher ^= u64::from_le_bytes(word).wrapping_mul(0x517cc1b727220a95);
+        }
+    }
+    hasher
 }
 
 pub(crate) fn workspace_changes(
