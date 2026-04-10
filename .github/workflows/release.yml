@@ -3,6 +3,9 @@ name: Release
 # Trigger:
 #   - Push a tag like `v0.1.0` → builds + creates a draft GitHub Release
 #     with installers for Windows, macOS (universal), and Linux.
+#   - Push a branch like `release/v0.1.0` → same as above, but the tag is
+#     created by tauri-action at the branch HEAD (useful when tag push is
+#     restricted by the git hosting / proxy).
 #   - Manual `workflow_dispatch` → builds only, uploads as artifacts
 #     (useful for testing the build without cutting a release).
 #
@@ -21,6 +24,14 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      # `release/vX.Y.Z` branches are a release-trigger convention: pushing one
+      # causes this workflow to build + publish a draft GitHub Release for the
+      # version embedded in the branch name.  This exists because some CI
+      # environments (proxied git, restricted tokens) cannot push tags directly
+      # to the remote — creating a branch is always allowed.  The workflow then
+      # has tauri-action create the actual `vX.Y.Z` tag at the branch HEAD.
+      - 'release/v*'
   workflow_dispatch:
 
 jobs:
@@ -83,17 +94,38 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      # ── Tag push: build + attach to draft GitHub Release ───────────────
-      - name: Build & publish (tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # ── Determine whether this run should publish a release, and under
+      #    which tag name.  Covers both the `refs/tags/v*` and the
+      #    `refs/heads/release/v*` entry points (see `on:` above).
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            PUBLISH=true
+          elif [[ "${GITHUB_REF}" == refs/heads/release/v* ]]; then
+            TAG="${GITHUB_REF_NAME#release/}"
+            PUBLISH=true
+          else
+            TAG=""
+            PUBLISH=false
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "publish=${PUBLISH}" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag='${TAG}' publish=${PUBLISH}"
+
+      # ── Release run: build + attach to draft GitHub Release ────────────
+      - name: Build & publish (release)
+        if: steps.tag.outputs.publish == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'FlowForge ${{ github.ref_name }}'
+          tagName: ${{ steps.tag.outputs.tag }}
+          releaseName: 'FlowForge ${{ steps.tag.outputs.tag }}'
           releaseBody: |
-            ## FlowForge ${{ github.ref_name }}
+            ## FlowForge ${{ steps.tag.outputs.tag }}
 
             Download the installer for your platform below.
 
