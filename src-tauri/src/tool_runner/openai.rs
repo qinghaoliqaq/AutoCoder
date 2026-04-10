@@ -111,9 +111,18 @@ pub async fn run_loop(
             return Ok(full_text);
         }
 
-        // Execute tools via the registry-based partitioned orchestration
-        let results =
-            tools::run_partitioned(registry, &tool_calls, workspace, &token, read_only).await?;
+        // Execute tools via the registry-based partitioned orchestration.
+        // `subtask_id.is_some()` gates session-scoped tools — see the
+        // matching comment in anthropic.rs::run_loop.
+        let results = tools::run_partitioned(
+            registry,
+            &tool_calls,
+            workspace,
+            &token,
+            read_only,
+            subtask_id.is_some(),
+        )
+        .await?;
         for result in &results {
             let tool_call_id = result["tool_use_id"].as_str().unwrap_or("");
             let raw_content = result["content"].as_str().unwrap_or("");

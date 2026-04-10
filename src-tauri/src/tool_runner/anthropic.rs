@@ -88,9 +88,19 @@ pub async fn run_loop(
             return Ok(full_text);
         }
 
-        // Execute tools via the registry-based partitioned orchestration
-        let tool_results =
-            tools::run_partitioned(registry, &tool_calls, workspace, &token, read_only).await?;
+        // Execute tools via the registry-based partitioned orchestration.
+        // `subtask_id.is_some()` is the signal that this runner is
+        // dispatching inside a subtask's isolated workspace copy, which
+        // disables session-scoped tools at the dispatch layer.
+        let tool_results = tools::run_partitioned(
+            registry,
+            &tool_calls,
+            workspace,
+            &token,
+            read_only,
+            subtask_id.is_some(),
+        )
+        .await?;
         messages.push(json!({ "role": "user", "content": tool_results }));
 
         // ── Prune old tool-use rounds if context is growing too large ──────

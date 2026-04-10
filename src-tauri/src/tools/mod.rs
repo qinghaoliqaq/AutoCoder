@@ -100,6 +100,39 @@ pub struct ToolContext<'a> {
     pub token: &'a CancellationToken,
 }
 
+// ── Tool scope ───────────────────────────────────────────────────────────────
+
+/// Whether a tool is safe to run inside a subtask's isolated workspace copy
+/// or must only run against main-process session state.
+///
+/// The orchestrator forks the project workspace into isolated copies when
+/// running parallel subtasks, then 3-way-merges the results back on
+/// completion.  Tools that write to `.autocoder/` book-keeping files
+/// (`todos.json`, `config.json`, `cron.json`) are conceptually **session**
+/// state — they coordinate the orchestrator itself, not the user's project.
+/// If a forked subtask writes to them, two parallel subtasks end up with
+/// mutually incompatible versions and the merge engine reports spurious
+/// conflicts like:
+///
+/// ```text
+/// Subtask F15 hit merge conflicts after 5 attempts:
+/// Merge conflict on files already changed in the main workspace: .autocoder/todos.json
+/// ```
+///
+/// Session-scoped tools are filtered out of the tool schema exposed to
+/// subtasks AND rejected by `ToolRegistry::execute` when called from a
+/// subtask context — defense in depth at both the schema and dispatch
+/// layers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolScope {
+    /// Operates on project files (Read, Write, Edit, Bash, Grep, …).
+    /// Safe to run in an isolated subtask workspace.  This is the default.
+    Workspace,
+    /// Manages main-process session state (TodoWrite, Config, ScheduleCron).
+    /// Must only run against the primary workspace, never a subtask fork.
+    Session,
+}
+
 // ── Tool trait ───────────────────────────────────────────────────────────────
 
 /// Every tool must implement this trait.
@@ -116,6 +149,14 @@ pub trait Tool: Send + Sync {
 
     /// Whether this specific invocation is read-only (safe for concurrent execution).
     fn is_read_only(&self, input: &Value) -> bool;
+
+    /// Whether this tool is workspace-scoped (default) or session-scoped.
+    /// Session-scoped tools are filtered out of subtask tool schemas and
+    /// cannot be dispatched from within a subtask context.  See
+    /// [`ToolScope`] for the full rationale.
+    fn scope(&self) -> ToolScope {
+        ToolScope::Workspace
+    }
 
     /// Whether this specific invocation is destructive (potentially harmful).
     #[allow(dead_code)]
@@ -200,19 +241,30 @@ impl ToolRegistry {
     }
 
     /// Generate tool definitions for the given wire format.
-    pub fn definitions(&self, format: WireFormat) -> Vec<Value> {
+    ///
+    /// Filters apply additively:
+    ///
+    /// * `read_only` — when `true`, drops tools that cannot run in read-only
+    ///   mode (Bash, Write, Edit, TodoWrite, …).  Used by the Codex reviewer
+    ///   path in plan mode.
+    /// * `in_subtask` — when `true`, drops tools marked [`ToolScope::Session`]
+    ///   (TodoWrite, Config, ScheduleCron).  Used when the runner is
+    ///   dispatched into a subtask's isolated workspace copy — session
+    ///   tools would race with parallel subtasks on `.autocoder/` files
+    ///   and corrupt the merge-back step.
+    pub fn definitions(&self, format: WireFormat, read_only: bool, in_subtask: bool) -> Vec<Value> {
         self.tools
             .iter()
-            .map(|t| tool_to_definition(t.as_ref(), format))
-            .collect()
-    }
-
-    /// Generate read-only tool definitions (only tools where is_read_only returns true
-    /// for all inputs, or tools that have a read-only subset).
-    pub fn read_only_definitions(&self, format: WireFormat) -> Vec<Value> {
-        self.tools
-            .iter()
-            .filter_map(|t| tool_to_read_only_definition(t.as_ref(), format))
+            .filter_map(|t| {
+                if in_subtask && matches!(t.scope(), ToolScope::Session) {
+                    return None;
+                }
+                if read_only {
+                    tool_to_read_only_definition(t.as_ref(), format)
+                } else {
+                    Some(tool_to_definition(t.as_ref(), format))
+                }
+            })
             .collect()
     }
 
@@ -224,9 +276,31 @@ impl ToolRegistry {
     }
 
     /// Execute a tool by name.
-    pub async fn execute(&self, name: &str, input: Value, ctx: &ToolContext<'_>) -> ToolResult {
+    ///
+    /// `in_subtask` must be `true` when dispatching inside a subtask's
+    /// isolated workspace copy; it causes session-scoped tools to be
+    /// rejected even if the model manages to call them despite the schema
+    /// filter in [`Self::definitions`].
+    pub async fn execute(
+        &self,
+        name: &str,
+        input: Value,
+        ctx: &ToolContext<'_>,
+        in_subtask: bool,
+    ) -> ToolResult {
         match self.get(name) {
             Some(tool) => {
+                // Scope enforcement (defense in depth — the schema filter
+                // in `definitions` already hides session tools from
+                // subtask models, but reject here too in case the model
+                // fabricates a call to a tool it wasn't shown).
+                if in_subtask && matches!(tool.scope(), ToolScope::Session) {
+                    return ToolResult::err(format!(
+                        "{name}: session-scoped tool cannot run inside a subtask \
+                         (it would race with parallel subtasks on main-process \
+                         book-keeping state — use it from the main orchestrator)"
+                    ));
+                }
                 // Read-only enforcement: reject write tools in read-only mode
                 if ctx.read_only && !tool.is_read_only(&input) {
                     return ToolResult::err(format!("{name}: blocked in read-only mode"));
@@ -378,12 +452,18 @@ pub fn default_registry() -> ToolRegistry {
 const MAX_TOOL_CONCURRENCY: usize = 10;
 
 /// Execute tool calls with read-only batching (concurrent) and write (serial).
+///
+/// `in_subtask` must be `true` when this runner is dispatching inside a
+/// subtask's isolated workspace copy, so that session-scoped tools are
+/// rejected at dispatch time in addition to being filtered from the
+/// schema.  See [`ToolScope`] for details.
 pub async fn run_partitioned(
     registry: &ToolRegistry,
     tool_calls: &[(String, String, Value)],
     workspace: &Path,
     token: &CancellationToken,
     read_only: bool,
+    in_subtask: bool,
 ) -> Result<Vec<Value>, String> {
     // Group consecutive read-only calls into batches
     let mut batches: Vec<(bool, Vec<usize>)> = Vec::new();
@@ -411,6 +491,7 @@ pub async fn run_partitioned(
                 workspace,
                 token,
                 read_only,
+                in_subtask,
                 &mut results,
             )
             .await?;
@@ -426,7 +507,9 @@ pub async fn run_partitioned(
                     read_only,
                     token,
                 };
-                let result = registry.execute(name, input.clone(), &ctx).await;
+                let result = registry
+                    .execute(name, input.clone(), &ctx, in_subtask)
+                    .await;
                 results[idx] = build_tool_result(id, name, result);
             }
         }
@@ -442,6 +525,7 @@ async fn run_concurrent_batch(
     workspace: &Path,
     token: &CancellationToken,
     read_only: bool,
+    in_subtask: bool,
     results: &mut [Value],
 ) -> Result<(), String> {
     // We cannot easily move registry refs into spawned tasks, so we execute
@@ -462,7 +546,9 @@ async fn run_concurrent_batch(
                         read_only,
                         token,
                     };
-                    let result = registry.execute(&name_owned, input_owned, &ctx).await;
+                    let result = registry
+                        .execute(&name_owned, input_owned, &ctx, in_subtask)
+                        .await;
                     (idx, id, name_owned, result)
                 }
             })
@@ -572,5 +658,96 @@ mod tests {
     fn default_registry_has_all_tools() {
         let reg = default_registry();
         assert!(reg.len() >= 21, "expected 21+ tools, got {}", reg.len());
+    }
+
+    #[test]
+    fn tool_trait_default_scope_is_workspace() {
+        // A tool that doesn't override scope() should default to Workspace,
+        // so this is the safe default for new tools.
+        assert_eq!(sleep::SleepTool.scope(), ToolScope::Workspace);
+    }
+
+    #[test]
+    fn session_tools_are_marked_session_scope() {
+        // The three tools that write to .autocoder/ must all be Session-scoped
+        // so they get filtered out of subtask tool schemas.
+        assert_eq!(todo_write::TodoWriteTool.scope(), ToolScope::Session);
+        assert_eq!(config_tool::ConfigTool.scope(), ToolScope::Session);
+        assert_eq!(schedule_cron::ScheduleCronTool.scope(), ToolScope::Session);
+    }
+
+    #[test]
+    fn definitions_hide_session_tools_from_subtasks() {
+        let reg = default_registry();
+        let subtask_defs = reg.definitions(WireFormat::Anthropic, false, true);
+
+        // Collect names from the generated schema
+        let names: Vec<&str> = subtask_defs
+            .iter()
+            .filter_map(|d| d["name"].as_str())
+            .collect();
+
+        assert!(
+            !names.contains(&"TodoWrite"),
+            "TodoWrite must be hidden from subtask schema"
+        );
+        assert!(
+            !names.contains(&"Config"),
+            "Config must be hidden from subtask schema"
+        );
+        assert!(
+            !names.contains(&"ScheduleCron"),
+            "ScheduleCron must be hidden from subtask schema"
+        );
+
+        // Workspace tools are still there
+        assert!(names.contains(&"Read"));
+        assert!(names.contains(&"Bash"));
+    }
+
+    #[test]
+    fn definitions_expose_session_tools_outside_subtasks() {
+        let reg = default_registry();
+        let main_defs = reg.definitions(WireFormat::Anthropic, false, false);
+        let names: Vec<&str> = main_defs
+            .iter()
+            .filter_map(|d| d["name"].as_str())
+            .collect();
+
+        // Main orchestrator sees session tools — that's the entire point,
+        // the main process is the owner of .autocoder/ state.
+        assert!(names.contains(&"TodoWrite"));
+        assert!(names.contains(&"Config"));
+        assert!(names.contains(&"ScheduleCron"));
+    }
+
+    #[tokio::test]
+    async fn execute_rejects_session_tool_in_subtask_context() {
+        let reg = default_registry();
+        let token = CancellationToken::new();
+        let tmp = std::env::temp_dir();
+        let ctx = ToolContext {
+            workspace: &tmp,
+            read_only: false,
+            token: &token,
+        };
+
+        // Dispatching TodoWrite with in_subtask=true must fail fast, even
+        // if the model manages to call it (e.g. hallucinated the name).
+        let result = reg
+            .execute(
+                "TodoWrite",
+                json!({ "todos": [] }),
+                &ctx,
+                true, // in_subtask
+            )
+            .await;
+
+        assert!(result.is_error, "expected an error result");
+        assert!(
+            result.content.contains("session-scoped"),
+            "expected 'session-scoped' in error message, got: {}",
+            result.content
+        );
     }
 }

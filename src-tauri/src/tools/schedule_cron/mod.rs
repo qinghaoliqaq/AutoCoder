@@ -4,7 +4,7 @@
 /// Supports create, delete, and list actions.
 pub mod prompt;
 
-use super::{Tool, ToolContext, ToolResult};
+use super::{Tool, ToolContext, ToolResult, ToolScope};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -119,6 +119,12 @@ impl Tool for ScheduleCronTool {
 
     fn is_read_only(&self, input: &Value) -> bool {
         matches!(input["action"].as_str(), Some("list"))
+    }
+
+    fn scope(&self) -> ToolScope {
+        // Reads/writes .autocoder/cron.json which is main-process session
+        // state — must not be forked into subtask workspaces.
+        ToolScope::Session
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext<'_>) -> ToolResult {

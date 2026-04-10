@@ -3,7 +3,7 @@ pub mod prompt;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::{Tool, ToolContext, ToolResult};
+use super::{Tool, ToolContext, ToolResult, ToolScope};
 
 /// TodoWrite tool — creates and manages a structured task list for the current
 /// coding session. Writes the todo list to `.autocoder/todos.json` in the workspace.
@@ -64,6 +64,12 @@ impl Tool for TodoWriteTool {
 
     fn is_read_only(&self, _input: &Value) -> bool {
         false
+    }
+
+    fn scope(&self) -> ToolScope {
+        // Writes to .autocoder/todos.json which is main-process session
+        // state — must never run inside a forked subtask workspace.
+        ToolScope::Session
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext<'_>) -> ToolResult {
