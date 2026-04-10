@@ -73,6 +73,15 @@ jobs:
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
+          # The ubuntu-22.04 runner image ships with Microsoft-hosted apt
+          # sources (azure-cli, msprod) that are unrelated to this build.
+          # When packages.microsoft.com returns 403 — which happens
+          # intermittently — `apt-get update` treats it as fatal and exits
+          # 100 before our real packages can install.  Remove those source
+          # lists so the update only pulls from the Ubuntu archives we
+          # actually care about.
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/azure-cli.list
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
