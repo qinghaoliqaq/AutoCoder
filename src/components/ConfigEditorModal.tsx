@@ -6,7 +6,7 @@ import ToggleSwitch from './ToggleSwitch';
 import ProviderSelect from './ProviderSelect';
 import { useTheme, THEMES } from './ThemeProvider';
 import { ClaudeRoleIcon, CodexRoleIcon } from './icons/RoleIcons';
-import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, Keyboard, Zap, Palette, Lightbulb } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, Keyboard, Zap, Palette, Lightbulb, Compass } from 'lucide-react';
 
 // ── Settings tab definitions ─────────────────────────────────────────────────
 
@@ -243,116 +243,8 @@ function GeneralTab({
   draft: ConfigDraft;
   update: <K extends keyof ConfigDraft>(key: K, value: ConfigDraft[K]) => void;
 }) {
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-  const [testMessage, setTestMessage] = useState('');
-
-  const handleTestConnection = async () => {
-    if (!draft.api_key || !draft.base_url || !draft.model) return;
-    setTestStatus('testing');
-    setTestMessage('');
-    try {
-      const result = await invoke<string>('test_api_connection', {
-        apiKey: draft.api_key,
-        baseUrl: draft.base_url,
-        model: draft.model,
-        apiFormat: draft.api_format,
-      });
-      setTestStatus('success');
-      setTestMessage(result);
-    } catch (err) {
-      setTestStatus('error');
-      setTestMessage(String(err));
-    }
-  };
-
   return (
     <div className="space-y-6">
-      {/* ── Director Model Card ── */}
-      <SectionCard
-        title="Director 模型"
-        description="配置对话指挥层（Director）使用的模型和接口"
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <FieldGroup label="API Key">
-              <input
-                type="password"
-                value={draft.api_key}
-                onChange={(e) => update('api_key', e.target.value)}
-                placeholder="sk-••••••••••••••••"
-                className={inputClass}
-              />
-            </FieldGroup>
-          </div>
-
-          <FieldGroup label="API Format">
-            <select
-              value={draft.api_format}
-              onChange={(e) => update('api_format', e.target.value as ConfigDraft['api_format'])}
-              className={inputClass}
-            >
-              <option value="openai">OpenAI Compatible</option>
-              <option value="anthropic">Anthropic Compatible</option>
-            </select>
-          </FieldGroup>
-
-          <FieldGroup label="Model">
-            <input
-              type="text"
-              value={draft.model}
-              onChange={(e) => update('model', e.target.value)}
-              placeholder="gpt-4o / claude-sonnet-4-0"
-              className={inputClass}
-            />
-          </FieldGroup>
-
-          <div className="sm:col-span-2">
-            <FieldGroup label="Base URL">
-              <input
-                type="text"
-                value={draft.base_url}
-                onChange={(e) => update('base_url', e.target.value)}
-                placeholder="https://api.openai.com/v1"
-                className={inputClass}
-              />
-            </FieldGroup>
-          </div>
-        </div>
-
-        {/* Connectivity Test */}
-        <div className="flex items-center gap-3 pt-1">
-          <button
-            type="button"
-            onClick={handleTestConnection}
-            disabled={testStatus === 'testing' || !draft.api_key || !draft.base_url || !draft.model}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-              testStatus === 'success'
-                ? 'text-emerald-600 bg-emerald-500/10'
-                : testStatus === 'error'
-                  ? 'text-rose-600 bg-rose-500/10'
-                  : 'text-content-secondary bg-surface-tertiary/40 hover:bg-surface-tertiary/60'
-            }`}
-          >
-            {testStatus === 'testing' ? (
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-            ) : testStatus === 'success' ? (
-              <CheckCircle2 className="h-3.5 w-3.5" />
-            ) : testStatus === 'error' ? (
-              <AlertTriangle className="h-3.5 w-3.5" />
-            ) : (
-              <Zap className="h-3.5 w-3.5" />
-            )}
-            {testStatus === 'testing' ? '测试中...' : testStatus === 'success' ? '连接成功' : testStatus === 'error' ? '连接失败' : '测试连通性'}
-          </button>
-
-          {(testStatus === 'success' || testStatus === 'error') && testMessage && (
-            <span className={`text-[11px] leading-4 ${testStatus === 'success' ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {testMessage}
-            </span>
-          )}
-        </div>
-      </SectionCard>
-
       {/* ── Execution Options Card ── */}
       <SectionCard
         title="执行选项"
@@ -435,12 +327,34 @@ function AgentTab({
 }) {
   const primary = resolvePrimaryIdentity(draft);
   const second = resolveSecondIdentity(draft);
+  const director: AgentIdentityValues = {
+    provider: draft.director_provider,
+    apiKey: draft.api_key,
+    baseUrl: draft.base_url,
+    model: draft.model,
+  };
 
   return (
     <div className="space-y-6">
       <SectionHeading
         title="智能体执行层"
-        description="配置后，技能（代码、调试、测试等）将通过 API 直接执行。本地工具（Bash、编辑器等）完全免费运行。"
+        description="Director 负责对话指挥；主/副身份（Claude / Codex）负责具体技能执行。三者可独立选择供应商与模型。"
+      />
+
+      <AgentIdentityCard
+        title="Director (对话指挥)"
+        description="负责用户对话、任务分派和流程编排。支持任意 OpenAI / Anthropic 兼容供应商。"
+        roleIcon={<Compass className="h-[22px] w-[22px] text-themed-accent-text" />}
+        raw={director}
+        effective={director}
+        providerHint={undefined}
+        apiKeyHint={undefined}
+        modelHint="留空使用供应商默认模型"
+        baseUrlHint="留空使用供应商默认端点"
+        onProviderChange={(value) => update('director_provider', value)}
+        onApiKeyChange={(value) => update('api_key', value)}
+        onModelChange={(value) => update('model', value)}
+        onBaseUrlChange={(value) => update('base_url', value)}
       />
 
       <AgentIdentityCard

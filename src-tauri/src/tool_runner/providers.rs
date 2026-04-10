@@ -132,15 +132,28 @@ impl ProviderConfig {
                 wire: info.wire,
             }
         } else {
-            let wire = match config.director.api_format {
-                crate::config::ApiFormat::OpenAI => WireFormat::OpenAI,
-                crate::config::ApiFormat::Anthropic => WireFormat::Anthropic,
+            // Director fallback — if a named provider is set, look it up
+            // in the registry for wire format and defaults; otherwise
+            // fall back to the legacy api_format path.
+            let director = &config.director;
+            let provider_name = director.effective_provider();
+            let info = provider_defaults(&provider_name);
+            let wire = info.wire;
+            let base_url = if director.base_url.trim().is_empty() {
+                info.default_base_url.to_string()
+            } else {
+                director.base_url.clone()
+            };
+            let model = if director.model.trim().is_empty() {
+                info.default_model.to_string()
+            } else {
+                director.model.clone()
             };
             Self {
-                name: config.director.api_format.as_str().to_string(),
-                base_url: config.director.base_url.clone(),
-                api_key: config.director.api_key.clone(),
-                model: config.director.model.clone(),
+                name: provider_name,
+                base_url,
+                api_key: director.api_key.clone(),
+                model,
                 wire,
             }
         }
@@ -149,10 +162,15 @@ impl ProviderConfig {
 
 // ── Provider defaults ───────────────────────────────────────────────────────
 
-struct ProviderInfo {
-    wire: WireFormat,
-    default_base_url: &'static str,
-    default_model: &'static str,
+pub struct ProviderInfo {
+    pub wire: WireFormat,
+    pub default_base_url: &'static str,
+    pub default_model: &'static str,
+}
+
+/// Public lookup for callers outside tool_runner (e.g. config persistence).
+pub fn provider_info(name: &str) -> ProviderInfo {
+    provider_defaults(name)
 }
 
 fn provider_defaults(name: &str) -> ProviderInfo {

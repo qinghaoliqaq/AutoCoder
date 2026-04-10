@@ -240,6 +240,7 @@ export default function App() {
         vendored_skills: true,
         max_parallel_subtasks: 5,
         execution_access_mode: 'sandbox',
+        director_provider: 'openai',
         agent_provider: '',
         agent_second_provider: '',
       });

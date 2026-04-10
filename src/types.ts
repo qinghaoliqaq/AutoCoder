@@ -18,6 +18,7 @@ export interface ConfigStatus {
   vendored_skills: boolean;
   max_parallel_subtasks: number;
   execution_access_mode: 'sandbox' | 'full_access';
+  director_provider: string;
   agent_provider: string;
   agent_second_provider: string;
 }
@@ -26,7 +27,8 @@ export interface ConfigDraft {
   api_key: string;
   base_url: string;
   model: string;
-  api_format: 'openai' | 'anthropic';
+  /** Director provider name (openai / anthropic / deepseek / ...). */
+  director_provider: string;
   vendored_skills: boolean;
   max_parallel_subtasks: number;
   execution_access_mode: 'sandbox' | 'full_access';

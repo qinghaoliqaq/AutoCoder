@@ -46,7 +46,7 @@ fn detect_tools(state: tauri::State<'_, AppState>) -> SystemStatus {
     let api_provider = if config.agent.is_configured() {
         config.agent.provider.clone()
     } else {
-        format!("{:?}", config.director.api_format).to_lowercase()
+        config.director.effective_provider()
     };
     let api_model = if config.agent.is_configured() {
         config.agent.model.clone()
@@ -335,21 +335,9 @@ fn evidence_subtask_context(workspace: String, subtask_id: String) -> Option<Str
 
 /// Test API connectivity by sending a minimal request to the configured endpoint.
 /// Returns Ok(model_response_info) on success or Err(error_message) on failure.
-#[tauri::command]
-async fn test_api_connection(
-    api_key: String,
-    base_url: String,
-    model: String,
-    api_format: String,
-) -> Result<String, String> {
-    let provider = if api_format == "anthropic" {
-        providers::ProviderConfig::from_fields("anthropic", &api_key, &base_url, &model)
-    } else {
-        providers::ProviderConfig::from_fields("openai", &api_key, &base_url, &model)
-    };
-    send_test_request(&provider).await
-}
-
+///
+/// Used by both Director and Agent identity cards in the settings UI —
+/// accepts a provider name that is resolved via the provider registry.
 #[tauri::command]
 async fn test_agent_connection(
     provider: String,
@@ -536,7 +524,6 @@ pub fn run() {
             memory_list,
             evidence_digest,
             evidence_subtask_context,
-            test_api_connection,
             test_agent_connection,
             resolve_agent_provider,
         ])

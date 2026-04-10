@@ -59,13 +59,33 @@ pub struct DirectorConfig {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
+    /// Wire format — kept for backward compatibility with older config.toml
+    /// files that only specified this field.  On new saves we mirror this
+    /// from the selected `provider` so both fields stay in sync.
     #[serde(default)]
     pub api_format: ApiFormat,
+    /// Named provider (e.g. "openai", "anthropic", "deepseek", ...).
+    /// Empty means "custom endpoint" and falls back to `api_format` + `base_url`.
+    #[serde(default)]
+    pub provider: String,
     /// Approximate context budget in tokens for conversation history.
     /// When estimated history tokens exceed this, older messages are compacted
     /// into a structured summary. Defaults to 24 000 tokens.
     #[serde(default = "default_context_budget")]
     pub context_budget: usize,
+}
+
+impl DirectorConfig {
+    /// Effective provider name — derived from `provider` if set, else
+    /// falls back to the legacy `api_format` (which was the only
+    /// identifier prior to the provider registry integration).
+    pub fn effective_provider(&self) -> String {
+        if self.provider.trim().is_empty() {
+            self.api_format.as_str().to_string()
+        } else {
+            self.provider.trim().to_lowercase()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,6 +156,9 @@ pub struct ConfigStatus {
     pub vendored_skills: bool,
     pub max_parallel_subtasks: usize,
     pub execution_access_mode: ExecutionAccessMode,
+    /// Director provider identifier (e.g. "openai", "anthropic", "deepseek").
+    /// Falls back to api_format string for legacy configs.
+    pub director_provider: String,
     /// Agent primary provider identifier (e.g. "anthropic", "openai", "deepseek").
     pub agent_provider: String,
     /// Agent secondary provider identifier. Empty means follows primary.
@@ -148,7 +171,11 @@ pub struct ConfigDraft {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
-    pub api_format: ApiFormat,
+    /// Director provider name (e.g. "openai", "anthropic", "deepseek").
+    /// Authoritative for new installs — on save, `api_format` is derived
+    /// from the provider's wire format.
+    #[serde(default)]
+    pub director_provider: String,
     pub vendored_skills: bool,
     pub max_parallel_subtasks: usize,
     pub execution_access_mode: ExecutionAccessMode,
@@ -180,6 +207,7 @@ impl Default for DirectorConfig {
             base_url: "https://api.openai.com/v1".to_string(),
             model: "gpt-4o".to_string(),
             api_format: ApiFormat::OpenAI,
+            provider: "openai".to_string(),
             context_budget: default_context_budget(),
         }
     }
@@ -287,6 +315,19 @@ impl AppConfig {
                 _ => ApiFormat::OpenAI,
             };
         }
+        // Provider (takes precedence; derives api_format from provider registry)
+        if let Ok(v) = std::env::var("DIRECTOR_PROVIDER") {
+            let name = v.trim().to_lowercase();
+            if !name.is_empty() {
+                let info = crate::tool_runner::providers::provider_info(&name);
+                cfg.director.provider = name;
+                cfg.director.api_format =
+                    match info.wire {
+                        crate::tool_runner::providers::WireFormat::Anthropic => ApiFormat::Anthropic,
+                        crate::tool_runner::providers::WireFormat::OpenAI => ApiFormat::OpenAI,
+                    };
+            }
+        }
 
         // Context budget
         if let Ok(v) = std::env::var("DIRECTOR_CONTEXT_BUDGET") {
@@ -364,6 +405,7 @@ impl AppConfig {
             vendored_skills: self.features.vendored_skills,
             max_parallel_subtasks: self.features.parallel_subtask_limit(),
             execution_access_mode: self.features.execution_access_mode,
+            director_provider: self.director.effective_provider(),
             agent_provider: self.agent.provider.clone(),
             agent_second_provider: self.agent.second_provider.clone(),
         }
@@ -376,7 +418,7 @@ impl AppConfig {
             api_key: self.director.api_key.clone(),
             base_url: self.director.base_url.clone(),
             model: self.director.model.clone(),
-            api_format: self.director.api_format.clone(),
+            director_provider: self.director.effective_provider(),
             vendored_skills: self.features.vendored_skills,
             max_parallel_subtasks: self.features.parallel_subtask_limit(),
             execution_access_mode: self.features.execution_access_mode,
@@ -393,23 +435,41 @@ impl AppConfig {
 
     pub fn persist_draft(draft: ConfigDraft) -> Result<Self, String> {
         let api_key = draft.api_key.trim().to_string();
-        let base_url = draft.base_url.trim().to_string();
-        let model = draft.model.trim().to_string();
+        let base_url_raw = draft.base_url.trim().to_string();
+        let model_raw = draft.model.trim().to_string();
         let existing = AppConfig::load_persisted().unwrap_or_default();
 
-        if base_url.is_empty() {
-            return Err("Base URL cannot be empty".to_string());
-        }
-        if model.is_empty() {
-            return Err("Model cannot be empty".to_string());
-        }
+        // Resolve the director provider.  Empty is treated as "openai"
+        // (the historical default).  The provider determines the wire
+        // format and also supplies defaults for base_url / model when
+        // the user leaves those fields blank.
+        let provider = {
+            let p = draft.director_provider.trim().to_lowercase();
+            if p.is_empty() { "openai".to_string() } else { p }
+        };
+        let info = crate::tool_runner::providers::provider_info(&provider);
+        let base_url = if base_url_raw.is_empty() {
+            info.default_base_url.to_string()
+        } else {
+            base_url_raw
+        };
+        let model = if model_raw.is_empty() {
+            info.default_model.to_string()
+        } else {
+            model_raw
+        };
+        let api_format = match info.wire {
+            crate::tool_runner::providers::WireFormat::Anthropic => ApiFormat::Anthropic,
+            crate::tool_runner::providers::WireFormat::OpenAI => ApiFormat::OpenAI,
+        };
 
         let mut cfg = AppConfig {
             director: DirectorConfig {
                 api_key,
                 base_url,
                 model,
-                api_format: draft.api_format,
+                api_format,
+                provider,
                 context_budget: existing.director.context_budget,
             },
             features: FeaturesConfig {
@@ -611,7 +671,10 @@ mod tests {
     fn config_status_exposes_execution_access_mode() {
         let mut config = AppConfig::default();
         config.features.execution_access_mode = ExecutionAccessMode::FullAccess;
-        assert_eq!(config.status().execution_access_mode, "full_access");
+        assert_eq!(
+            config.status().execution_access_mode,
+            ExecutionAccessMode::FullAccess
+        );
     }
 
     #[test]
