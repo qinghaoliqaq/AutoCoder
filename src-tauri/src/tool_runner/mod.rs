@@ -253,12 +253,28 @@ fn canonicalize_workspace(cwd: Option<&str>) -> Result<PathBuf, String> {
 
 // ── Emit helpers (shared by anthropic.rs and openai.rs) ─────────────────────
 
+/// Map a runner mode to the agent label surfaced in UI events.
+///
+/// The read-only path is driven by the *second* provider slot (see
+/// `run_inner` — it calls `ProviderConfig::from_app_config_second`), which the
+/// product treats as the "Codex" reviewer role in plan mode.  The writer path
+/// is the primary provider, labeled "claude" in the UI.  Without this mapping
+/// every event gets stamped "claude" and the Codex reviewer appears to vanish.
+fn agent_label(read_only: bool) -> &'static str {
+    if read_only {
+        "codex"
+    } else {
+        "claude"
+    }
+}
+
 fn emit_chunk(
     app_handle: &tauri::AppHandle,
     window_label: &str,
     text: &str,
     is_first_chunk: &mut bool,
     subtask_id: Option<&str>,
+    read_only: bool,
 ) {
     let reset = *is_first_chunk;
     *is_first_chunk = false;
@@ -266,7 +282,7 @@ fn emit_chunk(
         EventTarget::webview_window(window_label),
         "skill-chunk",
         SkillChunk {
-            agent: "claude".to_string(),
+            agent: agent_label(read_only).to_string(),
             text: text.to_string(),
             reset,
             subtask_id: subtask_id.map(ToString::to_string),
@@ -301,6 +317,7 @@ fn emit_tool_log(
     name: &str,
     input: &Value,
     registry: &ToolRegistry,
+    read_only: bool,
 ) {
     let ts = chrono::Utc::now().timestamp_millis().max(0) as u64;
     let summary = registry.summarize_input(name, input);
@@ -308,7 +325,7 @@ fn emit_tool_log(
         EventTarget::webview_window(window_label),
         "tool-log",
         ToolLog {
-            agent: "claude".to_string(),
+            agent: agent_label(read_only).to_string(),
             tool: name.to_string(),
             input: summary,
             timestamp: ts,

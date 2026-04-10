@@ -70,6 +70,7 @@ pub async fn run_loop(
             &mut full_text,
             &mut is_first_chunk,
             subtask_id,
+            read_only,
         )
         .await?;
 
@@ -78,7 +79,7 @@ pub async fn run_loop(
 
         // Emit tool logs
         for (_, name, input) in &tool_calls {
-            emit_tool_log(app_handle, window_label, name, input, registry);
+            emit_tool_log(app_handle, window_label, name, input, registry, read_only);
         }
 
         // Reconstruct assistant message for conversation history
@@ -174,6 +175,7 @@ async fn stream_response(
     full_text: &mut String,
     is_first_chunk: &mut bool,
     subtask_id: Option<&str>,
+    read_only: bool,
 ) -> Result<(String, String, Vec<(String, String, Value)>, u64, u64), String> {
     // Use retry wrapper for transient failures
     let resp = {
@@ -296,7 +298,14 @@ async fn stream_response(
                 if !text.is_empty() {
                     content_text.push_str(text);
                     full_text.push_str(text);
-                    emit_chunk(app_handle, window_label, text, is_first_chunk, subtask_id);
+                    emit_chunk(
+                        app_handle,
+                        window_label,
+                        text,
+                        is_first_chunk,
+                        subtask_id,
+                        read_only,
+                    );
                 }
             }
 

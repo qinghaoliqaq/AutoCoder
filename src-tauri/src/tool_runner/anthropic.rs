@@ -63,6 +63,7 @@ pub async fn run_loop(
             &mut full_text,
             &mut is_first_chunk,
             subtask_id,
+            read_only,
         )
         .await?;
 
@@ -76,7 +77,7 @@ pub async fn run_loop(
                 let id = block["id"].as_str().unwrap_or("").to_string();
                 let name = block["name"].as_str().unwrap_or("").to_string();
                 let input = block["input"].clone();
-                emit_tool_log(app_handle, window_label, &name, &input, registry);
+                emit_tool_log(app_handle, window_label, &name, &input, registry, read_only);
                 tool_calls.push((id, name, input));
             }
         }
@@ -135,6 +136,7 @@ async fn stream_response(
     full_text: &mut String,
     is_first_chunk: &mut bool,
     subtask_id: Option<&str>,
+    read_only: bool,
 ) -> Result<(String, Vec<Value>, u64, u64), String> {
     // Use retry wrapper for transient failures
     let resp = {
@@ -291,6 +293,7 @@ async fn stream_response(
                                         text,
                                         is_first_chunk,
                                         subtask_id,
+                                        read_only,
                                     );
                                 }
                             }
