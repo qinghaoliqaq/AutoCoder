@@ -487,6 +487,16 @@ pub(crate) fn should_skip_workspace_dir(name: &str) -> bool {
         name,
         ".git"
             | ".ai-dev-hub"
+            // `.autocoder/` is book-keeping owned by the main process:
+            // config_tool writes config.json, todo_write writes todos.json,
+            // schedule_cron writes cron.json.  If a subtask forks a copy
+            // and any tool touches one of those files inside the isolated
+            // workspace, the merge engine later tries to 3-way-merge two
+            // unrelated todo lists and fails with spurious conflicts
+            // ("Subtask Fxx hit merge conflicts after 5 attempts").  Skip
+            // the whole directory at fork/scan time so subtasks never see
+            // it and never fight the main workspace for its contents.
+            | ".autocoder"
             | "node_modules"
             | "__pycache__"
             | "target"
@@ -590,5 +600,14 @@ mod tests {
     #[test]
     fn should_skip_verifier_result_artifact() {
         assert!(should_skip_workspace_file(VERIFIER_RESULT_JSON));
+    }
+
+    #[test]
+    fn should_skip_autocoder_bookkeeping_dir() {
+        // .autocoder/ holds config.json, todos.json, cron.json — all written
+        // by main-process tools.  Subtasks must not fork or merge it, or
+        // parallel subtasks race on the same book-keeping file and the
+        // merge engine reports spurious conflicts.
+        assert!(should_skip_workspace_dir(".autocoder"));
     }
 }
