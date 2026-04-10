@@ -115,7 +115,15 @@ pub async fn run_loop(
             tools::run_partitioned(registry, &tool_calls, workspace, &token, read_only).await?;
         for result in &results {
             let tool_call_id = result["tool_use_id"].as_str().unwrap_or("");
-            let content = result["content"].as_str().unwrap_or("");
+            let raw_content = result["content"].as_str().unwrap_or("");
+            // The OpenAI tool message format has no is_error field, so
+            // prepend "ERROR: " when the tool reported failure so the
+            // model can distinguish successes from failures.
+            let content = if result["is_error"].as_bool().unwrap_or(false) {
+                format!("ERROR: {raw_content}")
+            } else {
+                raw_content.to_string()
+            };
             messages.push(json!({
                 "role": "tool",
                 "tool_call_id": tool_call_id,

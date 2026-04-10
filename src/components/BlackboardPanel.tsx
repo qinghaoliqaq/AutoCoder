@@ -4,6 +4,7 @@ import { VscArrowLeft, VscChecklist, VscChevronDown, VscChevronRight, VscChevron
 import { BlackboardEvent } from '../types';
 import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 
 interface BlackboardPanelProps {
   workspacePath: string | null;
@@ -259,7 +260,7 @@ export default function BlackboardPanel({
 
   const renderMarkdown = (content: string) => (
     <div className="max-w-none">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]} components={markdownComponents}>
         {content}
       </ReactMarkdown>
     </div>

@@ -436,6 +436,11 @@ impl AppConfig {
         let tmp_path = path.with_extension("tmp");
         std::fs::write(&tmp_path, format!("{content}\n"))
             .map_err(|e| format!("Cannot write {}: {e}", tmp_path.display()))?;
+        // On Windows, rename fails if the destination exists; remove it first.
+        #[cfg(target_os = "windows")]
+        {
+            let _ = std::fs::remove_file(&path);
+        }
         std::fs::rename(&tmp_path, &path)
             .map_err(|e| format!("Cannot rename config {}: {e}", path.display()))?;
         Ok(AppConfig::load())

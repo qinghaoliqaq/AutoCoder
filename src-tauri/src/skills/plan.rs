@@ -614,20 +614,27 @@ fn validate_plan_artifacts(workspace: &std::path::Path) -> Result<ValidatedPlan,
 
 fn create_plan_workspace_unique(base_name: &str) -> Result<std::path::PathBuf, String> {
     let desktop = dirs::desktop_dir().ok_or("Cannot locate Desktop directory")?;
+    // Ensure the parent (Desktop) exists.
+    std::fs::create_dir_all(&desktop)
+        .map_err(|e| format!("Cannot create Desktop directory: {e}"))?;
+
+    // Use create_dir (not create_dir_all) so it fails with AlreadyExists if
+    // another concurrent caller created the same directory between our check
+    // and creation (TOCTOU race).
     let candidate = desktop.join(base_name);
-    if !candidate.exists() {
-        std::fs::create_dir_all(&candidate)
-            .map_err(|e| format!("Cannot create workspace '{base_name}': {e}"))?;
-        return Ok(candidate);
+    match std::fs::create_dir(&candidate) {
+        Ok(()) => return Ok(candidate),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => { /* try next */ }
+        Err(e) => return Err(format!("Cannot create workspace '{base_name}': {e}")),
     }
 
     for n in 2u32..=99 {
         let name = format!("{base_name}-{n}");
         let candidate = desktop.join(&name);
-        if !candidate.exists() {
-            std::fs::create_dir_all(&candidate)
-                .map_err(|e| format!("Cannot create workspace '{name}': {e}"))?;
-            return Ok(candidate);
+        match std::fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("Cannot create workspace '{name}': {e}")),
         }
     }
 

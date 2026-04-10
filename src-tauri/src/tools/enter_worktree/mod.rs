@@ -79,6 +79,19 @@ impl Tool for EnterWorktreeTool {
             _ => ctx.workspace.join(".worktrees").join(&branch),
         };
 
+        // Validate that the worktree path is within (or adjacent to) the
+        // workspace to prevent creating worktrees at arbitrary locations.
+        if let Ok(canon_ws) = ctx.workspace.canonicalize() {
+            let ws_parent = canon_ws.parent().unwrap_or(&canon_ws);
+            let check_path = worktree_path.canonicalize().unwrap_or_else(|_| worktree_path.clone());
+            if !check_path.starts_with(&canon_ws) && !check_path.starts_with(ws_parent) {
+                return ToolResult::err(format!(
+                    "Path '{}' is outside the workspace boundary",
+                    worktree_path.display()
+                ));
+            }
+        }
+
         let worktree_str = worktree_path.to_string_lossy().to_string();
 
         // Create parent directory if needed

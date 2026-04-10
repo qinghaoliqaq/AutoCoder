@@ -62,6 +62,20 @@ impl Tool for ExitWorktreeTool {
             }
         };
 
+        // Validate that the path is within (or adjacent to) the workspace to
+        // prevent removing worktrees belonging to unrelated repositories.
+        if let (Ok(canon_ws), Ok(canon_wt)) = (
+            ctx.workspace.canonicalize(),
+            worktree_path.canonicalize().or_else(|_| Ok::<_, std::io::Error>(worktree_path.clone())),
+        ) {
+            let ws_parent = canon_ws.parent().unwrap_or(&canon_ws);
+            if !canon_wt.starts_with(&canon_ws) && !canon_wt.starts_with(ws_parent) {
+                return ToolResult::err(format!(
+                    "Path '{}' is outside the workspace boundary", path
+                ));
+            }
+        }
+
         let worktree_str = worktree_path.to_string_lossy().to_string();
 
         // Run git worktree remove

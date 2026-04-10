@@ -479,12 +479,26 @@ async fn run_specialist_review(
         };
         match result {
             Ok(output) => {
-                if output.contains("SPECIALIST_VERDICT:FAIL") || output.contains("SPECIALIST_VERDICT: FAIL") {
+                // Use rfind (last occurrence) for both PASS and FAIL to handle
+                // outputs that mention both verdicts (e.g. "I checked for
+                // SPECIALIST_VERDICT:FAIL patterns but found none.
+                // SPECIALIST_VERDICT:PASS"). The last verdict wins.
+                let last_pass = output
+                    .rfind("SPECIALIST_VERDICT:PASS")
+                    .or_else(|| output.rfind("SPECIALIST_VERDICT: PASS"));
+                let last_fail = output
+                    .rfind("SPECIALIST_VERDICT:FAIL")
+                    .or_else(|| output.rfind("SPECIALIST_VERDICT: FAIL"));
+                let failed = match (last_pass, last_fail) {
+                    (_, Some(fail_pos))
+                        if last_pass.map_or(true, |pass_pos| fail_pos > pass_pos) =>
+                    {
+                        true
+                    }
+                    _ => false,
+                };
+                if failed {
                     all_passed = false;
-                    // Extract the summary after FAIL: using find+split
-                    // (rsplit().next() always returns Some, making the else
-                    // branch unreachable and extracting garbage when the
-                    // trailing colon variant is absent).
                     let summary = if let Some(pos) = output.rfind("SPECIALIST_VERDICT:FAIL:") {
                         let rest = &output[pos + "SPECIALIST_VERDICT:FAIL:".len()..];
                         rest.lines().next().unwrap_or("issues found").trim().to_string()
@@ -518,7 +532,13 @@ fn extract_missing(text: &str) -> Vec<String> {
     for line in text.lines().rev() {
         let t = line.trim();
         if let Some(inner) = t.strip_prefix("MISSING:[") {
-            let inner = inner.trim_end_matches(']').trim();
+            // Take only the content before the first ']' to avoid garbage
+            // when the LLM copies the example format with trailing commentary.
+            let inner = inner
+                .split_once(']')
+                .map(|(before, _)| before)
+                .unwrap_or(inner)
+                .trim();
             if inner.is_empty() {
                 return vec![];
             }

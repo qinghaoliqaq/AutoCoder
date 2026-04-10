@@ -104,6 +104,8 @@ function CopyButton({ text }: { text: string }) {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {
+      // Clipboard access can be denied when window is not focused
     });
   }, [text]);
 

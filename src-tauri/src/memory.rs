@@ -295,6 +295,10 @@ pub fn write_topic(workspace: Option<&str>, name: &str, content: &str) -> Result
             }
         })
         .collect();
+    let safe_name: String = safe_name.trim_matches('_').to_string();
+    if safe_name.is_empty() {
+        return Err("Topic name cannot be empty or contain only special characters".to_string());
+    }
     let filename = if safe_name.ends_with(".md") {
         safe_name
     } else {

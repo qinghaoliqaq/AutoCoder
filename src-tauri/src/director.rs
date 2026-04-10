@@ -258,13 +258,16 @@ fn micro_compact(
         None => return Ok(()),
     };
 
+    // Use character counts (not byte lengths) for all thresholds so that
+    // CJK and other multi-byte content is trimmed consistently.
     const MICRO_TRIM_THRESHOLD: usize = 1500;
     const MICRO_HEAD: usize = 600;
     const MICRO_TAIL: usize = 400;
 
     for msg in history.iter_mut() {
         if let Some(content) = msg["content"].as_str() {
-            if content.len() > MICRO_TRIM_THRESHOLD {
+            let char_count = content.chars().count();
+            if char_count > MICRO_TRIM_THRESHOLD {
                 let head_end = content
                     .char_indices()
                     .nth(MICRO_HEAD)
@@ -325,14 +328,32 @@ pub(crate) fn reactive_compact(
     // Keep only the last 4 messages
     let keep_from = history.len().saturating_sub(4);
 
-    // Keep the summary if found AND it's not already in the last 4
+    // Keep the summary if found AND it's not already in the last 4.
+    // Wrap it in a user/assistant pair so the Anthropic API requirement
+    // (first message must be "user", roles must alternate) is satisfied.
     if let Some(idx) = summary_idx {
         if idx < keep_from {
+            let summary_msg = &history[idx];
+            if summary_msg["role"].as_str() == Some("assistant") {
+                compacted.push(json!({ "role": "user", "content": "[System] Below is a summary of our earlier conversation." }));
+            }
             compacted.push(history[idx].clone());
         }
     }
 
     compacted.extend_from_slice(&history[keep_from..]);
+
+    // Ensure the first message is a user message (Anthropic API requirement).
+    if compacted
+        .first()
+        .and_then(|m| m["role"].as_str())
+        != Some("user")
+    {
+        compacted.insert(
+            0,
+            json!({ "role": "user", "content": "[System] Continuing conversation." }),
+        );
+    }
 
     *history = compacted;
     Ok(())
@@ -412,15 +433,26 @@ async fn compact_history(
             )
         });
 
-    // Replace history: summary message + recent messages
-    let mut compacted =
-        vec![json!({ "role": "assistant", "content": format!("[Context Summary]\n{summary}") })];
+    // Replace history: summary wrapped in a user/assistant pair (the Anthropic
+    // API requires the first message to be "user" and roles to alternate) plus
+    // the recent messages we preserved verbatim.
+    let mut compacted = vec![
+        json!({ "role": "user", "content": "[System] Below is a summary of our earlier conversation. Please use it as context." }),
+        json!({ "role": "assistant", "content": format!("[Context Summary]\n{summary}") }),
+    ];
     compacted.extend_from_slice(recent_messages);
 
     {
         let mut h = histories
             .lock()
             .map_err(|e| format!("History lock error: {e}"))?;
+        // Guard against concurrent modifications: if new messages were added
+        // while we were waiting for the LLM summary, append them so they are
+        // not silently lost.
+        let current = h.get(window_label).cloned().unwrap_or_default();
+        if current.len() > snapshot.len() {
+            compacted.extend_from_slice(&current[snapshot.len()..]);
+        }
         h.insert(window_label.to_string(), compacted);
     }
     Ok(())

@@ -235,7 +235,15 @@ fn extract_marker_value(text: &str, name: &str) -> Option<String> {
     for line in text.lines().rev() {
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix(&prefix) {
-            return Some(rest.trim_end_matches(']').trim().to_string());
+            // Use strip_suffix to remove exactly one trailing ']' instead of
+            // trim_end_matches which strips ALL trailing brackets, corrupting
+            // values that contain bracket characters (e.g. Array[T]).
+            return Some(
+                rest.strip_suffix(']')
+                    .unwrap_or(rest)
+                    .trim()
+                    .to_string(),
+            );
         }
     }
     None

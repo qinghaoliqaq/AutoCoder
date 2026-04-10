@@ -126,17 +126,28 @@ impl PlanBoard {
 
 /// Write to a temp file then rename for crash safety.
 fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
-    // Include original extension in temp name to avoid collision when
-    // persisting .json and .md files with the same stem sequentially.
+    // Use a unique temp file name (PID + timestamp) to avoid collisions when
+    // multiple threads persist concurrently.
+    let pid = std::process::id();
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
     let ext = path
         .extension()
-        .map(|e| format!("{}.tmp", e.to_string_lossy()))
-        .unwrap_or_else(|| "tmp".to_string());
+        .map(|e| format!("{}.{pid}.{ts}.tmp", e.to_string_lossy()))
+        .unwrap_or_else(|| format!("{pid}.{ts}.tmp"));
     let tmp = path.with_extension(ext);
     std::fs::write(&tmp, data)
         .map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path)
-        .map_err(|e| format!("Cannot rename {} -> {}: {e}", tmp.display(), path.display()))
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::fs::remove_file(path);
+    }
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Cannot rename {} -> {}: {e}", tmp.display(), path.display())
+    })
 }
 
 fn now_string() -> String {

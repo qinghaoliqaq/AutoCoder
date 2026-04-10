@@ -406,7 +406,17 @@ fn infer_review_passed(output: &str, findings: &[String]) -> bool {
         "NO BLOCKING ISSUES",
         "NO CRITICAL ISSUES FOUND",
     ];
-    let has_pass_signal = pass_signals.iter().any(|s| upper.contains(s));
+    // Check pass signals with negation awareness: skip the match if it is
+    // immediately preceded by "NOT " or "UN" to avoid false positives like
+    // "NOT APPROVED" matching APPROVED.
+    let has_pass_signal = pass_signals.iter().any(|s| {
+        if let Some(pos) = upper.find(s) {
+            let before = &upper[..pos];
+            !before.ends_with("NOT ") && !before.ends_with("UN")
+        } else {
+            false
+        }
+    });
 
     // Strong fail signals.
     let fail_signals = [
@@ -419,7 +429,14 @@ fn infer_review_passed(output: &str, findings: &[String]) -> bool {
         "CANNOT PASS",
         "REJECTED",
     ];
-    let has_fail_signal = fail_signals.iter().any(|s| upper.contains(s));
+    let has_fail_signal = fail_signals.iter().any(|s| {
+        if let Some(pos) = upper.find(s) {
+            let before = &upper[..pos];
+            !before.ends_with("NO ") && !before.ends_with("NOT ") && !before.ends_with("NEVER ")
+        } else {
+            false
+        }
+    });
 
     if has_fail_signal {
         return false;

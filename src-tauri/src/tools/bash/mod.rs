@@ -126,7 +126,6 @@ const READ_ONLY_PREFIXES: &[&str] = &[
     "gh issue status",
     "gh run view",
     "gh run list",
-    "gh api ",
     // Other safe commands
     "type ",
     "command -v ",
@@ -139,10 +138,6 @@ const READ_ONLY_PREFIXES: &[&str] = &[
     "uniq ",
     "cut ",
     "tr ",
-    "awk ",
-    "sed -n",
-    "sed -n ",
-    "xargs ",
     "diff ",
 ];
 
@@ -150,6 +145,16 @@ fn is_read_only_command(command: &str) -> bool {
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return true;
+    }
+    // If the command contains shell chaining operators, it could execute
+    // arbitrary commands after the initial read-only prefix. Reject it.
+    if trimmed.contains(';')
+        || trimmed.contains("&&")
+        || trimmed.contains("||")
+        || trimmed.contains('`')
+        || trimmed.contains("$(")
+    {
+        return false;
     }
     for prefix in READ_ONLY_PREFIXES {
         if trimmed.starts_with(prefix) || trimmed == prefix.trim() {

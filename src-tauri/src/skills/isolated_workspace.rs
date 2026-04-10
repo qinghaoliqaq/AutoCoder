@@ -332,7 +332,18 @@ fn collect_workspace_files(root: &Path, dir: &Path, files: &mut HashMap<PathBuf,
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
 
-        if path.is_dir() {
+        // Use entry.file_type() (lstat) instead of path.is_dir()/is_file()
+        // (stat) so we skip symlinks — consistent with copy_workspace_tree.
+        // Following symlinks here would snapshot files that were never copied
+        // into the isolated workspace, causing spurious "deleted" diffs.
+        let Ok(ft) = entry.file_type() else {
+            continue;
+        };
+        if ft.is_symlink() {
+            continue;
+        }
+
+        if ft.is_dir() {
             if should_skip_workspace_dir(&name) {
                 continue;
             }
@@ -340,7 +351,7 @@ fn collect_workspace_files(root: &Path, dir: &Path, files: &mut HashMap<PathBuf,
             continue;
         }
 
-        if !path.is_file() || should_skip_workspace_file(&name) {
+        if !ft.is_file() || should_skip_workspace_file(&name) {
             continue;
         }
 

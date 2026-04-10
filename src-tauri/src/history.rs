@@ -135,6 +135,11 @@ pub fn save_session(workspace: Option<String>, session: SessionJson) -> Result<(
         serde_json::to_string_pretty(&session).map_err(|e| format!("Serialize error: {e}"))?;
     let tmp_path = path.with_extension("json.tmp");
     std::fs::write(&tmp_path, &json).map_err(|e| format!("Write error: {e}"))?;
+    // On Windows, rename fails if the destination exists; remove it first.
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::fs::remove_file(&path);
+    }
     std::fs::rename(&tmp_path, &path).map_err(|e| format!("Rename error: {e}"))
 }
 

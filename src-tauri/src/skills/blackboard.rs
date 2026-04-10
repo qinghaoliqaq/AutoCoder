@@ -318,11 +318,21 @@ impl Blackboard {
         // Recalculate board state: Failed only if no subtask is still
         // Pending/InProgress/NeedsFix (i.e., all are Done or Failed, and
         // at least one Failed).
+        // A subtask is still "runnable" only if it is Pending/InProgress/NeedsFix
+        // AND all its dependencies are Done (not Failed).  Without this check,
+        // Pending subtasks whose dependency just failed would keep the board in
+        // InProgress forever (livelock) because they can never be scheduled.
+        let failed_ids: std::collections::HashSet<&str> = self
+            .subtasks
+            .iter()
+            .filter(|c| matches!(c.status, SubtaskState::Failed))
+            .map(|c| c.id.as_str())
+            .collect();
         let any_runnable = self.subtasks.iter().any(|c| {
             matches!(
                 c.status,
                 SubtaskState::Pending | SubtaskState::InProgress | SubtaskState::NeedsFix
-            )
+            ) && !c.depends_on.iter().any(|dep| failed_ids.contains(dep.as_str()))
         });
         if !any_runnable {
             self.state = BoardState::Failed;
@@ -466,17 +476,28 @@ fn now_string() -> String {
 /// Write data to a temp file then atomically rename, so concurrent readers
 /// never see partial content.
 fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
-    // Include original extension in temp name to avoid collision when
-    // persisting .json and .md files with the same stem sequentially.
+    // Use a unique temp file name (PID + timestamp) to avoid collisions when
+    // multiple threads persist concurrently.
+    let pid = std::process::id();
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
     let ext = path
         .extension()
-        .map(|e| format!("{}.tmp", e.to_string_lossy()))
-        .unwrap_or_else(|| "tmp".to_string());
+        .map(|e| format!("{}.{pid}.{ts}.tmp", e.to_string_lossy()))
+        .unwrap_or_else(|| format!("{pid}.{ts}.tmp"));
     let tmp = path.with_extension(ext);
     std::fs::write(&tmp, data)
         .map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path)
-        .map_err(|e| format!("Cannot rename {} → {}: {e}", tmp.display(), path.display()))
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::fs::remove_file(path);
+    }
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Cannot rename {} → {}: {e}", tmp.display(), path.display())
+    })
 }
 
 #[cfg(test)]
