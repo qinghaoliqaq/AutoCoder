@@ -102,8 +102,7 @@ impl Tool for ConfigTool {
     }
 
     fn scope(&self) -> ToolScope {
-        // Reads/writes .autocoder/config.json which is main-process
-        // session state — must not be forked into subtask workspaces.
+        // Reads/writes .autocoder/config.json — see ToolScope docs.
         ToolScope::Session
     }
 

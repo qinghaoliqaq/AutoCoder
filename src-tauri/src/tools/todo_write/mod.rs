@@ -67,8 +67,7 @@ impl Tool for TodoWriteTool {
     }
 
     fn scope(&self) -> ToolScope {
-        // Writes to .autocoder/todos.json which is main-process session
-        // state — must never run inside a forked subtask workspace.
+        // Writes .autocoder/todos.json — see ToolScope docs.
         ToolScope::Session
     }
 

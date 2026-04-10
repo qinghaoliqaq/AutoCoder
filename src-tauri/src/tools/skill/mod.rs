@@ -50,7 +50,11 @@ impl Tool for SkillTool {
     }
 
     fn is_read_only(&self, _input: &Value) -> bool {
-        false
+        // SkillTool.execute only looks up a bundled skill by name and
+        // returns its prompt text — no filesystem writes, no shell, no
+        // network.  Follow-up tool calls the model makes based on that
+        // prompt are gated by their own is_read_only checks.
+        true
     }
 
     async fn execute(&self, input: Value, _ctx: &ToolContext<'_>) -> ToolResult {

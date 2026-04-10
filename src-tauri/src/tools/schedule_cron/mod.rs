@@ -122,8 +122,7 @@ impl Tool for ScheduleCronTool {
     }
 
     fn scope(&self) -> ToolScope {
-        // Reads/writes .autocoder/cron.json which is main-process session
-        // state — must not be forked into subtask workspaces.
+        // Reads/writes .autocoder/cron.json — see ToolScope docs.
         ToolScope::Session
     }
 

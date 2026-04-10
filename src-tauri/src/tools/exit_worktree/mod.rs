@@ -4,7 +4,7 @@ pub mod prompt;
 ///
 /// Runs `git worktree remove <path>` in the workspace to remove a previously
 /// created worktree. This is a destructive operation.
-use super::{Tool, ToolContext, ToolResult};
+use super::{Tool, ToolContext, ToolResult, ToolScope};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
@@ -44,6 +44,14 @@ impl Tool for ExitWorktreeTool {
 
     fn is_destructive(&self, _input: &Value) -> bool {
         true
+    }
+
+    fn scope(&self) -> ToolScope {
+        // `git worktree remove` operates on the main repo's
+        // `.git/worktrees/` registry — see `EnterWorktreeTool::scope` for
+        // the full rationale.  A subtask calling this could delete a
+        // worktree created by a sibling subtask.
+        ToolScope::Session
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext<'_>) -> ToolResult {

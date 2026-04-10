@@ -107,30 +107,37 @@ pub struct ToolContext<'a> {
 ///
 /// The orchestrator forks the project workspace into isolated copies when
 /// running parallel subtasks, then 3-way-merges the results back on
-/// completion.  Tools that write to `.autocoder/` book-keeping files
-/// (`todos.json`, `config.json`, `cron.json`) are conceptually **session**
-/// state — they coordinate the orchestrator itself, not the user's project.
-/// If a forked subtask writes to them, two parallel subtasks end up with
-/// mutually incompatible versions and the merge engine reports spurious
-/// conflicts like:
+/// completion.  Some tools manage state that lives *outside* the project
+/// (todo lists, config, git worktree registry, scheduled jobs) — if two
+/// parallel subtasks touch that state they race and corrupt each other.
 ///
-/// ```text
-/// Subtask F15 hit merge conflicts after 5 attempts:
-/// Merge conflict on files already changed in the main workspace: .autocoder/todos.json
-/// ```
+/// Session-scoped tools are filtered from the tool schema exposed to
+/// subtasks AND are filtered from the read-only reviewer schema (the
+/// Codex path in plan mode has no business reading or writing
+/// orchestrator state).  They are additionally rejected at dispatch time
+/// as defense in depth, in case the model hallucinates a call to a tool
+/// it was never shown.
 ///
-/// Session-scoped tools are filtered out of the tool schema exposed to
-/// subtasks AND rejected by `ToolRegistry::execute` when called from a
-/// subtask context — defense in depth at both the schema and dispatch
-/// layers.
+/// See also `skills::isolated_workspace::should_skip_workspace_dir`,
+/// which excludes `.autocoder/` from the filesystem-level fork.  The two
+/// layers together mean: even if a future tool regresses (writes
+/// bookkeeping without marking itself Session, or marks itself Session
+/// but bypasses the exclude list), one of the two defenses still holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolScope {
     /// Operates on project files (Read, Write, Edit, Bash, Grep, …).
     /// Safe to run in an isolated subtask workspace.  This is the default.
     Workspace,
-    /// Manages main-process session state (TodoWrite, Config, ScheduleCron).
-    /// Must only run against the primary workspace, never a subtask fork.
+    /// Manages main-process or cross-workspace state (TodoWrite, Config,
+    /// ScheduleCron, EnterWorktree, ExitWorktree).  Must only run against
+    /// the primary workspace, never a subtask fork.
     Session,
+}
+
+impl ToolScope {
+    pub fn is_session(self) -> bool {
+        matches!(self, ToolScope::Session)
+    }
 }
 
 // ── Tool trait ───────────────────────────────────────────────────────────────
@@ -242,21 +249,15 @@ impl ToolRegistry {
 
     /// Generate tool definitions for the given wire format.
     ///
-    /// Filters apply additively:
-    ///
-    /// * `read_only` — when `true`, drops tools that cannot run in read-only
-    ///   mode (Bash, Write, Edit, TodoWrite, …).  Used by the Codex reviewer
-    ///   path in plan mode.
-    /// * `in_subtask` — when `true`, drops tools marked [`ToolScope::Session`]
-    ///   (TodoWrite, Config, ScheduleCron).  Used when the runner is
-    ///   dispatched into a subtask's isolated workspace copy — session
-    ///   tools would race with parallel subtasks on `.autocoder/` files
-    ///   and corrupt the merge-back step.
+    /// * `read_only` — drops tools that would mutate anything (shell,
+    ///   file writes, MCP calls).  Used by the Codex reviewer path.
+    /// * `in_subtask` — drops [`ToolScope::Session`] tools, which manage
+    ///   orchestrator state that parallel subtasks cannot safely share.
     pub fn definitions(&self, format: WireFormat, read_only: bool, in_subtask: bool) -> Vec<Value> {
         self.tools
             .iter()
             .filter_map(|t| {
-                if in_subtask && matches!(t.scope(), ToolScope::Session) {
+                if in_subtask && t.scope().is_session() {
                     return None;
                 }
                 if read_only {
@@ -275,12 +276,10 @@ impl ToolRegistry {
             .unwrap_or(false)
     }
 
-    /// Execute a tool by name.
-    ///
-    /// `in_subtask` must be `true` when dispatching inside a subtask's
-    /// isolated workspace copy; it causes session-scoped tools to be
-    /// rejected even if the model manages to call them despite the schema
-    /// filter in [`Self::definitions`].
+    /// Execute a tool by name.  `in_subtask` must be `true` when this
+    /// dispatch originates from inside a subtask's isolated workspace
+    /// copy — it's a defense-in-depth backstop to the schema filter in
+    /// [`Self::definitions`].
     pub async fn execute(
         &self,
         name: &str,
@@ -290,18 +289,11 @@ impl ToolRegistry {
     ) -> ToolResult {
         match self.get(name) {
             Some(tool) => {
-                // Scope enforcement (defense in depth — the schema filter
-                // in `definitions` already hides session tools from
-                // subtask models, but reject here too in case the model
-                // fabricates a call to a tool it wasn't shown).
-                if in_subtask && matches!(tool.scope(), ToolScope::Session) {
+                if in_subtask && tool.scope().is_session() {
                     return ToolResult::err(format!(
-                        "{name}: session-scoped tool cannot run inside a subtask \
-                         (it would race with parallel subtasks on main-process \
-                         book-keeping state — use it from the main orchestrator)"
+                        "{name}: session-scoped tool cannot run inside a subtask"
                     ));
                 }
-                // Read-only enforcement: reject write tools in read-only mode
                 if ctx.read_only && !tool.is_read_only(&input) {
                     return ToolResult::err(format!("{name}: blocked in read-only mode"));
                 }
@@ -386,24 +378,43 @@ fn tool_to_definition(tool: &dyn Tool, format: WireFormat) -> Value {
 }
 
 /// Convert a Tool to a read-only wire-format definition, if applicable.
-/// Returns None for tools that are inherently write-only.
+/// Returns None for tools that cannot safely run in a reviewer context.
 fn tool_to_read_only_definition(tool: &dyn Tool, format: WireFormat) -> Option<Value> {
-    let name = tool.name();
-    match name {
-        // Shell execution excluded in read-only mode
+    // Session-scoped tools (TodoWrite, Config, ScheduleCron,
+    // Enter/ExitWorktree) manage orchestrator state — a reviewer has no
+    // business touching them regardless of read-only semantics.  Single
+    // source of truth: the `scope()` method on each tool.
+    if tool.scope().is_session() {
+        return None;
+    }
+    match tool.name() {
+        // Shell execution — arbitrary side effects.
         "Bash" | "PowerShell" | "REPL" => None,
-        // Write/edit tools excluded
-        "Write" | "Edit" | "NotebookEdit" | "TodoWrite" => None,
-        // Mutating tools excluded in read-only
-        "EnterWorktree" | "ExitWorktree" | "ScheduleCron" | "McpAuth" | "Config" => None,
-        // Everything else is allowed (search, read, info tools)
+        // File writers.
+        "Write" | "Edit" | "NotebookEdit" => None,
+        // MCP servers may mutate; McpAuth writes credentials.  Both have
+        // `is_read_only: false` so dispatch would reject them anyway —
+        // drop them from the schema so the model never tries.
+        "MCP" | "McpAuth" => None,
+        // Everything else is read-safe (search, read, info, Skill, …).
         _ => Some(tool_to_definition(tool, format)),
     }
 }
 
 // ── Default registry builder ─────────────────────────────────────────────────
 
-/// Build the default tool registry with all tools.
+/// Lazily-initialized global registry shared by every run.  The registry
+/// is immutable and cheap to share by reference; avoids rebuilding 21
+/// `Box<dyn Tool>` allocations on every tool_runner invocation (plan mode
+/// hits this path ~10×).
+pub fn registry() -> &'static ToolRegistry {
+    use std::sync::OnceLock;
+    static REGISTRY: OnceLock<ToolRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(default_registry)
+}
+
+/// Build a fresh tool registry.  Used by `registry()` on first access,
+/// and directly by tests that need an independent copy.
 pub fn default_registry() -> ToolRegistry {
     let mut reg = ToolRegistry::new();
 
@@ -452,11 +463,7 @@ pub fn default_registry() -> ToolRegistry {
 const MAX_TOOL_CONCURRENCY: usize = 10;
 
 /// Execute tool calls with read-only batching (concurrent) and write (serial).
-///
-/// `in_subtask` must be `true` when this runner is dispatching inside a
-/// subtask's isolated workspace copy, so that session-scoped tools are
-/// rejected at dispatch time in addition to being filtered from the
-/// schema.  See [`ToolScope`] for details.
+/// `in_subtask` is threaded to [`ToolRegistry::execute`] for scope enforcement.
 pub async fn run_partitioned(
     registry: &ToolRegistry,
     tool_calls: &[(String, String, Value)],
@@ -669,38 +676,41 @@ mod tests {
 
     #[test]
     fn session_tools_are_marked_session_scope() {
-        // The three tools that write to .autocoder/ must all be Session-scoped
-        // so they get filtered out of subtask tool schemas.
-        assert_eq!(todo_write::TodoWriteTool.scope(), ToolScope::Session);
-        assert_eq!(config_tool::ConfigTool.scope(), ToolScope::Session);
-        assert_eq!(schedule_cron::ScheduleCronTool.scope(), ToolScope::Session);
+        // Every tool that touches orchestrator-level state must be
+        // Session-scoped so subtasks can't race on it.
+        assert!(todo_write::TodoWriteTool.scope().is_session());
+        assert!(config_tool::ConfigTool.scope().is_session());
+        assert!(schedule_cron::ScheduleCronTool.scope().is_session());
+        // Enter/ExitWorktree manipulate the main repo's .git/worktrees/
+        // registry even when invoked from inside an isolated workspace
+        // (git walks up to find .git) — they must also be Session.
+        assert!(enter_worktree::EnterWorktreeTool.scope().is_session());
+        assert!(exit_worktree::ExitWorktreeTool.scope().is_session());
+    }
+
+    /// Pull the list of tool names from a schema vector.
+    fn schema_names(defs: &[Value]) -> Vec<&str> {
+        defs.iter().filter_map(|d| d["name"].as_str()).collect()
     }
 
     #[test]
     fn definitions_hide_session_tools_from_subtasks() {
         let reg = default_registry();
-        let subtask_defs = reg.definitions(WireFormat::Anthropic, false, true);
+        let defs = reg.definitions(WireFormat::Anthropic, false, true);
+        let names = schema_names(&defs);
 
-        // Collect names from the generated schema
-        let names: Vec<&str> = subtask_defs
-            .iter()
-            .filter_map(|d| d["name"].as_str())
-            .collect();
-
-        assert!(
-            !names.contains(&"TodoWrite"),
-            "TodoWrite must be hidden from subtask schema"
-        );
-        assert!(
-            !names.contains(&"Config"),
-            "Config must be hidden from subtask schema"
-        );
-        assert!(
-            !names.contains(&"ScheduleCron"),
-            "ScheduleCron must be hidden from subtask schema"
-        );
-
-        // Workspace tools are still there
+        for hidden in [
+            "TodoWrite",
+            "Config",
+            "ScheduleCron",
+            "EnterWorktree",
+            "ExitWorktree",
+        ] {
+            assert!(
+                !names.contains(&hidden),
+                "{hidden} must be hidden from subtask schema"
+            );
+        }
         assert!(names.contains(&"Read"));
         assert!(names.contains(&"Bash"));
     }
@@ -708,17 +718,69 @@ mod tests {
     #[test]
     fn definitions_expose_session_tools_outside_subtasks() {
         let reg = default_registry();
-        let main_defs = reg.definitions(WireFormat::Anthropic, false, false);
-        let names: Vec<&str> = main_defs
-            .iter()
-            .filter_map(|d| d["name"].as_str())
-            .collect();
+        let defs = reg.definitions(WireFormat::Anthropic, false, false);
+        let names = schema_names(&defs);
 
-        // Main orchestrator sees session tools — that's the entire point,
-        // the main process is the owner of .autocoder/ state.
+        // Main orchestrator owns session state — it must see these.
         assert!(names.contains(&"TodoWrite"));
         assert!(names.contains(&"Config"));
         assert!(names.contains(&"ScheduleCron"));
+        assert!(names.contains(&"EnterWorktree"));
+    }
+
+    #[test]
+    fn read_only_schema_hides_session_tools_and_mcp() {
+        // read_only=true is the Codex reviewer path in plan mode.  It
+        // should see no writers, no session state, and no MCP (which can
+        // mutate via arbitrary external servers).
+        let reg = default_registry();
+        let defs = reg.definitions(WireFormat::Anthropic, true, false);
+        let names = schema_names(&defs);
+
+        // No writers / shells
+        for hidden in [
+            "Bash",
+            "Write",
+            "Edit",
+            "NotebookEdit",
+            "MCP",
+            "McpAuth",
+            "PowerShell",
+            "REPL",
+        ] {
+            assert!(
+                !names.contains(&hidden),
+                "{hidden} must be hidden from read-only schema"
+            );
+        }
+        // No session-state tools
+        for hidden in [
+            "TodoWrite",
+            "Config",
+            "ScheduleCron",
+            "EnterWorktree",
+            "ExitWorktree",
+        ] {
+            assert!(
+                !names.contains(&hidden),
+                "session tool {hidden} must be hidden from read-only schema"
+            );
+        }
+        // Read-style tools are exposed
+        assert!(names.contains(&"Read"));
+        assert!(names.contains(&"Grep"));
+        assert!(names.contains(&"Glob"));
+    }
+
+    #[test]
+    fn skill_tool_is_read_only_and_exposed_in_reviewer_schema() {
+        // Skill just returns bundled prompt text; no side effects.  The
+        // reviewer path should be allowed to inspect a skill's prompt.
+        assert!(skill::SkillTool.is_read_only(&json!({})));
+        let reg = default_registry();
+        let defs = reg.definitions(WireFormat::Anthropic, true, false);
+        let names = schema_names(&defs);
+        assert!(names.contains(&"Skill"));
     }
 
     #[tokio::test]

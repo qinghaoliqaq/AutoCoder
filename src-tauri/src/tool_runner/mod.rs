@@ -165,15 +165,10 @@ async fn run_inner(
 
     let workspace = canonicalize_workspace(cwd)?;
 
-    // Build tool registry and generate definitions for the wire format.
-    //
-    // `in_subtask` is true whenever this runner has been dispatched with a
-    // subtask_id, which means it is executing inside an isolated workspace
-    // copy.  Session-scoped tools (TodoWrite, Config, ScheduleCron) are
-    // filtered out in that case to prevent them from racing with parallel
-    // subtasks on `.autocoder/` book-keeping files.  See `tools::ToolScope`.
+    // `in_subtask` is true when this runner was dispatched with a
+    // subtask_id — see `tools::ToolScope` for what gets filtered.
     let in_subtask = subtask_id.is_some();
-    let registry = tools::default_registry();
+    let registry = tools::registry();
     let tool_defs = registry.definitions(provider.wire, read_only, in_subtask);
 
     // Build comprehensive system prompt:
@@ -205,7 +200,7 @@ async fn run_inner(
                 user_prompt,
                 &tool_defs,
                 &workspace,
-                &registry,
+                registry,
                 window_label,
                 app_handle,
                 token,
@@ -224,7 +219,7 @@ async fn run_inner(
                 user_prompt,
                 &tool_defs,
                 &workspace,
-                &registry,
+                registry,
                 window_label,
                 app_handle,
                 token,

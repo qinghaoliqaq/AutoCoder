@@ -4,7 +4,7 @@ pub mod prompt;
 ///
 /// Creates a new git worktree using `git worktree add` and reports the path
 /// and branch name. If no branch is specified, generates a timestamped name.
-use super::{Tool, ToolContext, ToolResult};
+use super::{Tool, ToolContext, ToolResult, ToolScope};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -44,6 +44,19 @@ impl Tool for EnterWorktreeTool {
 
     fn is_read_only(&self, _input: &Value) -> bool {
         false
+    }
+
+    fn scope(&self) -> ToolScope {
+        // `git worktree add` walks upward from the current directory to
+        // find `.git`.  When called from inside an isolated subtask
+        // workspace (`.ai-dev-hub/subtasks/<id>/attempt-N/`, which has no
+        // `.git` of its own — it's excluded from the fork), git finds the
+        // MAIN project repo's `.git` and registers the new worktree in
+        // `main_repo/.git/worktrees/`.  That leaks state outside the
+        // subtask's isolated copy and races with sibling subtasks that
+        // also call this tool.  Session-scope keeps it confined to the
+        // main orchestrator where there's exactly one caller.
+        ToolScope::Session
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext<'_>) -> ToolResult {
