@@ -116,12 +116,19 @@ export default function App() {
     }
   }, [toolLogs.length, activeSidebarTab]);
 
-  // Auto-show explorer when workspace opens
+  // Auto-show explorer when the workspace changes (open project, switch
+  // project).  Must NOT depend on `activeSidebarTab` — if it did, closing
+  // the sidebar would flip activeSidebarTab to null, re-trigger this
+  // effect, and immediately re-open the sidebar, making it impossible to
+  // dismiss while a workspace is loaded.  Track the workspace value we
+  // last reacted to and only fire on genuine transitions.
+  const lastExplorerWorkspaceRef = useRef<string | null>(null);
   useEffect(() => {
-    if (workspace && activeSidebarTab === null) {
+    if (workspace && workspace !== lastExplorerWorkspaceRef.current) {
+      lastExplorerWorkspaceRef.current = workspace;
       setActiveSidebarTab('explorer');
     }
-  }, [workspace, activeSidebarTab]);
+  }, [workspace]);
 
   // Keep project context bound to the workspace it came from so switching
   // projects does not silently reuse stale documentation.
