@@ -116,9 +116,7 @@ fn truncate_entrypoint(content: &str) -> String {
             .rev()
             .find(|&i| truncated.is_char_boundary(i))
             .unwrap_or(0);
-        let cut_at = truncated[..safe_end]
-            .rfind('\n')
-            .unwrap_or(safe_end);
+        let cut_at = truncated[..safe_end].rfind('\n').unwrap_or(safe_end);
         truncated.truncate(cut_at);
     }
 

@@ -20,16 +20,16 @@ mod code_events;
 mod code_prompts;
 mod debug;
 pub(crate) mod evidence;
-pub(crate) mod planning_schema;
-pub(crate) mod verifier;
 pub(crate) mod isolated_workspace;
 pub(crate) mod merge_engine;
 mod plan;
 mod plan_board;
+pub(crate) mod planning_schema;
 mod qa;
 mod review;
 pub(crate) mod test_skill;
 mod vendored;
+pub(crate) mod verifier;
 
 // ── Shared event payload types ─────────────────────────────────────────────────
 

@@ -80,8 +80,6 @@ export interface SkillRunnerDeps {
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   setWorkspace: React.Dispatch<React.SetStateAction<string | null>>;
   setIsStopping: React.Dispatch<React.SetStateAction<boolean>>;
-  isRunning: boolean;
-  isStopping: boolean;
 }
 
 export interface SkillRunnerActions {
@@ -110,7 +108,6 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     workspaceRef, projectContextRef, projectContextMetaRef, planReportRef, stopRequestedRef,
     addMessage, updateMessage,
     setCurrentMode, setToolLogs, setTokenUsages, setBlackboardEvents, setMessages, setWorkspace, setIsStopping,
-    isRunning, isStopping,
   } = deps;
 
   // ── Shared chunk listener builder ─────────────────────────────────────────

@@ -140,7 +140,10 @@ pub(crate) async fn run_build_gate(
         .any(|c| c.program.starts_with("npm") || c.program.starts_with("npx"));
     if needs_node && !workspace.join("node_modules").exists() {
         if token.is_cancelled() {
-            return BuildGateResult { passed: false, results: vec![] };
+            return BuildGateResult {
+                passed: false,
+                results: vec![],
+            };
         }
         if let Some(install_result) = ensure_node_deps(workspace).await {
             if !install_result.passed {
@@ -159,7 +162,10 @@ pub(crate) async fn run_build_gate(
         // Check cancellation before each build command so the user doesn't
         // have to wait up to BUILD_TIMEOUT_SECS (180s) per remaining command.
         if token.is_cancelled() {
-            return BuildGateResult { passed: false, results };
+            return BuildGateResult {
+                passed: false,
+                results,
+            };
         }
 
         let result = run_command(workspace, cmd).await;
@@ -192,9 +198,7 @@ async fn ensure_node_deps(workspace: &Path) -> Option<CommandResult> {
         ("pnpm", vec!["install"], "pnpm install")
     } else if workspace.join("yarn.lock").exists() {
         ("yarn", vec!["install"], "yarn install")
-    } else if workspace.join("bun.lockb").exists()
-        || workspace.join("bun.lock").exists()
-    {
+    } else if workspace.join("bun.lockb").exists() || workspace.join("bun.lock").exists() {
         ("bun", vec!["install"], "bun install")
     } else {
         ("npm", vec!["install"], "npm install")
@@ -214,7 +218,11 @@ async fn run_command(workspace: &Path, cmd: &BuildCommand) -> CommandResult {
     run_command_with_timeout(workspace, cmd, BUILD_TIMEOUT_SECS).await
 }
 
-async fn run_command_with_timeout(workspace: &Path, cmd: &BuildCommand, timeout_secs: u64) -> CommandResult {
+async fn run_command_with_timeout(
+    workspace: &Path,
+    cmd: &BuildCommand,
+    timeout_secs: u64,
+) -> CommandResult {
     let command_str = format!("{} {}", cmd.program, cmd.args.join(" "));
 
     // Use spawn() + kill_on_drop(true) instead of output() so that when

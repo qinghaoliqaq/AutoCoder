@@ -208,8 +208,8 @@ fn is_test_path(path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::super::blackboard::{SubtaskKind, SubtaskState};
     use super::*;
-    use super::blackboard::{SubtaskKind, SubtaskState};
 
     fn sample_card() -> SubtaskCard {
         SubtaskCard {

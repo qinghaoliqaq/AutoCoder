@@ -1,8 +1,3 @@
-use super::{
-    emit_skill_event,
-    plan_board::{PlanBoard, PlanBoardMode, PLAN_BOARD_MD},
-    record_skill_evidence,
-};
 /// Plan skill — shared-blackboard orchestration for both scratch planning and
 /// document-review planning.
 ///
@@ -11,6 +6,11 @@ use super::{
 use super::planning_schema::{
     parse_plan_acceptance, parse_plan_graph, validate_acceptance_matches_graph,
     validate_plan_quality, PLAN_ACCEPTANCE_JSON, PLAN_GRAPH_JSON,
+};
+use super::{
+    emit_skill_event,
+    plan_board::{PlanBoard, PlanBoardMode, PLAN_BOARD_MD},
+    record_skill_evidence,
 };
 use crate::{config::AppConfig, prompts::Prompts, tool_runner};
 use dirs;
@@ -63,7 +63,10 @@ pub(super) async fn run(
 
     let ws_path = create_plan_workspace_unique(&base_name)?;
     let ws_str = ws_path.to_string_lossy().into_owned();
-    let plan_path_str = ws_path.join(".ai-dev-hub/PLAN.md").to_string_lossy().into_owned();
+    let plan_path_str = ws_path
+        .join(".ai-dev-hub/PLAN.md")
+        .to_string_lossy()
+        .into_owned();
     let plan_graph_path_str = ws_path.join(PLAN_GRAPH_JSON).to_string_lossy().into_owned();
     let plan_acceptance_path_str = ws_path
         .join(PLAN_ACCEPTANCE_JSON)
@@ -120,7 +123,8 @@ pub(super) async fn run(
             .await?;
         }
 
-        validate_or_repair_plan_artifacts(task, &ws_path, config, window_label, app_handle, token).await
+        validate_or_repair_plan_artifacts(task, &ws_path, config, window_label, app_handle, token)
+            .await
     }
     .await;
 
@@ -193,9 +197,17 @@ async fn run_scratch_mode(
         &prompts.plan_claude,
         &[("task", task), ("plan_board_path", PLAN_BOARD_MD)],
     );
-    let proposals = tool_runner::run(config, sys_write, &r1, Some(ws_dir), window_label, app_handle, token.clone())
-        .await
-        .map_err(|err| stage_error("scratch_round_1_claude", "api", Some(ws_dir), &r1, err))?;
+    let proposals = tool_runner::run(
+        config,
+        sys_write,
+        &r1,
+        Some(ws_dir),
+        window_label,
+        app_handle,
+        token.clone(),
+    )
+    .await
+    .map_err(|err| stage_error("scratch_round_1_claude", "api", Some(ws_dir), &r1, err))?;
     board.set_round_1(proposals);
     board.persist(ws_dir)?;
     emit_skill_event(
@@ -216,18 +228,25 @@ async fn run_scratch_mode(
         &prompts.plan_codex,
         &[("task", task), ("plan_board_path", PLAN_BOARD_MD)],
     );
-    let evaluation =
-        tool_runner::run_read_only(config, sys_review, &r2, Some(ws_dir), window_label, app_handle, token.clone())
-            .await
-            .map_err(|err| {
-                stage_error(
-                    "scratch_round_2_review",
-                    "api_read_only",
-                    Some(ws_dir),
-                    &r2,
-                    err,
-                )
-            })?;
+    let evaluation = tool_runner::run_read_only(
+        config,
+        sys_review,
+        &r2,
+        Some(ws_dir),
+        window_label,
+        app_handle,
+        token.clone(),
+    )
+    .await
+    .map_err(|err| {
+        stage_error(
+            "scratch_round_2_review",
+            "api_read_only",
+            Some(ws_dir),
+            &r2,
+            err,
+        )
+    })?;
     board.set_round_2(evaluation);
     board.persist(ws_dir)?;
     emit_skill_event(
@@ -248,12 +267,17 @@ async fn run_scratch_mode(
         &prompts.plan_claude_response,
         &[("task", task), ("plan_board_path", PLAN_BOARD_MD)],
     );
-    let claude_rebuttal =
-        tool_runner::run(config, sys_write, &r3, Some(ws_dir), window_label, app_handle, token.clone())
-            .await
-            .map_err(|err| {
-                stage_error("scratch_round_3_claude", "api", Some(ws_dir), &r3, err)
-            })?;
+    let claude_rebuttal = tool_runner::run(
+        config,
+        sys_write,
+        &r3,
+        Some(ws_dir),
+        window_label,
+        app_handle,
+        token.clone(),
+    )
+    .await
+    .map_err(|err| stage_error("scratch_round_3_claude", "api", Some(ws_dir), &r3, err))?;
     board.set_round_3(claude_rebuttal);
     board.persist(ws_dir)?;
     emit_skill_event(
@@ -274,18 +298,25 @@ async fn run_scratch_mode(
         &prompts.plan_codex_final,
         &[("task", task), ("plan_board_path", PLAN_BOARD_MD)],
     );
-    let verdict =
-        tool_runner::run_read_only(config, sys_review, &r4, Some(ws_dir), window_label, app_handle, token.clone())
-            .await
-            .map_err(|err| {
-                stage_error(
-                    "scratch_round_4_review",
-                    "api_read_only",
-                    Some(ws_dir),
-                    &r4,
-                    err,
-                )
-            })?;
+    let verdict = tool_runner::run_read_only(
+        config,
+        sys_review,
+        &r4,
+        Some(ws_dir),
+        window_label,
+        app_handle,
+        token.clone(),
+    )
+    .await
+    .map_err(|err| {
+        stage_error(
+            "scratch_round_4_review",
+            "api_read_only",
+            Some(ws_dir),
+            &r4,
+            err,
+        )
+    })?;
     board.set_round_4(verdict);
     board.persist(ws_dir)?;
     emit_skill_event(
@@ -312,9 +343,17 @@ async fn run_scratch_mode(
             ("plan_board_path", PLAN_BOARD_MD),
         ],
     );
-    tool_runner::run(config, sys_write, &r5, Some(ws_dir), window_label, app_handle, token.clone())
-        .await
-        .map_err(|err| stage_error("scratch_synthesis", "api", Some(ws_dir), &r5, err))
+    tool_runner::run(
+        config,
+        sys_write,
+        &r5,
+        Some(ws_dir),
+        window_label,
+        app_handle,
+        token.clone(),
+    )
+    .await
+    .map_err(|err| stage_error("scratch_synthesis", "api", Some(ws_dir), &r5, err))
 }
 
 async fn run_review_mode(
@@ -330,7 +369,8 @@ async fn run_review_mode(
     app_handle: &tauri::AppHandle,
     token: CancellationToken,
 ) -> Result<String, String> {
-    let sys_write = "You are a senior software architect reviewing a document and creating a plan. \
+    let sys_write =
+        "You are a senior software architect reviewing a document and creating a plan. \
                      Use the editor and bash tools to read and write plan files.";
     let sys_review = "You are an independent reviewer evaluating a document review plan. \
                       Read the plan blackboard and provide your assessment. \
@@ -353,12 +393,17 @@ async fn run_review_mode(
             ("plan_board_path", PLAN_BOARD_MD),
         ],
     );
-    let claude_analysis =
-        tool_runner::run(config, sys_write, &r1, Some(ws_dir), window_label, app_handle, token.clone())
-            .await
-            .map_err(|err| {
-                stage_error("review_round_1", "api", Some(ws_dir), &r1, err)
-            })?;
+    let claude_analysis = tool_runner::run(
+        config,
+        sys_write,
+        &r1,
+        Some(ws_dir),
+        window_label,
+        app_handle,
+        token.clone(),
+    )
+    .await
+    .map_err(|err| stage_error("review_round_1", "api", Some(ws_dir), &r1, err))?;
     board.set_round_1(claude_analysis);
     board.persist(ws_dir)?;
     emit_skill_event(
@@ -383,18 +428,17 @@ async fn run_review_mode(
             ("plan_board_path", PLAN_BOARD_MD),
         ],
     );
-    let review_analysis =
-        tool_runner::run_read_only(config, sys_review, &r2, Some(ws_dir), window_label, app_handle, token.clone())
-            .await
-            .map_err(|err| {
-                stage_error(
-                    "review_round_2",
-                    "api_read_only",
-                    Some(ws_dir),
-                    &r2,
-                    err,
-                )
-            })?;
+    let review_analysis = tool_runner::run_read_only(
+        config,
+        sys_review,
+        &r2,
+        Some(ws_dir),
+        window_label,
+        app_handle,
+        token.clone(),
+    )
+    .await
+    .map_err(|err| stage_error("review_round_2", "api_read_only", Some(ws_dir), &r2, err))?;
     board.set_round_2(review_analysis);
     board.persist(ws_dir)?;
     emit_skill_event(
@@ -419,9 +463,17 @@ async fn run_review_mode(
             ("plan_board_path", PLAN_BOARD_MD),
         ],
     );
-    let change_list = tool_runner::run(config, sys_write, &r3, Some(ws_dir), window_label, app_handle, token.clone())
-        .await
-        .map_err(|err| stage_error("review_round_3", "api", Some(ws_dir), &r3, err))?;
+    let change_list = tool_runner::run(
+        config,
+        sys_write,
+        &r3,
+        Some(ws_dir),
+        window_label,
+        app_handle,
+        token.clone(),
+    )
+    .await
+    .map_err(|err| stage_error("review_round_3", "api", Some(ws_dir), &r3, err))?;
     board.set_round_3(change_list);
     board.persist(ws_dir)?;
     emit_skill_event(
@@ -446,18 +498,17 @@ async fn run_review_mode(
             ("plan_board_path", PLAN_BOARD_MD),
         ],
     );
-    let final_changes =
-        tool_runner::run_read_only(config, sys_review, &r4, Some(ws_dir), window_label, app_handle, token.clone())
-            .await
-            .map_err(|err| {
-                stage_error(
-                    "review_round_4",
-                    "api_read_only",
-                    Some(ws_dir),
-                    &r4,
-                    err,
-                )
-            })?;
+    let final_changes = tool_runner::run_read_only(
+        config,
+        sys_review,
+        &r4,
+        Some(ws_dir),
+        window_label,
+        app_handle,
+        token.clone(),
+    )
+    .await
+    .map_err(|err| stage_error("review_round_4", "api_read_only", Some(ws_dir), &r4, err))?;
     board.set_round_4(final_changes);
     board.persist(ws_dir)?;
     emit_skill_event(
@@ -485,9 +536,17 @@ async fn run_review_mode(
             ("plan_board_path", PLAN_BOARD_MD),
         ],
     );
-    tool_runner::run(config, sys_write, &r5, Some(ws_dir), window_label, app_handle, token.clone())
-        .await
-        .map_err(|err| stage_error("review_synthesis", "api", Some(ws_dir), &r5, err))
+    tool_runner::run(
+        config,
+        sys_write,
+        &r5,
+        Some(ws_dir),
+        window_label,
+        app_handle,
+        token.clone(),
+    )
+    .await
+    .map_err(|err| stage_error("review_synthesis", "api", Some(ws_dir), &r5, err))
 }
 
 async fn validate_or_repair_plan_artifacts(

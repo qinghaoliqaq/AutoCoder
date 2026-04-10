@@ -79,9 +79,8 @@ pub(crate) fn create_isolated_workspace(
     if base_dir.exists() {
         std::fs::remove_dir_all(&base_dir).ok();
     }
-    std::fs::create_dir_all(&base_dir).map_err(|e| {
-        format!("Cannot create base dir {}: {e}", base_dir.display())
-    })?;
+    std::fs::create_dir_all(&base_dir)
+        .map_err(|e| format!("Cannot create base dir {}: {e}", base_dir.display()))?;
     copy_workspace_tree(&attempt_root, &base_dir, &attempt_root)?;
 
     Ok(IsolatedWorkspace {
@@ -144,9 +143,7 @@ pub(crate) fn cleanup_orphaned_workspaces(workspace: &str, active_roots: &[Strin
                 }
             }
             // Only clean up attempt-N, base-N, and merge-staging directories.
-            if name.starts_with("attempt-")
-                || name.starts_with("base-")
-                || name == "merge-staging"
+            if name.starts_with("attempt-") || name.starts_with("base-") || name == "merge-staging"
             {
                 if let Ok(meta) = std::fs::metadata(&path) {
                     if meta.is_dir() {
@@ -229,7 +226,13 @@ pub(crate) fn sync_coordination_files(
     // persist()/tick_plan_checkbox() calls can make any of these files
     // transiently unreadable.
     let critical = [BLACKBOARD_JSON];
-    let supplementary = [PLAN_MD, PLAN_BOARD_MD, PLAN_BOARD_JSON, PLAN_GRAPH_JSON, BLACKBOARD_MD];
+    let supplementary = [
+        PLAN_MD,
+        PLAN_BOARD_MD,
+        PLAN_BOARD_JSON,
+        PLAN_GRAPH_JSON,
+        BLACKBOARD_MD,
+    ];
 
     for relative in critical {
         let source = Path::new(main_workspace).join(relative);
@@ -242,7 +245,11 @@ pub(crate) fn sync_coordination_files(
                 .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
         }
         std::fs::copy(&source, &target).map_err(|e| {
-            format!("Cannot sync {} -> {}: {e}", source.display(), target.display())
+            format!(
+                "Cannot sync {} -> {}: {e}",
+                source.display(),
+                target.display()
+            )
         })?;
     }
 
@@ -282,7 +289,8 @@ fn copy_workspace_tree(
 
         // Use entry.file_type() (lstat) instead of path.is_dir()/is_file()
         // to avoid following symlinks, which could escape the workspace sandbox.
-        let ft = entry.file_type()
+        let ft = entry
+            .file_type()
             .map_err(|e| format!("Cannot stat {}: {e}", path.display()))?;
 
         if ft.is_symlink() {
@@ -507,10 +515,7 @@ pub(crate) fn should_skip_workspace_file(name: &str) -> bool {
         || lower.starts_with(".env.")
         || matches!(
             lower.as_str(),
-            ".pypirc"
-                | ".netrc"
-                | "service-account.json"
-                | "credentials.json"
+            ".pypirc" | ".netrc" | "service-account.json" | "credentials.json"
         )
         || lower.ends_with(".pem")
         || lower.ends_with(".key")
@@ -534,6 +539,7 @@ mod tests {
                 PathBuf::from("a.txt"),
                 FileFingerprint {
                     len: 1,
+                    content_checksum: 0xa1,
                     modified_unix_nanos: 1,
                 },
             ),
@@ -541,6 +547,7 @@ mod tests {
                 PathBuf::from("b.txt"),
                 FileFingerprint {
                     len: 1,
+                    content_checksum: 0xb1,
                     modified_unix_nanos: 1,
                 },
             ),
@@ -550,6 +557,7 @@ mod tests {
                 PathBuf::from("a.txt"),
                 FileFingerprint {
                     len: 2,
+                    content_checksum: 0xa2,
                     modified_unix_nanos: 2,
                 },
             ),
@@ -557,6 +565,7 @@ mod tests {
                 PathBuf::from("c.txt"),
                 FileFingerprint {
                     len: 3,
+                    content_checksum: 0xc1,
                     modified_unix_nanos: 3,
                 },
             ),

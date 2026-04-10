@@ -1,6 +1,6 @@
 use super::blackboard::{SubtaskCard, SubtaskKind};
-use crate::bundled_skills;
 use super::planning_schema::SuggestedSkill;
+use crate::bundled_skills;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum VendoredSkillId {

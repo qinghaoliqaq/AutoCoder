@@ -1,3 +1,4 @@
+use super::planning_schema::read_plan_acceptance_lenient;
 /// Code skill — per-subtask implementation loop driven by a shared blackboard.
 ///
 /// Orchestrates: scheduling → isolated workspace → Claude implement → verifier
@@ -29,7 +30,6 @@ use super::{
     vendored::{load as load_vendored_skill, select_for_subtask},
 };
 use super::{evidence, planning_schema::SubtaskAcceptance, verifier};
-use super::planning_schema::read_plan_acceptance_lenient;
 use crate::{config::AppConfig, prompts::Prompts, tool_runner};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -229,7 +229,10 @@ pub(super) async fn run(
                 window_label,
                 Some(subtask_id.clone()),
                 "subtask_failed",
-                format!("Subtask {} failed: {err}. Other subtasks continue.", subtask_id),
+                format!(
+                    "Subtask {} failed: {err}. Other subtasks continue.",
+                    subtask_id
+                ),
             );
         }
     };
@@ -478,10 +481,7 @@ async fn run_subtask(
                 // the subtask is InProgress in memory.  Mark it failed so the
                 // scheduler detects it instead of a silent deadlock.
                 let _ = mutate_board(&ctx.board, workspace, |board| {
-                    board.mark_failed(
-                        &subtask_id,
-                        format!("begin_attempt failed: {e}"),
-                    )
+                    board.mark_failed(&subtask_id, format!("begin_attempt failed: {e}"))
                 })
                 .await;
                 return Err(e);
@@ -495,55 +495,55 @@ async fn run_subtask(
         // so we can clean it up if setup fails.
         let reuse_root = reuse_isolated.as_ref().map(|ws| ws.root.clone());
         let reuse_base = reuse_isolated.as_ref().map(|ws| ws.base_dir.clone());
-        let isolated = match setup_isolated_workspace(
-            &ctx,
-            &subtask_id,
-            attempt,
-            reuse_isolated.take(),
-        )
-        .await
-        {
-            Ok(iso) => iso,
-            Err(e) => {
-                // The previous workspace was consumed by .take() but setup
-                // failed — clean up the old directories to prevent disk leaks.
-                if let Some(root) = &reuse_root {
-                    let _ = cleanup_isolated_workspace(root);
-                }
-                if let Some(base) = &reuse_base {
-                    let _ = cleanup_isolated_workspace(base);
-                }
-                // Setup failed — remove from active set so the scheduler
-                // doesn't think we're still running.
-                let _ = mutate_board(&ctx.board, workspace, |board| {
-                    board.finish_active_subtask(&subtask_id);
-                    Ok(())
-                })
-                .await;
-                if attempt < MAX_SUBTASK_ATTEMPTS {
-                    tracing::warn!(
-                        subtask = %subtask_id,
-                        attempt,
-                        "Workspace setup failed, will retry fresh: {e}"
-                    );
-                    // Clear stale review findings — same rationale as the
-                    // transient error path: fresh workspace + fix prompt = confusion.
+        let isolated =
+            match setup_isolated_workspace(&ctx, &subtask_id, attempt, reuse_isolated.take()).await
+            {
+                Ok(iso) => iso,
+                Err(e) => {
+                    // The previous workspace was consumed by .take() but setup
+                    // failed — clean up the old directories to prevent disk leaks.
+                    if let Some(root) = &reuse_root {
+                        let _ = cleanup_isolated_workspace(root);
+                    }
+                    if let Some(base) = &reuse_base {
+                        let _ = cleanup_isolated_workspace(base);
+                    }
+                    // Setup failed — remove from active set so the scheduler
+                    // doesn't think we're still running.
                     let _ = mutate_board(&ctx.board, workspace, |board| {
-                        let card = board.subtask_mut(&subtask_id)?;
-                        card.review_findings.clear();
-                        card.merge_conflict = None;
+                        board.finish_active_subtask(&subtask_id);
                         Ok(())
                     })
                     .await;
-                    continue;
+                    if attempt < MAX_SUBTASK_ATTEMPTS {
+                        tracing::warn!(
+                            subtask = %subtask_id,
+                            attempt,
+                            "Workspace setup failed, will retry fresh: {e}"
+                        );
+                        // Clear stale review findings — same rationale as the
+                        // transient error path: fresh workspace + fix prompt = confusion.
+                        let _ = mutate_board(&ctx.board, workspace, |board| {
+                            let card = board.subtask_mut(&subtask_id)?;
+                            card.review_findings.clear();
+                            card.merge_conflict = None;
+                            Ok(())
+                        })
+                        .await;
+                        continue;
+                    }
+                    let _ = mutate_board(&ctx.board, workspace, |board| {
+                        board.mark_failed(
+                            &subtask_id,
+                            format!(
+                                "Workspace setup failed after {MAX_SUBTASK_ATTEMPTS} attempts: {e}"
+                            ),
+                        )
+                    })
+                    .await;
+                    return Err(e);
                 }
-                let _ = mutate_board(&ctx.board, workspace, |board| {
-                    board.mark_failed(&subtask_id, format!("Workspace setup failed after {MAX_SUBTASK_ATTEMPTS} attempts: {e}"))
-                })
-                .await;
-                return Err(e);
-            }
-        };
+            };
 
         let attempt_result = run_single_attempt(&ctx, &subtask_id, attempt, &isolated).await;
 
@@ -652,7 +652,10 @@ async fn run_subtask(
                 // Failed so the scheduler can detect it (instead of leaving
                 // the subtask stuck in InProgress which blocks dependents).
                 let _ = mutate_board(&ctx.board, workspace, |board| {
-                    board.mark_failed(&subtask_id, format!("Exhausted {MAX_SUBTASK_ATTEMPTS} attempts: {e}"))
+                    board.mark_failed(
+                        &subtask_id,
+                        format!("Exhausted {MAX_SUBTASK_ATTEMPTS} attempts: {e}"),
+                    )
                 })
                 .await;
                 return Err(e);

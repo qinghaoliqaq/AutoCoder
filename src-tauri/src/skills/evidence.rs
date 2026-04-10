@@ -1,7 +1,7 @@
-use super::planning_schema::{PLAN_ACCEPTANCE_JSON, PLAN_GRAPH_JSON};
 use super::blackboard::{
     Blackboard, BoardState, SubtaskCard, SubtaskKind, SubtaskState, BLACKBOARD_JSON, BLACKBOARD_MD,
 };
+use super::planning_schema::{PLAN_ACCEPTANCE_JSON, PLAN_GRAPH_JSON};
 use super::verifier::VERIFIER_RESULT_JSON;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -764,7 +764,10 @@ fn collect_verifier_archive_artifacts(workspace: &str, subtask_id: &str) -> Vec<
 }
 
 fn is_coordination_artifact(path: &str) -> bool {
-    matches!(path, BLACKBOARD_JSON | BLACKBOARD_MD | ".ai-dev-hub/PLAN.md")
+    matches!(
+        path,
+        BLACKBOARD_JSON | BLACKBOARD_MD | ".ai-dev-hub/PLAN.md"
+    )
 }
 
 fn collect_project_artifacts(workspace: &str) -> Vec<String> {
@@ -827,8 +830,8 @@ fn subtask_kind_label(kind: &SubtaskKind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use super::super::blackboard::{BoardState, SubtaskCard, SubtaskKind, SubtaskState};
     use super::*;
-    use super::blackboard::{BoardState, SubtaskCard, SubtaskKind, SubtaskState};
 
     fn sample_board() -> Blackboard {
         Blackboard {
@@ -918,7 +921,10 @@ mod tests {
         let artifacts = collect_project_artifacts(dir.path().to_str().unwrap());
         assert_eq!(
             artifacts,
-            vec![".ai-dev-hub/PLAN.md".to_string(), ".ai-dev-hub/bugs.md".to_string()]
+            vec![
+                ".ai-dev-hub/PLAN.md".to_string(),
+                ".ai-dev-hub/bugs.md".to_string()
+            ]
         );
     }
 

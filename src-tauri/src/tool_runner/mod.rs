@@ -1,5 +1,4 @@
 mod anthropic;
-mod openai;
 /// Tool-use agent loop — modular architecture.
 ///
 /// ```text
@@ -14,11 +13,12 @@ mod openai;
 /// Tool definitions and execution are now provided by the `crate::tools` module.
 /// The tool_runner only handles the API loop and event emission.
 pub(crate) mod errors;
+mod openai;
 pub mod providers;
 mod system_prompt;
 
 use crate::config::AppConfig;
-use crate::skills::{SkillChunk, ToolLog, TokenUsage};
+use crate::skills::{SkillChunk, TokenUsage, ToolLog};
 use crate::tools::{self, ToolRegistry};
 use providers::{ProviderConfig, WireFormat};
 use reqwest::Client;

@@ -1,3 +1,4 @@
+use super::evidence::{self, EvidenceEvent};
 /// Review skill — static analysis pipeline.
 ///
 /// Phases (run sequentially by the frontend):
@@ -13,7 +14,6 @@
 /// Each phase emits "review-phase-result" when it finishes.
 use super::ReviewPhaseResult;
 use crate::config::AppConfig;
-use super::evidence::{self, EvidenceEvent};
 use crate::prompts::Prompts;
 use crate::tool_runner;
 use chrono::Utc;
@@ -153,7 +153,15 @@ pub(super) async fn run_phase(
             let codex_prompt = super::inject_context(context, codex_prompt);
 
             let (claude_result, codex_result) = tokio::join!(
-                tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone()),
+                tool_runner::run(
+                    config,
+                    sys_write,
+                    &prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone()
+                ),
                 tool_runner::run_read_only(
                     config,
                     sys_review,
@@ -198,7 +206,10 @@ pub(super) async fn run_phase(
             // Read change.log to get the exact files Claude created/modified.
             // Deduplicate so each file is processed once.
             let change_log_content = workspace
-                .map(|ws| std::fs::read_to_string(format!("{ws}/.ai-dev-hub/change.log")).unwrap_or_default())
+                .map(|ws| {
+                    std::fs::read_to_string(format!("{ws}/.ai-dev-hub/change.log"))
+                        .unwrap_or_default()
+                })
                 .unwrap_or_default();
 
             let file_list = build_cleanup_file_list(&change_log_content);
@@ -244,15 +255,26 @@ pub(super) async fn run_phase(
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(
-                &tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
-                    .await?,
+                &tool_runner::run(
+                    config,
+                    sys_write,
+                    &prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone(),
+                )
+                .await?,
             )
         }
 
         // ── Design review — visual consistency and UI quality ────────────
         "design_review" => {
             let file_list = workspace
-                .map(|ws| std::fs::read_to_string(format!("{ws}/.ai-dev-hub/change.log")).unwrap_or_default())
+                .map(|ws| {
+                    std::fs::read_to_string(format!("{ws}/.ai-dev-hub/change.log"))
+                        .unwrap_or_default()
+                })
                 .unwrap_or_default();
             let file_list = build_cleanup_file_list(&file_list);
             let ui_files: Vec<&str> = file_list
@@ -301,8 +323,16 @@ pub(super) async fn run_phase(
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(
-                &tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
-                    .await?,
+                &tool_runner::run(
+                    config,
+                    sys_write,
+                    &prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone(),
+                )
+                .await?,
             )
         }
 
@@ -346,7 +376,10 @@ pub(super) async fn run_phase(
 
 fn artifacts_for_review_phase(phase: &str) -> Vec<String> {
     match phase {
-        "plan_check" => vec![".ai-dev-hub/PLAN.md".to_string(), ".ai-dev-hub/BLACKBOARD.json".to_string()],
+        "plan_check" => vec![
+            ".ai-dev-hub/PLAN.md".to_string(),
+            ".ai-dev-hub/BLACKBOARD.json".to_string(),
+        ],
         "security" => vec![".ai-dev-hub/security.md".to_string()],
         "specialist_review" => vec![".ai-dev-hub/change.log".to_string()],
         "design_review" => vec![".ai-dev-hub/change.log".to_string()],
@@ -501,7 +534,11 @@ async fn run_specialist_review(
                     all_passed = false;
                     let summary = if let Some(pos) = output.rfind("SPECIALIST_VERDICT:FAIL:") {
                         let rest = &output[pos + "SPECIALIST_VERDICT:FAIL:".len()..];
-                        rest.lines().next().unwrap_or("issues found").trim().to_string()
+                        rest.lines()
+                            .next()
+                            .unwrap_or("issues found")
+                            .trim()
+                            .to_string()
                     } else {
                         "issues found".to_string()
                     };
@@ -598,7 +635,15 @@ fn parse_result(text: &str) -> (bool, String) {
     // Only search the last 20 lines for the marker to avoid matching
     // [RESULT:PASS] / [RESULT:FAIL:...] that appears inside code blocks,
     // quoted examples, or echoed prompt instructions earlier in the output.
-    let tail: String = text.lines().rev().take(20).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+    let tail: String = text
+        .lines()
+        .rev()
+        .take(20)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n");
     let text = &tail;
     if let Some(pos) = text.rfind("[RESULT:") {
         let suffix = &text[pos..];

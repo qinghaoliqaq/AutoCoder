@@ -365,16 +365,19 @@ mod tests {
         let attempts = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
         let attempts_clone = attempts.clone();
 
-        let result = with_retry(move || {
-            let a = attempts_clone.clone();
-            async move {
-                a.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                Err::<(), _>(AppError::Api {
-                    status: 400,
-                    body: "bad".into(),
-                })
-            }
-        }, None)
+        let result = with_retry(
+            move || {
+                let a = attempts_clone.clone();
+                async move {
+                    a.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Err::<(), _>(AppError::Api {
+                        status: 400,
+                        body: "bad".into(),
+                    })
+                }
+            },
+            None,
+        )
         .await;
 
         assert!(result.is_err());

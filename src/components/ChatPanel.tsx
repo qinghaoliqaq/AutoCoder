@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { AnimatedMessageIcon, AnimatedFolderIcon, AnimatedSparklesIcon } from './icons/AnimatedIcons';
 import { ChatMessage, AgentRole, ToolLog } from '../types';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import { InlineToolCallGroup } from './InlineToolCall';
@@ -99,7 +99,7 @@ function ReportCard({ content }: { content: string }) {
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Clean up the timeout on unmount to avoid a React state-update warning.
   useEffect(() => () => clearTimeout(timerRef.current), []);
@@ -126,8 +126,8 @@ function CopyButton({ text }: { text: string }) {
 
 // ── Markdown components for better rendering ─────────────────────────────────
 
-const markdownComponents = {
-  pre: ({ children }: { children: React.ReactNode }) => {
+const markdownComponents: Components = {
+  pre: ({ children }) => {
     const codeText = extractText(children);
     return (
       <div className="group relative my-2.5">
@@ -138,18 +138,18 @@ const markdownComponents = {
       </div>
     );
   },
-  table: ({ children }: { children: React.ReactNode }) => (
+  table: ({ children }) => (
     <div className="my-2.5 overflow-x-auto rounded-lg border border-edge-primary/50">
       <table className="w-full text-[12px]">{children}</table>
     </div>
   ),
-  thead: ({ children }: { children: React.ReactNode }) => (
+  thead: ({ children }) => (
     <thead className="bg-surface-tertiary/50 text-content-secondary">{children}</thead>
   ),
-  th: ({ children }: { children: React.ReactNode }) => (
+  th: ({ children }) => (
     <th className="px-3 py-1.5 text-left text-[11px] font-semibold border-b border-edge-primary/40">{children}</th>
   ),
-  td: ({ children }: { children: React.ReactNode }) => (
+  td: ({ children }) => (
     <td className="px-3 py-1.5 border-b border-edge-primary/20 text-content-primary">{children}</td>
   ),
   hr: () => (

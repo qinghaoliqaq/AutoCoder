@@ -1,4 +1,3 @@
-use super::{ReviewPhaseResult, ToolLog};
 /// Test skill — full integration test pipeline.
 ///
 /// Phases (orchestrated by the frontend runTest()):
@@ -16,6 +15,7 @@ use super::{ReviewPhaseResult, ToolLog};
 /// The "document" phase additionally emits "completion-report" with the full markdown.
 use super::evidence::{self, EvidenceEvent};
 use super::planning_schema::{read_plan_acceptance_lenient, PLAN_ACCEPTANCE_JSON};
+use super::{ReviewPhaseResult, ToolLog};
 use crate::{config::AppConfig, tool_runner};
 use chrono::Utc;
 use tauri::{Emitter, EventTarget};
@@ -233,8 +233,16 @@ pub(super) async fn run_phase(
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(
-                &tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
-                    .await?,
+                &tool_runner::run(
+                    config,
+                    sys_write,
+                    &prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone(),
+                )
+                .await?,
             )
         }
 
@@ -378,8 +386,16 @@ pub(super) async fn run_phase(
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(
-                &tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
-                    .await?,
+                &tool_runner::run(
+                    config,
+                    sys_write,
+                    &prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone(),
+                )
+                .await?,
             )
         }
 
@@ -408,8 +424,16 @@ pub(super) async fn run_phase(
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(
-                &tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
-                    .await?,
+                &tool_runner::run(
+                    config,
+                    sys_write,
+                    &prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone(),
+                )
+                .await?,
             )
         }
 
@@ -428,8 +452,16 @@ pub(super) async fn run_phase(
             );
             let prompt = super::inject_context(context, prompt);
             parse_result(
-                &tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
-                    .await?,
+                &tool_runner::run(
+                    config,
+                    sys_write,
+                    &prompt,
+                    workspace,
+                    window_label,
+                    app_handle,
+                    token.clone(),
+                )
+                .await?,
             )
         }
 
@@ -492,9 +524,16 @@ pub(super) async fn run_phase(
 
             // Run agent — it writes the report to disk, text output is just [RESULT:PASS]
             let prompt = super::inject_context(context, prompt);
-            let result_line =
-                tool_runner::run(config, sys_write, &prompt, workspace, window_label, app_handle, token.clone())
-                    .await?;
+            let result_line = tool_runner::run(
+                config,
+                sys_write,
+                &prompt,
+                workspace,
+                window_label,
+                app_handle,
+                token.clone(),
+            )
+            .await?;
 
             // Read the file Claude wrote; fall back to empty if somehow not written
             let report_content = std::fs::read_to_string(&report_path).unwrap_or_default();
@@ -567,7 +606,10 @@ fn emit_acceptance_warning_log(
 
 fn artifacts_for_test_phase(phase: &str) -> Vec<String> {
     match phase {
-        "gen_test_plan" => vec![".ai-dev-hub/test.md".to_string(), ".ai-dev-hub/PLAN.md".to_string()],
+        "gen_test_plan" => vec![
+            ".ai-dev-hub/test.md".to_string(),
+            ".ai-dev-hub/PLAN.md".to_string(),
+        ],
         "frontend_test" | "integration_test" | "fix" | "codex_fix" => {
             vec!["test.md".to_string(), "bugs.md".to_string()]
         }

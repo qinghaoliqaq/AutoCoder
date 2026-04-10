@@ -79,7 +79,6 @@ impl SkillRegistry {
             .map(|s| (s.slug, s.label, s.description, s.category))
             .collect()
     }
-
 }
 
 /// Build the default skill registry with all bundled skills.

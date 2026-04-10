@@ -278,7 +278,10 @@ impl AppConfig {
                 match toml::from_str::<Self>(&content) {
                     Ok(cfg) => return Some(cfg),
                     Err(e) => {
-                        tracing::warn!("Config file {} has invalid TOML, skipping: {e}", path.display());
+                        tracing::warn!(
+                            "Config file {} has invalid TOML, skipping: {e}",
+                            path.display()
+                        );
                     }
                 }
             }
@@ -321,11 +324,10 @@ impl AppConfig {
             if !name.is_empty() {
                 let info = crate::tool_runner::providers::provider_info(&name);
                 cfg.director.provider = name;
-                cfg.director.api_format =
-                    match info.wire {
-                        crate::tool_runner::providers::WireFormat::Anthropic => ApiFormat::Anthropic,
-                        crate::tool_runner::providers::WireFormat::OpenAI => ApiFormat::OpenAI,
-                    };
+                cfg.director.api_format = match info.wire {
+                    crate::tool_runner::providers::WireFormat::Anthropic => ApiFormat::Anthropic,
+                    crate::tool_runner::providers::WireFormat::OpenAI => ApiFormat::OpenAI,
+                };
             }
         }
 
@@ -445,7 +447,11 @@ impl AppConfig {
         // the user leaves those fields blank.
         let provider = {
             let p = draft.director_provider.trim().to_lowercase();
-            if p.is_empty() { "openai".to_string() } else { p }
+            if p.is_empty() {
+                "openai".to_string()
+            } else {
+                p
+            }
         };
         let info = crate::tool_runner::providers::provider_info(&provider);
         let base_url = if base_url_raw.is_empty() {
@@ -593,7 +599,12 @@ fn clamp_parallel_subtasks(value: usize) -> usize {
 }
 
 fn normalize_agent_config(agent: &mut AgentConfig) {
-    normalize_agent_identity(&mut agent.provider, &mut agent.base_url, &mut agent.model, None);
+    normalize_agent_identity(
+        &mut agent.provider,
+        &mut agent.base_url,
+        &mut agent.model,
+        None,
+    );
     let fallback_provider = if agent.second_provider.trim().is_empty() {
         Some(agent.provider.as_str())
     } else {

@@ -397,7 +397,6 @@ export default function App() {
     workspaceRef, projectContextRef, projectContextMetaRef, planReportRef, stopRequestedRef,
     addMessage, updateMessage,
     setCurrentMode, setToolLogs, setTokenUsages, setBlackboardEvents, setMessages, setWorkspace, setIsStopping,
-    isRunning, isStopping,
   });
 
   const handleOpenProject = useCallback(async () => {

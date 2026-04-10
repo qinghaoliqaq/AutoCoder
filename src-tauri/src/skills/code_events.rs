@@ -3,11 +3,11 @@
 /// Responsible for emitting Tauri events (blackboard-updated, tool-log)
 /// and recording evidence entries.
 use super::blackboard::{BLACKBOARD_JSON, BLACKBOARD_MD};
-use super::vendored::VendoredSkill;
-use super::{BlackboardEvent, ToolLog};
 use super::evidence::{self, EvidenceEvent};
-use crate::skills::blackboard::SubtaskCard;
+use super::vendored::VendoredSkill;
 use super::verifier::VERIFIER_RESULT_JSON;
+use super::{BlackboardEvent, ToolLog};
+use crate::skills::blackboard::SubtaskCard;
 use tauri::{Emitter, EventTarget};
 
 pub(super) fn emit_blackboard(

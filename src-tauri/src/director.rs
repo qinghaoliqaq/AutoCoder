@@ -344,11 +344,7 @@ pub(crate) fn reactive_compact(
     compacted.extend_from_slice(&history[keep_from..]);
 
     // Ensure the first message is a user message (Anthropic API requirement).
-    if compacted
-        .first()
-        .and_then(|m| m["role"].as_str())
-        != Some("user")
-    {
+    if compacted.first().and_then(|m| m["role"].as_str()) != Some("user") {
         compacted.insert(
             0,
             json!({ "role": "user", "content": "[System] Continuing conversation." }),

@@ -4,8 +4,8 @@
 /// no Tauri dependencies.  They construct the prompts sent to Claude/Codex
 /// and parse the structured markers they return.
 use super::blackboard::{SubtaskCard, BLACKBOARD_MD};
-use super::vendored::VendoredSkill;
 use super::planning_schema::SubtaskAcceptance;
+use super::vendored::VendoredSkill;
 use super::verifier::VERIFIER_RESULT_JSON;
 
 // ── Prompt builders ───────────────────────────────────────────────────────
@@ -470,9 +470,7 @@ fn extract_marker_line(output: &str, prefix: &str) -> Option<String> {
 fn extract_list_after_header(output: &str, header: &str) -> Vec<String> {
     let lines: Vec<&str> = output.lines().collect();
     // Find the LAST occurrence of the header.
-    let header_idx = lines
-        .iter()
-        .rposition(|line| line.trim() == header);
+    let header_idx = lines.iter().rposition(|line| line.trim() == header);
     let Some(header_idx) = header_idx else {
         return Vec::new();
     };
@@ -680,10 +678,14 @@ mod tests {
     #[test]
     fn parse_review_report_no_marker_no_signal_with_findings_defaults_to_fail() {
         // No signal words but has actionable findings → fail.
-        let output = "The code has issues.\nREVIEW_FINDINGS:\n- Missing error handling in auth module\n";
+        let output =
+            "The code has issues.\nREVIEW_FINDINGS:\n- Missing error handling in auth module\n";
         let report = parse_review_report(output);
         assert!(!report.passed);
-        assert_eq!(report.findings, vec!["Missing error handling in auth module"]);
+        assert_eq!(
+            report.findings,
+            vec!["Missing error handling in auth module"]
+        );
     }
 
     #[test]

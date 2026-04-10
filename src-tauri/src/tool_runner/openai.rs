@@ -1,3 +1,4 @@
+use super::errors::{self, AppError};
 /// OpenAI-compatible Chat Completions API loop with SSE streaming.
 ///
 /// POST /chat/completions with Bearer token and `stream: true`.
@@ -9,7 +10,6 @@ use super::{
     emit_chunk, emit_token_usage, emit_tool_log, CONTEXT_BUDGET_TOKENS, MAX_LOOP_ITERATIONS,
     MAX_RESPONSE_TOKENS, PRUNE_THRESHOLD,
 };
-use super::errors::{self, AppError};
 use crate::tools::{self, ToolRegistry};
 use futures_util::StreamExt;
 use reqwest::Client;
@@ -182,29 +182,32 @@ async fn stream_response(
         let api_key = api_key.to_string();
         let body = body.clone();
 
-        errors::with_retry(|| {
-            let client = client.clone();
-            let endpoint = endpoint.clone();
-            let api_key = api_key.clone();
-            let body = body.clone();
-            async move {
-                let resp = client
-                    .post(&endpoint)
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", format!("Bearer {api_key}"))
-                    .json(&body)
-                    .send()
-                    .await
-                    .map_err(AppError::from)?;
+        errors::with_retry(
+            || {
+                let client = client.clone();
+                let endpoint = endpoint.clone();
+                let api_key = api_key.clone();
+                let body = body.clone();
+                async move {
+                    let resp = client
+                        .post(&endpoint)
+                        .header("Content-Type", "application/json")
+                        .header("Authorization", format!("Bearer {api_key}"))
+                        .json(&body)
+                        .send()
+                        .await
+                        .map_err(AppError::from)?;
 
-                let status = resp.status().as_u16();
-                if !resp.status().is_success() {
-                    let text = resp.text().await.unwrap_or_default();
-                    return Err(AppError::from_api_status(status, text));
+                    let status = resp.status().as_u16();
+                    if !resp.status().is_success() {
+                        let text = resp.text().await.unwrap_or_default();
+                        return Err(AppError::from_api_status(status, text));
+                    }
+                    Ok(resp)
                 }
-                Ok(resp)
-            }
-        }, Some(token))
+            },
+            Some(token),
+        )
         .await
         .map_err(|e| e.to_string())?
     };
@@ -332,5 +335,11 @@ async fn stream_response(
         }
     }
 
-    Ok((finish_reason, content_text, tool_calls, input_tokens, output_tokens))
+    Ok((
+        finish_reason,
+        content_text,
+        tool_calls,
+        input_tokens,
+        output_tokens,
+    ))
 }

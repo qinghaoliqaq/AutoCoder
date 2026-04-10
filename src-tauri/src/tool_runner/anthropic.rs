@@ -1,3 +1,4 @@
+use super::errors::{self, AppError};
 /// Anthropic Messages API loop with SSE streaming.
 ///
 /// POST /messages with x-api-key header and `stream: true`.
@@ -7,7 +8,6 @@ use super::{
     emit_chunk, emit_token_usage, emit_tool_log, CONTEXT_BUDGET_TOKENS, MAX_LOOP_ITERATIONS,
     MAX_RESPONSE_TOKENS, PRUNE_THRESHOLD,
 };
-use super::errors::{self, AppError};
 use crate::tools::{self, ToolRegistry};
 use futures_util::StreamExt;
 use reqwest::Client;
@@ -110,9 +110,7 @@ pub async fn run_loop(
                 // alternation starting with "user".  If pruning left the
                 // messages in an invalid state (e.g. two consecutive roles),
                 // drop messages from the front until alternation is restored.
-                while messages.len() > 1
-                    && messages[0]["role"].as_str() != Some("user")
-                {
+                while messages.len() > 1 && messages[0]["role"].as_str() != Some("user") {
                     messages.remove(0);
                 }
             }
@@ -145,30 +143,33 @@ async fn stream_response(
         let api_key = api_key.to_string();
         let body = body.clone();
 
-        errors::with_retry(|| {
-            let client = client.clone();
-            let endpoint = endpoint.clone();
-            let api_key = api_key.clone();
-            let body = body.clone();
-            async move {
-                let resp = client
-                    .post(&endpoint)
-                    .header("Content-Type", "application/json")
-                    .header("x-api-key", &api_key)
-                    .header("anthropic-version", "2023-06-01")
-                    .json(&body)
-                    .send()
-                    .await
-                    .map_err(AppError::from)?;
+        errors::with_retry(
+            || {
+                let client = client.clone();
+                let endpoint = endpoint.clone();
+                let api_key = api_key.clone();
+                let body = body.clone();
+                async move {
+                    let resp = client
+                        .post(&endpoint)
+                        .header("Content-Type", "application/json")
+                        .header("x-api-key", &api_key)
+                        .header("anthropic-version", "2023-06-01")
+                        .json(&body)
+                        .send()
+                        .await
+                        .map_err(AppError::from)?;
 
-                let status = resp.status().as_u16();
-                if !resp.status().is_success() {
-                    let text = resp.text().await.unwrap_or_default();
-                    return Err(AppError::from_api_status(status, text));
+                    let status = resp.status().as_u16();
+                    if !resp.status().is_success() {
+                        let text = resp.text().await.unwrap_or_default();
+                        return Err(AppError::from_api_status(status, text));
+                    }
+                    Ok(resp)
                 }
-                Ok(resp)
-            }
-        }, Some(token))
+            },
+            Some(token),
+        )
         .await
         .map_err(|e| e.to_string())?
     };

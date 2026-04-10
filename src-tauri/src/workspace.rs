@@ -58,7 +58,9 @@ pub fn create_workspace(task: String, dir_name: Option<String>) -> Result<String
         }
     }
 
-    Err(format!("Cannot create workspace: too many '{base_name}' directories"))
+    Err(format!(
+        "Cannot create workspace: too many '{base_name}' directories"
+    ))
 }
 
 /// Scan a workspace directory for documentation files and return their concatenated content.
@@ -153,7 +155,14 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
                 .unwrap_or(99)
         });
         for (name, full_path) in root_files {
-            try_add(name, &full_path, &mut seen, &mut filenames, &mut parts, &mut total);
+            try_add(
+                name,
+                &full_path,
+                &mut seen,
+                &mut filenames,
+                &mut parts,
+                &mut total,
+            );
         }
     }
 
@@ -181,7 +190,14 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
                 .collect();
             doc_files.sort_by(|a, b| a.0.cmp(&b.0));
             for (rel, full_path) in doc_files {
-                try_add(rel, &full_path, &mut seen, &mut filenames, &mut parts, &mut total);
+                try_add(
+                    rel,
+                    &full_path,
+                    &mut seen,
+                    &mut filenames,
+                    &mut parts,
+                    &mut total,
+                );
             }
         }
     }
@@ -426,9 +442,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(
-            err.contains("traversal") || err.contains("resolve")
-        );
+        assert!(err.contains("traversal") || err.contains("resolve"));
     }
 
     #[test]

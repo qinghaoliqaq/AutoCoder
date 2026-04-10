@@ -168,7 +168,10 @@ impl Tool for WebFetchTool {
 }
 
 /// Read the response body up to `limit` bytes using streaming to avoid OOM.
-async fn read_limited_body(mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>, String> {
+async fn read_limited_body(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<Vec<u8>, String> {
     let mut buf = Vec::new();
     while let Some(chunk) = response
         .chunk()

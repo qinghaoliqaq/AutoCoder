@@ -155,7 +155,9 @@ fn subtask_kind_from_category(category: &SubtaskCategory, id: &str) -> SubtaskKi
                 SubtaskKind::Feature
             }
         }
-        SubtaskCategory::Infra | SubtaskCategory::Docs | SubtaskCategory::Other => SubtaskKind::Task,
+        SubtaskCategory::Infra | SubtaskCategory::Docs | SubtaskCategory::Other => {
+            SubtaskKind::Task
+        }
     }
 }
 
@@ -200,7 +202,8 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
-            dir.path().join(super::planning_schema::PLAN_GRAPH_JSON),
+            dir.path()
+                .join(super::super::planning_schema::PLAN_GRAPH_JSON),
             r#"{
                 "version": 1,
                 "project_name": "Hiring Hub",
@@ -241,7 +244,7 @@ mod tests {
         assert!(!board.subtasks[1].can_run_in_parallel);
         assert_eq!(
             board.subtasks[1].suggested_skill,
-            Some(super::planning_schema::SuggestedSkill::FrontendDev)
+            Some(super::super::planning_schema::SuggestedSkill::FrontendDev)
         );
     }
 }

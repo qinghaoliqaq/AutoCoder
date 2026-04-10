@@ -264,7 +264,8 @@ impl Blackboard {
                         .push(format!("Attempt {}: {}", card.attempts, impl_summary));
                     // Cap to last 10 entries to prevent unbounded growth across retries.
                     if card.attempted_fixes.len() > 10 {
-                        card.attempted_fixes.drain(..card.attempted_fixes.len() - 10);
+                        card.attempted_fixes
+                            .drain(..card.attempted_fixes.len() - 10);
                     }
                 }
             }
@@ -306,7 +307,8 @@ impl Blackboard {
         // Cap attempted_fixes to prevent unbounded growth across restarts
         // (record_review already caps at 10; apply same limit here).
         if card.attempted_fixes.len() > 10 {
-            card.attempted_fixes.drain(..card.attempted_fixes.len() - 10);
+            card.attempted_fixes
+                .drain(..card.attempted_fixes.len() - 10);
         }
         card.latest_review = Some(summary);
         card.review_findings = findings;
@@ -345,7 +347,10 @@ impl Blackboard {
             matches!(
                 c.status,
                 SubtaskState::Pending | SubtaskState::InProgress | SubtaskState::NeedsFix
-            ) && !c.depends_on.iter().any(|dep| failed_ids.contains(dep.as_str()))
+            ) && !c
+                .depends_on
+                .iter()
+                .any(|dep| failed_ids.contains(dep.as_str()))
         });
         if !any_runnable {
             self.state = BoardState::Failed;
@@ -426,7 +431,10 @@ pub(crate) fn sanitize_persisted_state(workspace: &str) -> Result<(), String> {
     let content = match std::fs::read_to_string(&json_path) {
         Ok(c) => c,
         Err(e) => {
-            tracing::warn!("Cannot read {} (removing corrupt file): {e}", json_path.display());
+            tracing::warn!(
+                "Cannot read {} (removing corrupt file): {e}",
+                json_path.display()
+            );
             let _ = std::fs::remove_file(&json_path);
             return Ok(());
         }
@@ -434,7 +442,10 @@ pub(crate) fn sanitize_persisted_state(workspace: &str) -> Result<(), String> {
     let mut board = match serde_json::from_str::<Blackboard>(&content) {
         Ok(b) => b,
         Err(e) => {
-            tracing::warn!("Cannot parse {} (removing corrupt file): {e}", json_path.display());
+            tracing::warn!(
+                "Cannot parse {} (removing corrupt file): {e}",
+                json_path.display()
+            );
             let _ = std::fs::remove_file(&json_path);
             return Ok(());
         }
@@ -462,10 +473,7 @@ pub(crate) fn tick_plan_checkbox(workspace: &str, subtask_id: &str) -> Result<()
     let mut lines = Vec::new();
 
     for line in content.lines() {
-        if !changed
-            && line.contains(&target)
-            && line.trim_start().starts_with("- [ ]")
-        {
+        if !changed && line.contains(&target) && line.trim_start().starts_with("- [ ]") {
             // Only match unchecked boxes ("- [ ]"), not already-checked
             // ("- [x]").  This prevents unnecessary rewrites and avoids
             // matching the wrong line when IDs share a prefix.
@@ -501,8 +509,7 @@ fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
         .map(|e| format!("{}.{pid}.{ts}.tmp", e.to_string_lossy()))
         .unwrap_or_else(|| format!("{pid}.{ts}.tmp"));
     let tmp = path.with_extension(ext);
-    std::fs::write(&tmp, data)
-        .map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
+    std::fs::write(&tmp, data).map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
     #[cfg(target_os = "windows")]
     {
         let _ = std::fs::remove_file(path);

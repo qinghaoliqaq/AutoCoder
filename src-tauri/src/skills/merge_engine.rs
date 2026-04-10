@@ -12,7 +12,9 @@
 /// On recovery (`recover_pending_merges`), pending journals are detected
 /// and completed — preventing the double-merge corruption that would
 /// otherwise occur when a subtask re-implements on an already-merged workspace.
-use super::isolated_workspace::{snapshot_workspace, workspace_changes, IsolatedWorkspace, SCRATCH_ROOT_DIR};
+use super::isolated_workspace::{
+    snapshot_workspace, workspace_changes, IsolatedWorkspace, SCRATCH_ROOT_DIR,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -78,7 +80,10 @@ pub(crate) fn recover_pending_merges(workspace: &str) -> Vec<String> {
         // journal's staging_dir field (defense against tampered journals).
         let staging = subtask_dir.join("merge-staging");
         if !staging.exists() {
-            tracing::warn!("Staging dir missing for journal {} — removing stale journal", journal_path.display());
+            tracing::warn!(
+                "Staging dir missing for journal {} — removing stale journal",
+                journal_path.display()
+            );
             let _ = std::fs::remove_file(&journal_path);
             continue;
         }
@@ -220,12 +225,15 @@ pub(crate) fn merge_isolated_workspace(
         for conflict_path in &conflicts {
             let path = Path::new(conflict_path);
             let base_content = read_base_content(&isolated.base_dir, path);
-            let main_content =
-                std::fs::read_to_string(main_root.join(path)).unwrap_or_default();
+            let main_content = std::fs::read_to_string(main_root.join(path)).unwrap_or_default();
             let ours_content =
                 std::fs::read_to_string(isolated.root.join(path)).unwrap_or_default();
             detail.push_str(&format!("--- {conflict_path} ---\n"));
-            detail.push_str(&summarize_conflict(&base_content, &main_content, &ours_content));
+            detail.push_str(&summarize_conflict(
+                &base_content,
+                &main_content,
+                &ours_content,
+            ));
             detail.push('\n');
         }
         return Err(detail);
@@ -240,10 +248,7 @@ pub(crate) fn merge_isolated_workspace(
 
     // Derive subtask scratch dir from the isolated root path
     // (e.g., .../subtasks/F1/attempt-1 → .../subtasks/F1/).
-    let subtask_scratch = isolated
-        .root
-        .parent()
-        .unwrap_or(&isolated.root);
+    let subtask_scratch = isolated.root.parent().unwrap_or(&isolated.root);
     let staging_dir = subtask_scratch.join("merge-staging");
     if staging_dir.exists() {
         let _ = std::fs::remove_dir_all(&staging_dir);
@@ -276,7 +281,11 @@ pub(crate) fn merge_isolated_workspace(
                 .map_err(|e| format!("Cannot create staging subdir {}: {e}", parent.display()))?;
         }
         std::fs::copy(&source, &staged).map_err(|e| {
-            format!("Cannot stage {} -> {}: {e}", source.display(), staged.display())
+            format!(
+                "Cannot stage {} -> {}: {e}",
+                source.display(),
+                staged.display()
+            )
         })?;
         touched.push(path.to_string_lossy().into_owned());
     }
@@ -316,10 +325,18 @@ pub(crate) fn merge_isolated_workspace(
         .map_err(|e| format!("Cannot serialize merge journal: {e}"))?;
     // Atomic write: tmp + rename to prevent corrupt journal on crash.
     let journal_tmp = journal_path.with_extension("tmp");
-    std::fs::write(&journal_tmp, &journal_json)
-        .map_err(|e| format!("Cannot write merge journal tmp {}: {e}", journal_tmp.display()))?;
-    std::fs::rename(&journal_tmp, &journal_path)
-        .map_err(|e| format!("Cannot rename merge journal {}: {e}", journal_path.display()))?;
+    std::fs::write(&journal_tmp, &journal_json).map_err(|e| {
+        format!(
+            "Cannot write merge journal tmp {}: {e}",
+            journal_tmp.display()
+        )
+    })?;
+    std::fs::rename(&journal_tmp, &journal_path).map_err(|e| {
+        format!(
+            "Cannot rename merge journal {}: {e}",
+            journal_path.display()
+        )
+    })?;
 
     // ── Apply from staging to main workspace ───────────────────────────
     for relative in &touched {

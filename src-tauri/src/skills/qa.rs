@@ -1,6 +1,6 @@
-use super::{QaResult, ToolLog};
 use super::evidence::{self, read_evidence_index, EvidenceEvent, EVIDENCE_INDEX_JSON};
 use super::planning_schema::{read_plan_acceptance_lenient, PLAN_ACCEPTANCE_JSON};
+use super::{QaResult, ToolLog};
 use crate::{config::AppConfig, prompts::Prompts, tool_runner};
 use chrono::Utc;
 use tauri::{Emitter, EventTarget};
@@ -160,10 +160,9 @@ fn parse_qa_result(text: &str, health_score: u32) -> Result<QaResult, String> {
     // The LLM may get truncated or fail to emit markers; crashing the
     // entire QA phase with no actionable feedback is worse than returning
     // a conservative FAIL verdict.
-    let verdict = extract_marker_value(text, "QA_VERDICT")
-        .unwrap_or_else(|| "FAIL".to_string());
-    let recommended_next_step = extract_marker_value(text, "QA_NEXT")
-        .unwrap_or_else(|| "review".to_string());
+    let verdict = extract_marker_value(text, "QA_VERDICT").unwrap_or_else(|| "FAIL".to_string());
+    let recommended_next_step =
+        extract_marker_value(text, "QA_NEXT").unwrap_or_else(|| "review".to_string());
     let summary = extract_marker_value(text, "QA_SUMMARY")
         .unwrap_or_else(|| "QA markers missing from output — defaulting to FAIL.".to_string());
     let issue = extract_marker_value(text, "QA_ISSUE")
@@ -238,12 +237,7 @@ fn extract_marker_value(text: &str, name: &str) -> Option<String> {
             // Use strip_suffix to remove exactly one trailing ']' instead of
             // trim_end_matches which strips ALL trailing brackets, corrupting
             // values that contain bracket characters (e.g. Array[T]).
-            return Some(
-                rest.strip_suffix(']')
-                    .unwrap_or(rest)
-                    .trim()
-                    .to_string(),
-            );
+            return Some(rest.strip_suffix(']').unwrap_or(rest).trim().to_string());
         }
     }
     None

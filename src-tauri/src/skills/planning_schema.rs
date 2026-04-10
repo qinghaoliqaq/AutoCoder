@@ -448,7 +448,14 @@ fn check_sequential_bottleneck(graph: &PlanGraph, warnings: &mut Vec<String>) {
     let max_depth = graph
         .subtasks
         .iter()
-        .map(|s| chain_depth(s.id.as_str(), &by_id, &mut depth_cache, graph.subtasks.len()))
+        .map(|s| {
+            chain_depth(
+                s.id.as_str(),
+                &by_id,
+                &mut depth_cache,
+                graph.subtasks.len(),
+            )
+        })
         .max()
         .unwrap_or(0);
 

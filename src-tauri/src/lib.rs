@@ -62,7 +62,11 @@ fn detect_tools(state: tauri::State<'_, AppState>) -> SystemStatus {
 
 #[tauri::command]
 fn get_config(state: tauri::State<'_, AppState>) -> ConfigStatus {
-    state.config.read().unwrap_or_else(|e| e.into_inner()).status()
+    state
+        .config
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .status()
 }
 
 #[tauri::command]
@@ -110,12 +114,19 @@ async fn director_chat(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let config = state.config.read().unwrap_or_else(|e| e.into_inner()).clone();
+    let config = state
+        .config
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     let window_label = window.label().to_string();
     info!(window = %window_label, "director chat started");
     let token = CancellationToken::new();
     {
-        let mut tokens = state.cancel_tokens.lock().unwrap_or_else(|e| e.into_inner());
+        let mut tokens = state
+            .cancel_tokens
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         tokens.insert(window_label.clone(), token.clone());
     }
     let result = chat_with_director(
@@ -128,7 +139,11 @@ async fn director_chat(
         token,
     )
     .await;
-    state.cancel_tokens.lock().unwrap_or_else(|e| e.into_inner()).remove(&window_label);
+    state
+        .cancel_tokens
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&window_label);
     match &result {
         Err(e) if e == "cancelled" => info!("director chat cancelled"),
         Err(e) => warn!(error = %e, "director chat failed"),
@@ -178,13 +193,20 @@ async fn run_skill(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), SkillError> {
-    let config = state.config.read().unwrap_or_else(|e| e.into_inner()).clone();
+    let config = state
+        .config
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     let window_label = window.label().to_string();
     info!(mode = %mode, phase = ?phase, window = %window_label, "skill started");
     // Create a fresh cancellation token for this run, replacing any previous one.
     let token = CancellationToken::new();
     {
-        let mut tokens = state.cancel_tokens.lock().unwrap_or_else(|e| e.into_inner());
+        let mut tokens = state
+            .cancel_tokens
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         tokens.insert(window_label.clone(), token.clone());
     }
     if mode == "test" {
@@ -211,9 +233,17 @@ async fn run_skill(
     )
     .await;
     // Remove token after run completes (cancelled or finished normally).
-    state.cancel_tokens.lock().unwrap_or_else(|e| e.into_inner()).remove(&window_label);
+    state
+        .cancel_tokens
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&window_label);
     if mode == "test" && (result.is_err() || phase.as_deref() == Some("document")) {
-        let cleanup_workspace = state.test_workspaces.lock().unwrap_or_else(|e| e.into_inner()).remove(&window_label);
+        let cleanup_workspace = state
+            .test_workspaces
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&window_label);
         let _ = skills::test_skill::cleanup_runtime_for_window(
             &window_label,
             cleanup_workspace.as_deref(),
@@ -230,8 +260,12 @@ async fn run_skill(
 #[tauri::command]
 fn cancel_skill(window: tauri::WebviewWindow, state: tauri::State<'_, AppState>) {
     let window_label = window.label();
-    let token = state.cancel_tokens.lock().unwrap_or_else(|e| e.into_inner())
-        .get(window_label).cloned();
+    let token = state
+        .cancel_tokens
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(window_label)
+        .cloned();
     if let Some(token) = token {
         token.cancel();
     }
@@ -272,9 +306,7 @@ async fn write_bug_report(
         std::path::PathBuf::from(ws).join("bugs.md")
     } else {
         dirs::desktop_dir()
-            .unwrap_or_else(|| {
-                dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."))
-            })
+            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from(".")))
             .join("bugs.md")
     };
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -356,14 +388,17 @@ fn resolve_agent_provider(
     base_url: String,
     model: String,
 ) -> ResolvedProviderInfo {
-    providers::ProviderConfig::from_fields(&provider, &api_key, &base_url, &model).to_resolved_info()
+    providers::ProviderConfig::from_fields(&provider, &api_key, &base_url, &model)
+        .to_resolved_info()
 }
-
 
 fn truncate_error(text: &str) -> String {
     if text.len() > 200 {
         // Find a char boundary at or before byte 200 to avoid panic on multi-byte UTF-8.
-        let end = (0..=200).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0);
+        let end = (0..=200)
+            .rev()
+            .find(|&i| text.is_char_boundary(i))
+            .unwrap_or(0);
         format!("{}...", &text[..end])
     } else {
         text.to_string()
@@ -386,7 +421,10 @@ async fn send_test_request(provider: &providers::ProviderConfig) -> Result<Strin
 
     let request = match provider.wire {
         providers::WireFormat::Anthropic => client
-            .post(format!("{}/messages", provider.base_url.trim_end_matches('/')))
+            .post(format!(
+                "{}/messages",
+                provider.base_url.trim_end_matches('/')
+            ))
             .header("x-api-key", &provider.api_key)
             .header("anthropic-version", "2023-06-01"),
         providers::WireFormat::OpenAI => client

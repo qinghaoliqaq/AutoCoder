@@ -138,8 +138,7 @@ fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
         .map(|e| format!("{}.{pid}.{ts}.tmp", e.to_string_lossy()))
         .unwrap_or_else(|| format!("{pid}.{ts}.tmp"));
     let tmp = path.with_extension(ext);
-    std::fs::write(&tmp, data)
-        .map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
+    std::fs::write(&tmp, data).map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
     #[cfg(target_os = "windows")]
     {
         let _ = std::fs::remove_file(path);
