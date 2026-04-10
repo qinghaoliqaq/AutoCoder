@@ -258,13 +258,59 @@ pub fn build_memory_prompt(workspace: Option<&str>, task_hint: &str) -> Option<S
 
 // ── Writing ─────────────────────────────────────────────────────────────────
 
+/// Write `data` to `path` using a temp-file + rename, so a crash mid-write
+/// cannot truncate or corrupt the existing file on disk.
+fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let pid = std::process::id();
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let ext = path
+        .extension()
+        .map(|e| format!("{}.{pid}.{ts}.tmp", e.to_string_lossy()))
+        .unwrap_or_else(|| format!("{pid}.{ts}.tmp"));
+    let tmp = path.with_extension(ext);
+    if let Err(e) = std::fs::write(&tmp, data) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::fs::remove_file(path);
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
+}
+
 /// Append a line to MEMORY.md. Creates the file/directory if needed.
+///
+/// Reads the existing file with explicit NotFound handling — any *other*
+/// read error (EACCES, EINTR, transient filesystem issue) is surfaced as
+/// an error instead of silently being treated as "empty file". The previous
+/// implementation used `unwrap_or_default()` here, which meant a single
+/// transient read error would cause the subsequent write to overwrite the
+/// entire MEMORY.md file with just the new line, destroying everything the
+/// user had accumulated.
 pub fn append_to_entrypoint(workspace: Option<&str>, line: &str) -> Result<String, String> {
     let dir = project_memory_dir(workspace).ok_or("Cannot determine memory directory")?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create memory dir: {e}"))?;
 
     let path = dir.join("MEMORY.md");
-    let mut content = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut content = match std::fs::read_to_string(&path) {
+        Ok(existing) => existing,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => {
+            return Err(format!(
+                "Refusing to overwrite MEMORY.md: cannot read existing file at {}: {e}. \
+                 Fix the underlying filesystem issue and retry.",
+                path.display()
+            ));
+        }
+    };
 
     if !content.is_empty() && !content.ends_with('\n') {
         content.push('\n');
@@ -272,7 +318,7 @@ pub fn append_to_entrypoint(workspace: Option<&str>, line: &str) -> Result<Strin
     content.push_str(line.trim());
     content.push('\n');
 
-    std::fs::write(&path, &content).map_err(|e| format!("Cannot write MEMORY.md: {e}"))?;
+    atomic_write(&path, content.as_bytes()).map_err(|e| format!("Cannot write MEMORY.md: {e}"))?;
 
     Ok(path.display().to_string())
 }
@@ -304,7 +350,7 @@ pub fn write_topic(workspace: Option<&str>, name: &str, content: &str) -> Result
     };
 
     let path = dir.join(&filename);
-    std::fs::write(&path, content).map_err(|e| format!("Cannot write topic file: {e}"))?;
+    atomic_write(&path, content.as_bytes()).map_err(|e| format!("Cannot write topic file: {e}"))?;
 
     Ok(path.display().to_string())
 }
@@ -401,5 +447,29 @@ mod tests {
         // We can't easily test with the real config dir, but we can test the slug
         let slug = workspace_slug(Some(ws));
         assert!(!slug.is_empty());
+    }
+
+    #[test]
+    fn atomic_write_creates_new_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("new.md");
+        atomic_write(&target, b"hello").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "hello");
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("existing.md");
+        std::fs::write(&target, b"old").unwrap();
+        atomic_write(&target, b"new").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new");
+        // No temp file left behind
+        let leftovers: Vec<_> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty());
     }
 }

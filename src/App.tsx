@@ -150,17 +150,27 @@ export default function App() {
   // auto-load any documentation files found in that directory.
   // This unifies "open project folder" and "upload document" into one path:
   // both ultimately populate projectContext, which skills read uniformly.
+  //
+  // The `cancelled` flag + workspace capture prevents a stale-response race:
+  // if the user switches projects while read_project_docs is still running,
+  // the old promise must not overwrite the new workspace's context.
   useEffect(() => {
     if (!workspace || projectContext !== null) return;
+    let cancelled = false;
+    const startedForWorkspace = workspace;
     invoke<{ content: string; filenames: string[] }>('read_project_docs', { path: workspace })
       .then(docs => {
+        if (cancelled) return;
         if (docs.filenames.length > 0) {
-          projectContextMetaRef.current = { source: 'auto', workspace };
+          projectContextMetaRef.current = { source: 'auto', workspace: startedForWorkspace };
           projectContextRef.current = docs.content;
           setProjectContext(docs.content);
         }
       })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [workspace, projectContext]);
 
   // On workspace open, sanitize any stale InProgress states left over from

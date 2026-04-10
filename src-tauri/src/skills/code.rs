@@ -1336,18 +1336,31 @@ async fn mutate_board<T, F>(
 where
     F: FnOnce(&mut Blackboard) -> Result<T, String>,
 {
-    // Clone serializable state under the lock, then drop the lock before
-    // doing blocking file I/O.  This prevents holding the tokio Mutex
-    // across synchronous write calls, which would block the tokio worker
-    // thread and reduce parallelism for other subtask workers.
-    let (value, board_snapshot) = {
-        let mut guard = board.lock().await;
-        let value = mutator(&mut guard)?;
-        let snapshot = guard.clone();
-        (value, snapshot)
-    };
-    // persist() does atomic file write (blocking I/O) — now outside the lock.
-    board_snapshot.persist(workspace)?;
+    // Hold the board lock across BOTH the mutation and the persist.
+    //
+    // Previous versions dropped the lock before persisting in an attempt
+    // to avoid blocking the tokio worker on file I/O.  That created a
+    // lost-update race: two concurrent mutate_board calls could each
+    // snapshot under the lock, release, and then race on the file write —
+    // the second-to-finish snapshot overwrote the first on disk, silently
+    // losing whichever subtask finished first (e.g. a parallel
+    // record_implementation would be clobbered by a sibling's
+    // finish_active_subtask).
+    //
+    // We wrap the blocking persist in `spawn_blocking` so the tokio
+    // scheduler is never stalled by filesystem I/O.  The `await` still
+    // holds the board mutex, which is exactly what we want: it serializes
+    // persists with their in-memory mutations, so the on-disk file always
+    // reflects the most recent mutation once persist() returns.
+    let mut guard = board.lock().await;
+    let value = mutator(&mut guard)?;
+    let snapshot = guard.clone();
+    let workspace_owned = workspace.to_string();
+    let persist_result = tokio::task::spawn_blocking(move || snapshot.persist(&workspace_owned))
+        .await
+        .map_err(|e| format!("Blackboard persist task panicked or was cancelled: {e}"))?;
+    persist_result?;
+    drop(guard);
     Ok(value)
 }
 
