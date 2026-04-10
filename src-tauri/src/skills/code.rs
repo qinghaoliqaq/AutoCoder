@@ -234,12 +234,22 @@ pub(super) async fn run(
         }
     };
 
-    // Drain any remaining workers (should only happen on JoinSet panic).
+    // On cancellation, abort in-flight workers immediately so the user
+    // doesn't wait for active LLM calls to finish streaming.  Isolated
+    // workspace cleanup for aborted tasks is handled by
+    // `cleanup_orphaned_workspaces` at the start of the next run().
+    if fatal_error.as_deref() == Some("Cancelled") {
+        join_set.abort_all();
+    }
+
+    // Drain any remaining workers.
     while let Some(joined) = join_set.join_next().await {
-        if fatal_error.is_none() {
-            if let Ok((id, Err(err))) = joined {
+        match joined {
+            Err(e) if e.is_cancelled() => { /* expected from abort_all */ }
+            Ok((id, Err(err))) if fatal_error.is_none() => {
                 tracing::warn!(subtask = %id, "Late subtask failure: {err}");
             }
+            _ => {}
         }
     }
 
@@ -925,7 +935,7 @@ async fn run_build_gate_phase(
         ),
     );
 
-    let result = build_gate::run_build_gate(&isolated.root, &commands).await;
+    let result = build_gate::run_build_gate(&isolated.root, &commands, &ctx.token).await;
 
     if result.passed {
         let _ = emit_blackboard(
@@ -1323,9 +1333,18 @@ async fn mutate_board<T, F>(
 where
     F: FnOnce(&mut Blackboard) -> Result<T, String>,
 {
-    let mut board = board.lock().await;
-    let value = mutator(&mut board)?;
-    board.persist(workspace)?;
+    // Clone serializable state under the lock, then drop the lock before
+    // doing blocking file I/O.  This prevents holding the tokio Mutex
+    // across synchronous write calls, which would block the tokio worker
+    // thread and reduce parallelism for other subtask workers.
+    let (value, board_snapshot) = {
+        let mut guard = board.lock().await;
+        let value = mutator(&mut guard)?;
+        let snapshot = guard.clone();
+        (value, snapshot)
+    };
+    // persist() does atomic file write (blocking I/O) — now outside the lock.
+    board_snapshot.persist(workspace)?;
     Ok(value)
 }
 

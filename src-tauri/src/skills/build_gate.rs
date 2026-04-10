@@ -6,6 +6,7 @@
 use std::path::Path;
 use std::process::Output;
 use tokio::process::Command;
+use tokio_util::sync::CancellationToken;
 
 const MAX_OUTPUT_CHARS: usize = 6000;
 const BUILD_TIMEOUT_SECS: u64 = 180;
@@ -124,7 +125,12 @@ fn npx_cmd() -> String {
 
 /// Run all detected build commands sequentially, stopping on first failure.
 /// If Node dependencies are missing (node_modules absent), installs them first.
-pub(crate) async fn run_build_gate(workspace: &Path, commands: &[BuildCommand]) -> BuildGateResult {
+/// Respects the `token` for cancellation between commands.
+pub(crate) async fn run_build_gate(
+    workspace: &Path,
+    commands: &[BuildCommand],
+    token: &CancellationToken,
+) -> BuildGateResult {
     // Ensure Node dependencies are available before running TS/JS checks.
     // The isolated workspace is created by copying the main workspace but
     // skipping node_modules (too large).  If Claude didn't run `npm install`
@@ -133,6 +139,9 @@ pub(crate) async fn run_build_gate(workspace: &Path, commands: &[BuildCommand]) 
         .iter()
         .any(|c| c.program.starts_with("npm") || c.program.starts_with("npx"));
     if needs_node && !workspace.join("node_modules").exists() {
+        if token.is_cancelled() {
+            return BuildGateResult { passed: false, results: vec![] };
+        }
         if let Some(install_result) = ensure_node_deps(workspace).await {
             if !install_result.passed {
                 return BuildGateResult {
@@ -147,6 +156,12 @@ pub(crate) async fn run_build_gate(workspace: &Path, commands: &[BuildCommand]) 
     let mut all_passed = true;
 
     for cmd in commands {
+        // Check cancellation before each build command so the user doesn't
+        // have to wait up to BUILD_TIMEOUT_SECS (180s) per remaining command.
+        if token.is_cancelled() {
+            return BuildGateResult { passed: false, results };
+        }
+
         let result = run_command(workspace, cmd).await;
         if !result.passed {
             all_passed = false;
@@ -409,7 +424,7 @@ mod tests {
             },
         ];
         let dir = tempfile::tempdir().unwrap();
-        let result = run_build_gate(dir.path(), &commands).await;
+        let result = run_build_gate(dir.path(), &commands, &CancellationToken::new()).await;
         assert!(!result.passed);
         // Only the first command should have been executed.
         assert_eq!(result.results.len(), 1);
@@ -431,7 +446,7 @@ mod tests {
             },
         ];
         let dir = tempfile::tempdir().unwrap();
-        let result = run_build_gate(dir.path(), &commands).await;
+        let result = run_build_gate(dir.path(), &commands, &CancellationToken::new()).await;
         assert!(result.passed);
         assert_eq!(result.results.len(), 2);
     }

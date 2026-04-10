@@ -27,19 +27,38 @@ pub struct FileNode {
 /// `dir_name` is an optional caller-supplied directory hint kept for
 /// compatibility with legacy/manual flows; otherwise the name is derived from
 /// the task description.
+///
+/// Uses `create_dir` (not `create_dir_all`) with a uniqueness suffix so that
+/// two tasks with similar names don't silently share a workspace directory.
 #[tauri::command]
 pub fn create_workspace(task: String, dir_name: Option<String>) -> Result<String, String> {
     let desktop = dirs::desktop_dir().ok_or("Cannot locate Desktop directory")?;
 
-    let dir_name = dir_name
+    let base_name = dir_name
         .map(|d| sanitize_name(&d)) // Director-supplied name wins
         .filter(|d| !d.is_empty())
         .unwrap_or_else(|| sanitize_name(&task)); // fallback: derive from task
-    let workspace = desktop.join(&dir_name);
-    std::fs::create_dir_all(&workspace)
-        .map_err(|e| format!("Cannot create workspace '{dir_name}': {e}"))?;
 
-    Ok(workspace.to_string_lossy().into_owned())
+    // Try the base name first, then append -2, -3, ... to avoid collisions
+    // (same strategy as create_plan_workspace_unique in plan.rs).
+    let workspace = desktop.join(&base_name);
+    match std::fs::create_dir(&workspace) {
+        Ok(()) => return Ok(workspace.to_string_lossy().into_owned()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(format!("Cannot create workspace '{base_name}': {e}")),
+    }
+
+    for suffix in 2..=99 {
+        let suffixed = format!("{base_name}-{suffix}");
+        let ws = desktop.join(&suffixed);
+        match std::fs::create_dir(&ws) {
+            Ok(()) => return Ok(ws.to_string_lossy().into_owned()),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("Cannot create workspace '{suffixed}': {e}")),
+        }
+    }
+
+    Err(format!("Cannot create workspace: too many '{base_name}' directories"))
 }
 
 /// Scan a workspace directory for documentation files and return their concatenated content.
@@ -68,6 +87,7 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
     ];
     const MAX_BYTES: usize = 400 * 1024;
 
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut filenames: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
     let mut total: usize = 0;
@@ -75,10 +95,11 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
     // Helper: try to append a file if it hasn't been added yet and fits within cap
     let try_add = |rel: String,
                    full: &PathBuf,
+                   seen: &mut std::collections::HashSet<String>,
                    filenames: &mut Vec<String>,
                    parts: &mut Vec<String>,
                    total: &mut usize| {
-        if filenames.contains(&rel) {
+        if seen.contains(&rel) {
             return;
         }
         let Ok(content) = std::fs::read_to_string(full) else {
@@ -103,6 +124,7 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
         };
         *total += chunk.len();
         parts.push(format!("<!-- {} -->\n{}", rel, chunk));
+        seen.insert(rel.clone());
         filenames.push(rel);
     };
 
@@ -131,7 +153,7 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
                 .unwrap_or(99)
         });
         for (name, full_path) in root_files {
-            try_add(name, &full_path, &mut filenames, &mut parts, &mut total);
+            try_add(name, &full_path, &mut seen, &mut filenames, &mut parts, &mut total);
         }
     }
 
@@ -159,7 +181,7 @@ pub fn read_project_docs(path: String) -> Result<ProjectDocs, String> {
                 .collect();
             doc_files.sort_by(|a, b| a.0.cmp(&b.0));
             for (rel, full_path) in doc_files {
-                try_add(rel, &full_path, &mut filenames, &mut parts, &mut total);
+                try_add(rel, &full_path, &mut seen, &mut filenames, &mut parts, &mut total);
             }
         }
     }
@@ -218,6 +240,10 @@ pub fn workspace_tree(path: String) -> Result<Vec<FileNode>, String> {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// Maximum number of entries (files + dirs) at a single directory level.
+/// Prevents OOM / UI freeze on directories with thousands of generated files.
+const MAX_BREADTH: usize = 500;
+
 fn build_tree(dir: &Path, depth: usize) -> Vec<FileNode> {
     if depth == 0 {
         return vec![];
@@ -256,6 +282,7 @@ fn build_tree(dir: &Path, depth: usize) -> Vec<FileNode> {
                 children,
             })
         })
+        .take(MAX_BREADTH)
         .collect();
 
     // Directories first, then files; both sorted alphabetically

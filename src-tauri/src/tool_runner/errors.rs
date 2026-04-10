@@ -251,7 +251,11 @@ const INITIAL_BACKOFF_MS: u64 = 1_000;
 ///
 /// Retries up to `MAX_RETRIES` times with delays of 1s, 2s, 4s.
 /// Non-retryable errors are returned immediately.
-pub async fn with_retry<F, Fut, T>(operation: F) -> Result<T, AppError>
+/// If `token` is provided, cancellation during backoff sleep is respected.
+pub async fn with_retry<F, Fut, T>(
+    operation: F,
+    token: Option<&tokio_util::sync::CancellationToken>,
+) -> Result<T, AppError>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T, AppError>>,
@@ -270,7 +274,17 @@ where
                     delay_ms = delay,
                     "retrying after transient failure",
                 );
-                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                // Respect cancellation during backoff sleep so the user
+                // doesn't have to wait up to 7s for retries to drain.
+                let sleep = tokio::time::sleep(std::time::Duration::from_millis(delay));
+                if let Some(tok) = token {
+                    tokio::select! {
+                        _ = tok.cancelled() => return Err(AppError::Cancelled),
+                        _ = sleep => {},
+                    }
+                } else {
+                    sleep.await;
+                }
                 last_err = e;
             }
             Err(e) => return Err(e),
@@ -342,7 +356,7 @@ mod tests {
 
     #[tokio::test]
     async fn with_retry_succeeds_immediately() {
-        let result = with_retry(|| async { Ok::<_, AppError>(42) }).await;
+        let result = with_retry(|| async { Ok::<_, AppError>(42) }, None).await;
         assert_eq!(result.unwrap(), 42);
     }
 
@@ -360,7 +374,7 @@ mod tests {
                     body: "bad".into(),
                 })
             }
-        })
+        }, None)
         .await;
 
         assert!(result.is_err());

@@ -124,16 +124,18 @@ pub struct AppConfig {
 }
 
 /// Returned to the frontend — API key is masked for security.
+/// Uses typed enums (ApiFormat, ExecutionAccessMode) so serde guarantees
+/// valid values and the TS union types stay in sync.
 #[derive(Debug, Serialize)]
 pub struct ConfigStatus {
     pub configured: bool,
     pub base_url: String,
     pub model: String,
-    pub api_format: String,
+    pub api_format: ApiFormat,
     pub api_key_hint: String,
     pub vendored_skills: bool,
     pub max_parallel_subtasks: usize,
-    pub execution_access_mode: String,
+    pub execution_access_mode: ExecutionAccessMode,
     /// Agent primary provider identifier (e.g. "anthropic", "openai", "deepseek").
     pub agent_provider: String,
     /// Agent secondary provider identifier. Empty means follows primary.
@@ -357,11 +359,11 @@ impl AppConfig {
             configured: self.is_configured(),
             base_url: self.director.base_url.clone(),
             model: self.director.model.clone(),
-            api_format: self.director.api_format.as_str().to_string(),
+            api_format: self.director.api_format.clone(),
             api_key_hint: hint,
             vendored_skills: self.features.vendored_skills,
             max_parallel_subtasks: self.features.parallel_subtask_limit(),
-            execution_access_mode: self.features.execution_access_mode.as_str().to_string(),
+            execution_access_mode: self.features.execution_access_mode,
             agent_provider: self.agent.provider.clone(),
             agent_second_provider: self.agent.second_provider.clone(),
         }

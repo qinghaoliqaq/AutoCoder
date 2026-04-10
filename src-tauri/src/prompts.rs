@@ -133,11 +133,35 @@ impl Prompts {
     }
 
     /// Fill `{{variable}}` placeholders in a prompt template.
+    ///
+    /// Uses a single-pass scan to prevent template injection: if a *value*
+    /// itself contains `{{another_key}}`, it will NOT be expanded.
+    /// This matters because `task` is user-supplied text.
     pub fn render(template: &str, vars: &[(&str, &str)]) -> String {
-        let mut out = template.to_string();
-        for (key, value) in vars {
-            out = out.replace(&format!("{{{{{key}}}}}"), value);
+        use std::collections::HashMap;
+        let map: HashMap<&str, &str> = vars.iter().copied().collect();
+        let mut out = String::with_capacity(template.len());
+        let mut rest = template;
+        while let Some(start) = rest.find("{{") {
+            out.push_str(&rest[..start]);
+            let after_open = &rest[start + 2..];
+            if let Some(end) = after_open.find("}}") {
+                let key = &after_open[..end];
+                if let Some(&value) = map.get(key) {
+                    out.push_str(value);
+                } else {
+                    // Unknown placeholder — keep it verbatim
+                    out.push_str(&rest[start..start + 2 + end + 2]);
+                }
+                rest = &after_open[end + 2..];
+            } else {
+                // No closing "}}" — emit the rest as-is
+                out.push_str(&rest[start..]);
+                rest = "";
+                break;
+            }
         }
+        out.push_str(rest);
         out
     }
 }

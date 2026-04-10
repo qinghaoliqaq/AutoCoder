@@ -53,16 +53,19 @@ export function useSessionManager(deps: SessionManagerDeps): SessionManagerActio
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keep a stable ref to workspace so callbacks don't capture stale values.
+  // Keep stable refs so callbacks don't capture stale values.
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
 
   const persistSessionNow = useCallback(async () => {
     if (messagesRef.current.length === 0) return;
 
     const title = messagesRef.current.find(m => m.role === 'user')?.content.slice(0, 60) ?? '新对话';
     const ws = workspaceRef.current;
-    const existingMeta = sessions.find(session => session.id === sessionIdRef.current);
+    // Use sessionsRef to avoid stale closure across the 1.5s debounce window.
+    const existingMeta = sessionsRef.current.find(session => session.id === sessionIdRef.current);
     const latestMessageAt = messagesRef.current.reduce((latest, message) => Math.max(latest, message.timestamp), 0);
     const latestToolLogAt = toolLogsRef.current.reduce((latest, log) => Math.max(latest, log.timestamp), 0);
     const updatedAt = Math.max(existingMeta?.updated_at ?? 0, latestMessageAt, latestToolLogAt);
@@ -88,7 +91,7 @@ export function useSessionManager(deps: SessionManagerDeps): SessionManagerActio
 
     const list = await invoke<SessionMeta[]>('list_sessions', { workspace: ws });
     setSessions(list);
-  }, [sessions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const flushPendingSessionSave = useCallback(async () => {
     if (saveTimerRef.current) {
@@ -146,7 +149,8 @@ export function useSessionManager(deps: SessionManagerDeps): SessionManagerActio
 
   const handleDeleteSession = useCallback(async (sessionId: string) => {
     try {
-      await invoke('delete_session', { workspace, sessionId });
+      // Use workspaceRef to avoid stale closure after workspace switch.
+      await invoke('delete_session', { workspace: workspaceRef.current, sessionId });
       setSessions(prev => prev.filter(s => s.id !== sessionId));
       if (sessionId === currentSessionId) {
         setMessages([]);
@@ -159,7 +163,7 @@ export function useSessionManager(deps: SessionManagerDeps): SessionManagerActio
     } catch (err) {
       console.error('delete_session error:', err);
     }
-  }, [workspace, currentSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { persistSessionNow, flushPendingSessionSave, handleLoadSession, handleDeleteSession };
 }

@@ -85,39 +85,56 @@ pub(super) async fn run(
         vec![".ai-dev-hub/PLAN.md".to_string()],
     );
 
-    if let Some(doc) = context.filter(|c| !c.trim().is_empty()) {
-        run_review_mode(
-            task,
-            doc,
-            &plan_path_str,
-            &plan_graph_path_str,
-            &plan_acceptance_path_str,
-            &ws_str,
-            config,
-            prompts,
-            window_label,
-            app_handle,
-            token.clone(),
-        )
-        .await?;
-    } else {
-        run_scratch_mode(
-            task,
-            &plan_path_str,
-            &plan_graph_path_str,
-            &plan_acceptance_path_str,
-            &ws_str,
-            config,
-            prompts,
-            window_label,
-            app_handle,
-            token.clone(),
-        )
-        .await?;
-    }
+    // Helper closure that runs the core plan steps.  If it fails, we clean up
+    // the workspace directory to avoid accumulating empty/partial directories
+    // on the Desktop (the uniqueness suffix can only go up to -99).
+    let plan_result = async {
+        if let Some(doc) = context.filter(|c| !c.trim().is_empty()) {
+            run_review_mode(
+                task,
+                doc,
+                &plan_path_str,
+                &plan_graph_path_str,
+                &plan_acceptance_path_str,
+                &ws_str,
+                config,
+                prompts,
+                window_label,
+                app_handle,
+                token.clone(),
+            )
+            .await?;
+        } else {
+            run_scratch_mode(
+                task,
+                &plan_path_str,
+                &plan_graph_path_str,
+                &plan_acceptance_path_str,
+                &ws_str,
+                config,
+                prompts,
+                window_label,
+                app_handle,
+                token.clone(),
+            )
+            .await?;
+        }
 
-    let plan_doc =
-        validate_or_repair_plan_artifacts(task, &ws_path, config, window_label, app_handle, token).await?;
+        validate_or_repair_plan_artifacts(task, &ws_path, config, window_label, app_handle, token).await
+    }
+    .await;
+
+    let plan_doc = match plan_result {
+        Ok(doc) => doc,
+        Err(err) => {
+            // Clean up the workspace directory on failure so the Desktop
+            // doesn't accumulate empty/partial plan directories.
+            if ws_path.exists() {
+                let _ = std::fs::remove_dir_all(&ws_path);
+            }
+            return Err(err);
+        }
+    };
 
     record_skill_evidence(
         Some(&ws_str),

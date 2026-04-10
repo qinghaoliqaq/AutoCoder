@@ -575,19 +575,28 @@ fn append_event(workspace: &str, event: &EvidenceEvent) -> Result<(), String> {
 }
 
 /// Truncate the events JSONL file in-place to the last N lines.
-/// Called while holding an exclusive lock on `file`, so we can safely
-/// read, truncate, and rewrite without racing other writers.
+/// Called while holding the file handle open so the truncate and rewrite
+/// are not interleaved by concurrent callers.
+///
+/// Uses raw bytes (not `read_to_string`) to handle potentially corrupted
+/// content from concurrent append races — invalid UTF-8 lines are discarded
+/// rather than causing the entire truncation to fail.
 fn truncate_events_file_locked(file: &std::fs::File) {
     use std::io::{Read, Seek, SeekFrom, Write};
     let mut file = file;
     if file.seek(SeekFrom::Start(0)).is_err() {
         return;
     }
-    let mut text = String::new();
-    if file.read_to_string(&mut text).is_err() {
+    let mut raw = Vec::new();
+    if file.read_to_end(&mut raw).is_err() {
         return;
     }
-    let lines: Vec<&str> = text.lines().collect();
+    // Split by newline bytes and keep only valid UTF-8 lines.
+    let lines: Vec<&str> = raw
+        .split(|&b| b == b'\n')
+        .filter_map(|chunk| std::str::from_utf8(chunk).ok())
+        .filter(|s| !s.is_empty())
+        .collect();
     if lines.len() <= TRUNCATE_KEEP_LINES {
         return;
     }

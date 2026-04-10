@@ -202,13 +202,26 @@ export default function App() {
     invoke<SessionMeta[]>('list_sessions', { workspace }).then(setSessions).catch(() => {});
   }, [workspace]);
 
-  const { flushPendingSessionSave, handleLoadSession, handleDeleteSession } = useSessionManager({
+  const { flushPendingSessionSave, handleLoadSession: rawLoadSession, handleDeleteSession: rawDeleteSession } = useSessionManager({
     workspace, currentSessionId, messages, sessions,
     messagesRef, toolLogsRef, blackboardEventsRef, projectContextRef,
     projectContextMetaRef, sessionIdRef, planReportRef,
     setMessages, setToolLogs, setBlackboardEvents, setCurrentSessionId,
     setSessions, setWorkspace, setProjectContext,
   });
+
+  // Wrap session operations to also reset tokenUsages (useSessionManager
+  // doesn't have access to setTokenUsages).
+  const handleLoadSession = useCallback(async (sessionId: string) => {
+    setTokenUsages([]);
+    await rawLoadSession(sessionId);
+  }, [rawLoadSession]);
+
+  const handleDeleteSession = useCallback(async (sessionId: string) => {
+    await rawDeleteSession(sessionId);
+    // If we deleted the current session, clear the token display too.
+    if (sessionId === currentSessionId) setTokenUsages([]);
+  }, [rawDeleteSession, currentSessionId]);
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -428,6 +441,7 @@ export default function App() {
     await flushPendingSessionSave();
     setMessages([]);
     setToolLogs([]);
+    setTokenUsages([]);
     setBlackboardEvents([]);
     planReportRef.current = '';
     hasAutoShownLogsRef.current = false;

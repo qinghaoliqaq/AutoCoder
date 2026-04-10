@@ -303,6 +303,11 @@ impl Blackboard {
                 ));
             }
         }
+        // Cap attempted_fixes to prevent unbounded growth across restarts
+        // (record_review already caps at 10; apply same limit here).
+        if card.attempted_fixes.len() > 10 {
+            card.attempted_fixes.drain(..card.attempted_fixes.len() - 10);
+        }
         card.latest_review = Some(summary);
         card.review_findings = findings;
         if card.review_findings.len() > 20 {

@@ -627,9 +627,22 @@ fn cleanup_runtime_process(runtime: &TestRuntimePaths) {
                         .args(["/PID", &pid_str, "/T", "/F"])
                         .status();
                 } else {
-                    let _ = std::process::Command::new("kill")
-                        .args(["-TERM", &pid_str])
-                        .status();
+                    // Verify the PID is still alive and belongs to a plausible
+                    // process before sending signals, to reduce PID recycling risk.
+                    let alive = std::path::Path::new(&format!("/proc/{pid_num}")).exists();
+                    if alive {
+                        let _ = std::process::Command::new("kill")
+                            .args(["-TERM", &pid_str])
+                            .status();
+                        // Wait briefly for graceful shutdown, then SIGKILL if
+                        // the process is still running (prevents zombies).
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        if std::path::Path::new(&format!("/proc/{pid_num}")).exists() {
+                            let _ = std::process::Command::new("kill")
+                                .args(["-KILL", &pid_str])
+                                .status();
+                        }
+                    }
                 }
             }
         } else {

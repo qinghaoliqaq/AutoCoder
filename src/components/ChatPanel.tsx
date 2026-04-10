@@ -99,11 +99,16 @@ function ReportCard({ content }: { content: string }) {
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Clean up the timeout on unmount to avoid a React state-update warning.
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 1500);
     }).catch(() => {
       // Clipboard access can be denied when window is not focused
     });

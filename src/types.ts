@@ -90,6 +90,8 @@ export interface QaResult {
   recommended_next_step: 'complete' | 'review' | 'debug' | 'code';
   summary: string;
   issue: string;
+  confidence_score?: number;
+  health_score?: number;
 }
 
 export interface ToolLog {

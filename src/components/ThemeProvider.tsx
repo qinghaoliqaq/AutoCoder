@@ -230,16 +230,18 @@ function applyTheme(palette: ThemePalette) {
 // ── Provider ────────────────────────────────────────────────────────────────
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [preference, setPreference] = useState<string>(
-    () => localStorage.getItem('theme-preference') ?? 'system',
-  );
+  const [preference, setPreference] = useState<string>(() => {
+    try { return localStorage.getItem('theme-preference') ?? 'system'; }
+    catch { return 'system'; }
+  });
 
   const activeTheme = resolveTheme(preference);
   const isDark = activeTheme.mode === 'dark';
 
   useEffect(() => {
     applyTheme(activeTheme);
-    localStorage.setItem('theme-preference', preference);
+    try { localStorage.setItem('theme-preference', preference); }
+    catch { /* localStorage unavailable (private browsing, quota) */ }
   }, [preference, activeTheme]);
 
   // Listen for OS theme changes when in 'system' mode

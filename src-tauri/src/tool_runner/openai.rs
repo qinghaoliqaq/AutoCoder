@@ -204,7 +204,7 @@ async fn stream_response(
                 }
                 Ok(resp)
             }
-        })
+        }, Some(token))
         .await
         .map_err(|e| e.to_string())?
     };
