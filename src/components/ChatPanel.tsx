@@ -386,7 +386,22 @@ interface ChatPanelProps {
 
 export default function ChatPanel({ messages, toolLogs = [], todos = [], onOpenProject, workspace }: ChatPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Track whether the user is "pinned" to the bottom of the scroll area.
+  // Only auto-scroll on new messages when pinned — if the user has scrolled
+  // up to read history, a new message must NOT yank the view back down.
+  // A ref (not state) avoids re-renders on every scroll tick.
+  const stickToBottomRef = useRef(true);
   const { isDark } = useTheme();
+
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    // 40px slack so a tiny scroll wiggle near the bottom still counts as
+    // "at bottom" and doesn't un-pin the view.
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 40;
+  }, []);
 
   // Aurora orbs: high-saturation violet/pink/sky accents that look great
   // over a dark canvas but bleed into a muddy bruise tint on cream/white
@@ -420,12 +435,24 @@ export default function ChatPanel({ messages, toolLogs = [], todos = [], onOpenP
   }, [messages]);
 
   useEffect(() => {
+    if (!stickToBottomRef.current) return;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, toolLogs]);
 
+  // When the workspace changes (switching projects) the chat resets — treat
+  // that as a fresh session and re-pin to the bottom so the first messages
+  // of the new conversation land in view.
+  useEffect(() => {
+    stickToBottomRef.current = true;
+  }, [workspace]);
+
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden text-content-primary">
-      <div className={`custom-scrollbar relative flex-1 w-full bg-transparent ${messages.length === 0 ? 'overflow-hidden flex items-center justify-center' : 'overflow-y-auto pb-36'}`}>
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className={`custom-scrollbar relative flex-1 w-full bg-transparent ${messages.length === 0 ? 'overflow-hidden flex items-center justify-center' : 'overflow-y-auto pb-36'}`}
+      >
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center w-full text-center relative z-10 -mt-16">
             {/* Aurora gradient mesh */}

@@ -135,7 +135,10 @@ pub(super) async fn run(
 
     let fatal_error = loop {
         if token.is_cancelled() {
-            break Some("Cancelled".to_string());
+            // Must match the lowercase "cancelled" sentinel that
+            // `SkillError::from_raw` recognises — otherwise the UI classifies
+            // the pause as an "internal" error and pops an error toast.
+            break Some("cancelled".to_string());
         }
         spawn_ready_subtasks(
             &mut join_set,
@@ -241,7 +244,7 @@ pub(super) async fn run(
     // doesn't wait for active LLM calls to finish streaming.  Isolated
     // workspace cleanup for aborted tasks is handled by
     // `cleanup_orphaned_workspaces` at the start of the next run().
-    if fatal_error.as_deref() == Some("Cancelled") {
+    if fatal_error.as_deref() == Some("cancelled") {
         join_set.abort_all();
     }
 
