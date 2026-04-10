@@ -40,8 +40,8 @@ pub struct SystemStatus {
 }
 
 #[tauri::command]
-fn detect_tools() -> SystemStatus {
-    let config = AppConfig::load();
+fn detect_tools(state: tauri::State<'_, AppState>) -> SystemStatus {
+    let config = state.config.read().unwrap_or_else(|e| e.into_inner());
     let api_configured = config.agent.is_configured() || config.is_configured();
     let api_provider = if config.agent.is_configured() {
         config.agent.provider.clone()
@@ -235,19 +235,23 @@ fn cancel_skill(window: tauri::WebviewWindow, state: tauri::State<'_, AppState>)
     if let Some(token) = token {
         token.cancel();
     }
-    let cleanup_workspace = state.test_workspaces.lock().unwrap_or_else(|e| e.into_inner()).remove(window_label);
-    let _ =
-        skills::test_skill::cleanup_runtime_for_window(window_label, cleanup_workspace.as_deref());
+    // Do NOT call cleanup_runtime_for_window here — let run_skill's
+    // post-await cleanup handle it.  Calling it in both places causes a race
+    // where cancel_skill removes the workspace from the map, then run_skill's
+    // cleanup finds None and skips cleanup, or both run cleanup concurrently.
 }
 
 #[tauri::command]
 fn open_new_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static WINDOW_COUNTER: AtomicU64 = AtomicU64::new(0);
     let label = format!(
-        "aidevchat-{}",
+        "aidevchat-{}-{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_millis()
+            .as_millis(),
+        WINDOW_COUNTER.fetch_add(1, Ordering::Relaxed),
     );
     tauri::WebviewWindowBuilder::new(&app_handle, &label, tauri::WebviewUrl::App("/".into()))
         .title("FlowForge")

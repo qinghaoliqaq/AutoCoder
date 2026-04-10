@@ -3,9 +3,12 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
-// Scope all event listeners to the current window so multiple windows
-// don't receive each other's skill-chunk / tool-log / director events.
-const appWindow = getCurrentWebviewWindow();
+// Lazily initialize to avoid calling Tauri APIs at module import time.
+let _appWindow: ReturnType<typeof getCurrentWebviewWindow> | null = null;
+function getAppWindow() {
+  if (!_appWindow) _appWindow = getCurrentWebviewWindow();
+  return _appWindow;
+}
 import { AppMode, ChatMessage, ToolLog, TokenUsage, ConfigStatus, ConfigDraft, MODES, SessionMeta, BlackboardEvent } from './types';
 import { ThemeProvider, useTheme, THEMES } from './components/ThemeProvider';
 import ModeActivated from './components/ModeActivated';
@@ -303,7 +306,7 @@ export default function App() {
         const replyId = addMessage('director', '', true);
         let accumulated = '';
 
-        const unlisten = await appWindow.listen<string>('director-chat-chunk', (event) => {
+        const unlisten = await getAppWindow().listen<string>('director-chat-chunk', (event) => {
           accumulated += event.payload;
           updateMessage(replyId, stripInvoke(accumulated), false);
         });
@@ -403,6 +406,7 @@ export default function App() {
         setToolLogs([]);
         setBlackboardEvents([]);
         planReportRef.current = '';
+        hasAutoShownLogsRef.current = false;
         syncSessionIdentity(makeSessionId(), sessionIdRef, setCurrentSessionId);
         await invoke('clear_history');
       }
@@ -418,6 +422,7 @@ export default function App() {
     setToolLogs([]);
     setBlackboardEvents([]);
     planReportRef.current = '';
+    hasAutoShownLogsRef.current = false;
     syncSessionIdentity(makeSessionId(), sessionIdRef, setCurrentSessionId);
     await invoke('clear_history').catch(console.error);
   }, [flushPendingSessionSave]);

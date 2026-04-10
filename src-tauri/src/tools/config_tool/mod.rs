@@ -20,18 +20,25 @@ fn config_path(workspace: &std::path::Path) -> PathBuf {
 }
 
 /// Read the config file, returning an empty object if it doesn't exist.
-fn read_config(workspace: &std::path::Path) -> Result<Value, String> {
+/// Uses spawn_blocking to avoid blocking the Tokio runtime on slow filesystems.
+async fn read_config(workspace: &std::path::Path) -> Result<Value, String> {
     let path = config_path(workspace);
     if !path.exists() {
         return Ok(json!({}));
     }
-    let content =
-        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {e}"))?;
-    serde_json::from_str(&content).map_err(|e| format!("Failed to parse config file: {e}"))
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read config file: {e}"))?;
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse config file: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Config read task failed: {e}"))?
 }
 
 /// Write the config object back to the file, creating directories as needed.
-fn write_config(workspace: &std::path::Path, config: &Value) -> Result<(), String> {
+/// Uses spawn_blocking to avoid blocking the Tokio runtime on slow filesystems.
+async fn write_config(workspace: &std::path::Path, config: &Value) -> Result<(), String> {
     let path = config_path(workspace);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -39,8 +46,12 @@ fn write_config(workspace: &std::path::Path, config: &Value) -> Result<(), Strin
     }
     let content = serde_json::to_string_pretty(config)
         .map_err(|e| format!("Failed to serialize config: {e}"))?;
-    std::fs::write(&path, content).map_err(|e| format!("Failed to write config file: {e}"))?;
-    Ok(())
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        std::fs::write(&path, content).map_err(|e| format!("Failed to write config file: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Config write task failed: {e}"))?
 }
 
 const CONFIG_DESCRIPTION: &str = "View or modify configuration settings. \
@@ -98,7 +109,7 @@ impl Tool for ConfigTool {
 
         match action {
             "list" => {
-                let config = match read_config(ctx.workspace) {
+                let config = match read_config(ctx.workspace).await {
                     Ok(c) => c,
                     Err(e) => return ToolResult::err(e),
                 };
@@ -120,7 +131,7 @@ impl Tool for ConfigTool {
                         return ToolResult::err("Missing or empty 'key' parameter for 'get' action")
                     }
                 };
-                let config = match read_config(ctx.workspace) {
+                let config = match read_config(ctx.workspace).await {
                     Ok(c) => c,
                     Err(e) => return ToolResult::err(e),
                 };
@@ -160,7 +171,7 @@ impl Tool for ConfigTool {
                 };
                 let previous = obj.insert(key.to_string(), json_value.clone());
 
-                if let Err(e) = write_config(ctx.workspace, &config) {
+                if let Err(e) = write_config(ctx.workspace, &config).await {
                     return ToolResult::err(e);
                 }
 

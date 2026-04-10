@@ -542,20 +542,31 @@ fn append_event(workspace: &str, event: &EvidenceEvent) -> Result<(), String> {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
     }
-    // Truncate the file if it's grown too large, keeping only recent events.
-    if let Ok(meta) = std::fs::metadata(&path) {
-        if meta.len() > MAX_EVENTS_FILE_BYTES {
-            truncate_events_file(&path);
-        }
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
     let mut line = serde_json::to_string(event)
         .map_err(|e| format!("Cannot serialize {BLACKBOARD_EVENTS_JSONL} line: {e}"))?;
     line.push('\n');
+
+    // Open the file for both read+write so we can truncate-then-append in one
+    // session.  Hold the file open for the whole operation so that the
+    // truncate and append are not interleaved by concurrent callers.
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+
+    // Truncate the file if it's grown too large, keeping only recent events.
+    if let Ok(meta) = file.metadata() {
+        if meta.len() > MAX_EVENTS_FILE_BYTES {
+            truncate_events_file_locked(&file);
+        }
+    }
+
+    // Seek to end and append.
+    use std::io::{Seek, SeekFrom};
+    let mut file = file;
+    let _ = file.seek(SeekFrom::End(0));
     // Use a single write_all so the JSON + newline cannot be split across
     // two syscalls — prevents interleaving when parallel subtasks append
     // to the same JSONL file concurrently.
@@ -563,13 +574,19 @@ fn append_event(workspace: &str, event: &EvidenceEvent) -> Result<(), String> {
         .map_err(|e| format!("Cannot append {}: {e}", path.display()))
 }
 
-/// Truncate the events JSONL file to the last N lines.
-/// Uses atomic write-to-tmp-then-rename to prevent concurrent readers
-/// from seeing partial content.
-fn truncate_events_file(path: &Path) {
-    let Ok(text) = std::fs::read_to_string(path) else {
+/// Truncate the events JSONL file in-place to the last N lines.
+/// Called while holding an exclusive lock on `file`, so we can safely
+/// read, truncate, and rewrite without racing other writers.
+fn truncate_events_file_locked(file: &std::fs::File) {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let mut file = file;
+    if file.seek(SeekFrom::Start(0)).is_err() {
         return;
-    };
+    }
+    let mut text = String::new();
+    if file.read_to_string(&mut text).is_err() {
+        return;
+    }
     let lines: Vec<&str> = text.lines().collect();
     if lines.len() <= TRUNCATE_KEEP_LINES {
         return;
@@ -577,12 +594,9 @@ fn truncate_events_file(path: &Path) {
     let kept = &lines[lines.len() - TRUNCATE_KEEP_LINES..];
     let mut content = kept.join("\n");
     content.push('\n');
-    // Atomic: write to temp then rename so concurrent readers never see
-    // partial content.
-    let tmp = path.with_extension("jsonl.tmp");
-    if std::fs::write(&tmp, &content).is_ok() {
-        let _ = std::fs::rename(&tmp, path);
-    }
+    let _ = file.seek(SeekFrom::Start(0));
+    let _ = file.set_len(0);
+    let _ = file.write_all(content.as_bytes());
 }
 
 fn read_blackboard(workspace: &str) -> Result<Option<Blackboard>, String> {

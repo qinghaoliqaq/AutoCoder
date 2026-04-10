@@ -577,13 +577,21 @@ fn apply_non_overlapping_hunks(
     main_hunks: &[DiffHunk],
     ours_hunks: &[DiffHunk],
 ) -> Vec<String> {
-    let mut all_hunks: Vec<&DiffHunk> = main_hunks.iter().chain(ours_hunks.iter()).collect();
-    all_hunks.sort_by_key(|h| (h.base_start, h.base_end));
+    // Tag each hunk with its origin (0 = main, 1 = ours) so that when two
+    // pure-insertion hunks share the same (base_start, base_end), we always
+    // place main's insertion first.  This gives deterministic merge ordering
+    // instead of depending on the arbitrary order of the iterator chain.
+    let mut all_hunks: Vec<(u8, &DiffHunk)> = main_hunks
+        .iter()
+        .map(|h| (0u8, h))
+        .chain(ours_hunks.iter().map(|h| (1u8, h)))
+        .collect();
+    all_hunks.sort_by_key(|(origin, h)| (h.base_start, h.base_end, *origin));
 
     let mut result = Vec::new();
     let mut base_pos = 0;
 
-    for hunk in &all_hunks {
+    for (_origin, hunk) in &all_hunks {
         while base_pos < hunk.base_start && base_pos < base.len() {
             result.push(base[base_pos].to_string());
             base_pos += 1;

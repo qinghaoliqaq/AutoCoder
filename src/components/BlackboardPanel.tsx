@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { VscArrowLeft, VscChecklist, VscChevronDown, VscChevronRight, VscChevronUp, VscLayoutSidebarRightOff, VscRefresh } from 'react-icons/vsc';
 import { BlackboardEvent } from '../types';
@@ -317,11 +317,11 @@ export default function BlackboardPanel({
     : execJson?.active_subtask_id
       ? [execJson.active_subtask_id]
       : [];
-  const filteredSubtasks = subtasks.filter(card => {
+  const filteredSubtasks = useMemo(() => subtasks.filter(card => {
     if (selectedStatus !== 'all' && card.status !== selectedStatus) return false;
     return true;
-  });
-  const sortedFilteredSubtasks = [...filteredSubtasks].sort((left, right) => {
+  }), [subtasks, selectedStatus]);
+  const sortedFilteredSubtasks = useMemo(() => [...filteredSubtasks].sort((left, right) => {
     const leftActiveIndex = activeSubtaskIds.indexOf(left.id);
     const rightActiveIndex = activeSubtaskIds.indexOf(right.id);
 
@@ -333,7 +333,7 @@ export default function BlackboardPanel({
 
     return SUBTASK_STATUS_PRIORITY[left.status] - SUBTASK_STATUS_PRIORITY[right.status]
       || left.id.localeCompare(right.id);
-  });
+  }), [filteredSubtasks, activeSubtaskIds]);
   const focusedSubtask = subtasks.find(card => card.id === selectedSubtaskId) ?? null;
   const filteredEvents = selectedSubtaskId
     ? events.filter(ev => ev.subtask_id === selectedSubtaskId || ev.subtask_id === null)

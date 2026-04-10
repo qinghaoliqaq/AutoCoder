@@ -285,20 +285,36 @@ impl Tool for BashTool {
             let cmd_owned = command.to_string();
             let ws = workspace.clone();
             tokio::spawn(async move {
-                let mut child = match Command::new("sh")
+                let result = Command::new("sh")
                     .arg("-c")
                     .arg(&cmd_owned)
                     .current_dir(&ws)
                     .kill_on_drop(true)
-                    .spawn()
-                {
-                    Ok(c) => c,
-                    Err(_) => return,
-                };
-                let _ = child.wait().await;
+                    .output()
+                    .await;
+                match result {
+                    Ok(o) => {
+                        let code = o.status.code().unwrap_or(-1);
+                        if code != 0 {
+                            let stderr = String::from_utf8_lossy(&o.stderr);
+                            tracing::warn!(
+                                command = %cmd_owned,
+                                exit_code = code,
+                                "background command failed: {}",
+                                &stderr[..stderr.len().min(512)]
+                            );
+                        } else {
+                            tracing::info!(command = %cmd_owned, "background command completed");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(command = %cmd_owned, "background command error: {e}");
+                    }
+                }
             });
             return ToolResult::ok(format!(
-                "Command is running in the background. You will be notified when it completes.\n\
+                "Command is running in the background. Note: output is logged \
+                 but no real-time notification will be sent.\n\
                  Command: {command}"
             ));
         }

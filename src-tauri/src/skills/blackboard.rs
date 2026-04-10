@@ -179,6 +179,14 @@ impl Blackboard {
             // fresh empty workspace.  The attempted_fixes history is kept so
             // Claude knows what approaches already failed.
             if matches!(card.status, SubtaskState::Failed) {
+                // Prefix kept attempted_fixes entries with "[prior run]" so
+                // the LLM doesn't confuse old "Attempt N" labels with the new
+                // numbering that starts from 1 after this reset.
+                for fix in &mut card.attempted_fixes {
+                    if !fix.starts_with("[prior run]") {
+                        *fix = format!("[prior run] {fix}");
+                    }
+                }
                 card.attempts = 0;
                 card.review_findings.clear();
                 card.merge_conflict = None;

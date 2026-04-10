@@ -143,6 +143,19 @@ pub fn save_session(workspace: Option<String>, session: SessionJson) -> Result<(
     std::fs::rename(&tmp_path, &path).map_err(|e| format!("Rename error: {e}"))
 }
 
+/// Lightweight struct for extracting only metadata from session files without
+/// deserializing the full messages/tool_logs/director_history arrays.
+#[derive(Deserialize)]
+struct SessionMetaOnly {
+    #[serde(flatten)]
+    meta: SessionMeta,
+    /// We only need the length, but serde requires us to declare the field.
+    /// Using `Value` for each element avoids parsing the inner structure and
+    /// `default` means missing field = empty vec.
+    #[serde(default)]
+    messages: Vec<serde_json::value::RawValue>,
+}
+
 #[tauri::command]
 pub fn list_sessions(workspace: Option<String>) -> Result<Vec<SessionMeta>, String> {
     let mut deduped: HashMap<String, SessionMeta> = HashMap::new();
@@ -161,15 +174,18 @@ pub fn list_sessions(workspace: Option<String>) -> Result<Vec<SessionMeta>, Stri
                 let Ok(text) = std::fs::read_to_string(entry.path()) else {
                     continue;
                 };
-                let Ok(session) = serde_json::from_str::<SessionJson>(&text) else {
+                // Use SessionMetaOnly to avoid fully deserializing the large
+                // messages/tool_logs/director_history arrays.  RawValue skips
+                // parsing while still counting the array length.
+                let Ok(partial) = serde_json::from_str::<SessionMetaOnly>(&text) else {
                     continue;
                 };
-                if validate_session_id(&session.meta.id).is_err() {
+                if validate_session_id(&partial.meta.id).is_err() {
                     continue;
                 }
                 let meta = SessionMeta {
-                    message_count: session.messages.len(),
-                    ..session.meta
+                    message_count: partial.messages.len(),
+                    ..partial.meta
                 };
                 deduped
                     .entry(meta.id.clone())

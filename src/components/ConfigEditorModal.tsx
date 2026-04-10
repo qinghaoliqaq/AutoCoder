@@ -72,6 +72,18 @@ function TipsCarousel() {
     return () => clearInterval(timer);
   }, [displayIndex]);
 
+  // Fallback: if the CSS transition doesn't fire (element hidden, unmounted,
+  // or browser skips the animation), advance after 400ms to avoid getting
+  // permanently stuck in the faded-out state.
+  useEffect(() => {
+    if (!fadingOut) return;
+    const fallback = setTimeout(() => {
+      setDisplayIndex(nextIndex);
+      setFadingOut(false);
+    }, 400);
+    return () => clearTimeout(fallback);
+  }, [fadingOut, nextIndex]);
+
   const handleTransitionEnd = () => {
     if (fadingOut) {
       setDisplayIndex(nextIndex);

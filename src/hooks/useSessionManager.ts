@@ -53,11 +53,15 @@ export function useSessionManager(deps: SessionManagerDeps): SessionManagerActio
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Keep a stable ref to workspace so callbacks don't capture stale values.
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+
   const persistSessionNow = useCallback(async () => {
     if (messagesRef.current.length === 0) return;
 
     const title = messagesRef.current.find(m => m.role === 'user')?.content.slice(0, 60) ?? '新对话';
-    const ws = deps.workspace;
+    const ws = workspaceRef.current;
     const existingMeta = sessions.find(session => session.id === sessionIdRef.current);
     const latestMessageAt = messagesRef.current.reduce((latest, message) => Math.max(latest, message.timestamp), 0);
     const latestToolLogAt = toolLogsRef.current.reduce((latest, log) => Math.max(latest, log.timestamp), 0);
@@ -117,7 +121,7 @@ export function useSessionManager(deps: SessionManagerDeps): SessionManagerActio
       if (sessionId !== currentSessionId) {
         await flushPendingSessionSave();
       }
-      const s = await invoke<Session>('load_session', { workspace, sessionId });
+      const s = await invoke<Session>('load_session', { workspace: workspaceRef.current, sessionId });
       const restoredWorkspace = s.workspace_path ?? workspace;
       setMessages(s.messages);
       setToolLogs(s.tool_logs as ToolLog[]);

@@ -11,7 +11,13 @@ import type { AppMode, ChatMessage, ReviewPhaseResult, QaResult, ToolLog, TokenU
 import { makeId } from '../utils';
 import { toast } from 'sonner';
 
-const appWindow = getCurrentWebviewWindow();
+// Lazily initialize to avoid calling Tauri APIs at module import time
+// (before the webview runtime is ready), which would crash in tests or SSR.
+let _appWindow: ReturnType<typeof getCurrentWebviewWindow> | null = null;
+function getAppWindow() {
+  if (!_appWindow) _appWindow = getCurrentWebviewWindow();
+  return _appWindow;
+}
 
 /** Parse a Tauri invoke error into a structured SkillError (best-effort). */
 function parseSkillError(err: unknown): SkillError {
@@ -148,19 +154,19 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     contextOverride?: string | null,
   ): Promise<ReviewPhaseResult> => {
     const { handler: chunkHandler } = createChunkListener();
-    const unlistenChunks = await appWindow.listen('skill-chunk', chunkHandler);
+    const unlistenChunks = await getAppWindow().listen('skill-chunk', chunkHandler);
 
     let result: ReviewPhaseResult = { phase, passed: true, issue: '' };
-    const unlistenResult = await appWindow.listen<ReviewPhaseResult>('review-phase-result', (event) => {
+    const unlistenResult = await getAppWindow().listen<ReviewPhaseResult>('review-phase-result', (event) => {
       result = event.payload;
     });
-    const unlistenToolLog = await appWindow.listen<ToolLog>('tool-log', (event) => {
+    const unlistenToolLog = await getAppWindow().listen<ToolLog>('tool-log', (event) => {
       setToolLogs(prev => [...prev, event.payload]);
     });
-    const unlistenTokenUsage = await appWindow.listen<TokenUsage>('token-usage', (event) => {
+    const unlistenTokenUsage = await getAppWindow().listen<TokenUsage>('token-usage', (event) => {
       setTokenUsages(prev => [...prev, event.payload]);
     });
-    const unlistenBlackboard = await appWindow.listen<BlackboardEvent>('blackboard-updated', (event) => {
+    const unlistenBlackboard = await getAppWindow().listen<BlackboardEvent>('blackboard-updated', (event) => {
       setBlackboardEvents(prev => [...prev, event.payload]);
       setMessages(prev => [...prev, {
         id: makeId(),
@@ -170,7 +176,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
         ...(event.payload.subtask_id ? { subtaskId: event.payload.subtask_id, subtaskLabel: event.payload.subtask_id } : {}),
       }]);
     });
-    const unlistenCompletionReport = await appWindow.listen<string>('completion-report', (event) => {
+    const unlistenCompletionReport = await getAppWindow().listen<string>('completion-report', (event) => {
       setMessages(prev => [...prev, {
         id: makeId(), role: 'director', content: event.payload,
         timestamp: Date.now(), isReport: true,
@@ -345,7 +351,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       : null;
 
     const { handler: chunkHandler } = createChunkListener();
-    const unlistenChunks = await appWindow.listen('skill-chunk', chunkHandler);
+    const unlistenChunks = await getAppWindow().listen('skill-chunk', chunkHandler);
 
     let result: QaResult = {
       verdict: 'FAIL',
@@ -353,16 +359,16 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       summary: 'QA did not return a structured verdict.',
       issue: 'missing qa-result event',
     };
-    const unlistenQaResult = await appWindow.listen<QaResult>('qa-result', (event) => {
+    const unlistenQaResult = await getAppWindow().listen<QaResult>('qa-result', (event) => {
       result = event.payload;
     });
-    const unlistenToolLog = await appWindow.listen<ToolLog>('tool-log', (event) => {
+    const unlistenToolLog = await getAppWindow().listen<ToolLog>('tool-log', (event) => {
       setToolLogs(prev => [...prev, event.payload]);
     });
-    const unlistenTokenUsage = await appWindow.listen<TokenUsage>('token-usage', (event) => {
+    const unlistenTokenUsage = await getAppWindow().listen<TokenUsage>('token-usage', (event) => {
       setTokenUsages(prev => [...prev, event.payload]);
     });
-    const unlistenBlackboard = await appWindow.listen<BlackboardEvent>('blackboard-updated', (event) => {
+    const unlistenBlackboard = await getAppWindow().listen<BlackboardEvent>('blackboard-updated', (event) => {
       setBlackboardEvents(prev => [...prev, event.payload]);
     });
 
@@ -373,6 +379,7 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
         workspace: wsPath,
         context: qaContext,
         issue: null,
+        phase: null,
       });
     } finally {
       unlistenChunks();
@@ -396,13 +403,13 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     }
 
     const { handler: chunkHandler } = createChunkListener();
-    const unlistenChunks = await appWindow.listen('skill-chunk', chunkHandler);
+    const unlistenChunks = await getAppWindow().listen('skill-chunk', chunkHandler);
 
     let reportContent = '';
-    const unlistenReport = await appWindow.listen<string>('plan-report', (event) => {
+    const unlistenReport = await getAppWindow().listen<string>('plan-report', (event) => {
       reportContent = event.payload;
     });
-    const unlistenPlanWs = await appWindow.listen<string>('plan-workspace', (event) => {
+    const unlistenPlanWs = await getAppWindow().listen<string>('plan-workspace', (event) => {
       wsPath = event.payload;
       const meta = projectContextMetaRef.current;
       if (meta.source === 'manual' && meta.workspace === null && projectContextRef.current !== null) {
@@ -410,13 +417,13 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
       }
       setWorkspace(event.payload);
     });
-    const unlistenToolLog = await appWindow.listen<ToolLog>('tool-log', (event) => {
+    const unlistenToolLog = await getAppWindow().listen<ToolLog>('tool-log', (event) => {
       setToolLogs(prev => [...prev, event.payload]);
     });
-    const unlistenTokenUsage = await appWindow.listen<TokenUsage>('token-usage', (event) => {
+    const unlistenTokenUsage = await getAppWindow().listen<TokenUsage>('token-usage', (event) => {
       setTokenUsages(prev => [...prev, event.payload]);
     });
-    const unlistenBlackboard = await appWindow.listen<BlackboardEvent>('blackboard-updated', (event) => {
+    const unlistenBlackboard = await getAppWindow().listen<BlackboardEvent>('blackboard-updated', (event) => {
       setBlackboardEvents(prev => [...prev, event.payload]);
       setMessages(prev => [...prev, {
         id: makeId(),
@@ -464,7 +471,10 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
   // ── Stop ────────────────────────────────────────────────────────────────
 
   const handleStop = async () => {
-    if (!isRunning || isStopping) return;
+    // Use stopRequestedRef (a ref, always current) instead of isRunning /
+    // isStopping (closure values, stale after setIsRunning was called but
+    // before React re-rendered and recreated this function).
+    if (stopRequestedRef.current) return;
     stopRequestedRef.current = true;
     setIsStopping(true);
     try { await invoke('cancel_skill'); } catch { /* best-effort */ }

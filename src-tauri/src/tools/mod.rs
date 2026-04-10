@@ -502,8 +502,11 @@ fn maybe_persist_large_result(result: &str, tool_name: &str) -> String {
     if std::fs::create_dir_all(&cache_dir).is_err() {
         return truncate_result(result);
     }
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let ts = chrono::Utc::now().timestamp_millis();
-    let path = cache_dir.join(format!("{tool_name}_{ts}.txt"));
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = cache_dir.join(format!("{tool_name}_{ts}_{seq}.txt"));
     if std::fs::write(&path, result).is_ok() {
         let preview_end = result
             .char_indices()

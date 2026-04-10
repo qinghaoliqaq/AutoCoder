@@ -106,6 +106,15 @@ pub async fn run_loop(
                     (in_tok as f64 / CONTEXT_BUDGET_TOKENS as f64) * 100.0
                 );
                 messages.drain(1..1 + msgs_to_remove);
+                // Validate: the Anthropic API requires strict user/assistant
+                // alternation starting with "user".  If pruning left the
+                // messages in an invalid state (e.g. two consecutive roles),
+                // drop messages from the front until alternation is restored.
+                while messages.len() > 1
+                    && messages[0]["role"].as_str() != Some("user")
+                {
+                    messages.remove(0);
+                }
             }
         }
     }
