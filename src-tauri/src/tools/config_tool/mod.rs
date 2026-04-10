@@ -151,7 +151,7 @@ impl Tool for ConfigTool {
                     Some(v) => v,
                     None => return ToolResult::err("Missing 'value' parameter for 'set' action"),
                 };
-                let mut config = match read_config(ctx.workspace) {
+                let mut config = match read_config(ctx.workspace).await {
                     Ok(c) => c,
                     Err(e) => return ToolResult::err(e),
                 };
@@ -160,7 +160,7 @@ impl Tool for ConfigTool {
                 let json_value: Value = serde_json::from_str(value)
                     .unwrap_or_else(|_| Value::String(value.to_string()));
 
-                let obj = match config.as_object_mut() {
+                let obj: &mut serde_json::Map<String, Value> = match config.as_object_mut() {
                     Some(o) => o,
                     None => {
                         return ToolResult::err(

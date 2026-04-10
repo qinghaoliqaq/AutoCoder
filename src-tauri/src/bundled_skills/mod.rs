@@ -62,6 +62,7 @@ impl SkillRegistry {
     }
 
     /// Number of registered skills.
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.skills.len()
     }

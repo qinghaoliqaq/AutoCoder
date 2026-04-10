@@ -118,6 +118,7 @@ pub trait Tool: Send + Sync {
     fn is_read_only(&self, input: &Value) -> bool;
 
     /// Whether this specific invocation is destructive (potentially harmful).
+    #[allow(dead_code)]
     fn is_destructive(&self, _input: &Value) -> bool {
         false
     }
@@ -169,6 +170,7 @@ impl ToolRegistry {
     }
 
     /// Number of registered tools.
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.tools.len()
     }

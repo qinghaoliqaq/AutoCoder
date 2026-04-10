@@ -153,7 +153,7 @@ struct SessionMetaOnly {
     /// Using `Value` for each element avoids parsing the inner structure and
     /// `default` means missing field = empty vec.
     #[serde(default)]
-    messages: Vec<serde_json::value::RawValue>,
+    messages: Vec<Box<serde_json::value::RawValue>>,
 }
 
 #[tauri::command]

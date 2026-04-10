@@ -229,7 +229,7 @@ async fn run_command_with_timeout(workspace: &Path, cmd: &BuildCommand, timeout_
         .kill_on_drop(true)
         .spawn();
 
-    let mut child = match child {
+    let child = match child {
         Ok(c) => c,
         Err(err) => {
             return CommandResult {
