@@ -1,5 +1,5 @@
 /**
- * Skill execution — runPhase, runReview, runTest, runQa, runSkill, handleStop.
+ * Skill execution — runPhase, runReview, runTest, runDocument, runSkill, handleStop.
  *
  * Extracted from App.tsx to keep the main component focused on layout
  * and the Director-loop orchestration.
@@ -7,7 +7,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AppMode, ChatMessage, ReviewPhaseResult, QaResult, ToolLog, TokenUsage, BlackboardEvent, SkillError } from '../types';
+import type { AppMode, ChatMessage, ReviewPhaseResult, ToolLog, TokenUsage, BlackboardEvent, SkillError } from '../types';
 import { makeId } from '../utils';
 import { toast } from 'sonner';
 
@@ -97,8 +97,8 @@ export interface SkillRunnerActions {
     securityFailed?: boolean;
     securityIssue?: string;
   }>;
-  runTest: (task: string, wsPath: string | null) => Promise<boolean>;
-  runQa: (task: string, wsPath: string | null) => Promise<QaResult>;
+  runTest: (task: string, wsPath: string | null) => Promise<{ passed: boolean; issue: string }>;
+  runDocument: (task: string, wsPath: string | null) => Promise<void>;
   runSkill: (mode: AppMode, task: string) => Promise<string | null>;
   handleStop: () => Promise<void>;
 }
@@ -270,7 +270,10 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
 
   // ── Test ────────────────────────────────────────────────────────────────
 
-  const runTest = async (task: string, wsPath: string | null): Promise<boolean> => {
+  const runTest = async (
+    task: string,
+    wsPath: string | null,
+  ): Promise<{ passed: boolean; issue: string }> => {
     setCurrentMode('test');
 
     const contextSections = [
@@ -286,79 +289,51 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     const phase = (p: string, issue?: string) =>
       runPhase('test', p, task, wsPath, issue, testContext);
 
-    addMessage('director', '**Test 1/4** — Generating test plan (Claude + Codex 并行根据 PLAN.md 商讨测试方案...)');
+    addMessage('director', '**Test 1/3** — Generating test plan (Claude + Codex 并行根据 PLAN.md 商讨测试方案...)');
     await phase('gen_test_plan');
 
-    addMessage('director', '**Test 2/4** — Frontend Testing (浏览器自动化测试 UI...)');
+    addMessage('director', '**Test 2/3** — Frontend Testing (浏览器自动化测试 UI...)');
     const frontendResult = await phase('frontend_test');
     if (!frontendResult.passed) {
       addMessage('director', `前端测试发现问题：${frontendResult.issue}，已写入 bugs.md，继续后端测试...`);
     }
 
-    addMessage('director', '**Test 3/4** — Integration Testing (启动服务器 + curl 全量接口测试...)');
+    addMessage('director', '**Test 3/3** — Integration Testing (启动服务器 + curl 全量接口测试...)');
     let testResult = await phase('integration_test');
 
+    // Single self-heal attempt: let Claude fix what bugs.md lists, then re-run.
+    // If that still fails, propagate failure to the Director loop so the
+    // Director model can invoke `code` again (the desired flow: test → code).
     if (!testResult.passed) {
       const bugsNote = `bugs.md 已在工作目录中记录所有失败用例，请逐条修复。失败摘要：${testResult.issue}`;
-      addMessage('director', '测试失败，已生成 bugs.md。正在让 Claude 逐条修复...');
+      addMessage('director', '测试失败，已生成 bugs.md。尝试一次 Claude 自愈修复...');
       const fix = await phase('fix', bugsNote);
 
       if (fix.passed) {
-        addMessage('director', 'Claude 完成修复，重新运行测试...');
+        addMessage('director', 'Claude 完成修复，重新运行集成测试...');
         testResult = await phase('integration_test');
       }
 
       if (!testResult.passed) {
-        addMessage('director', '升级到 Codex 处理剩余问题...');
-        const codexFix = await phase('codex_fix', `bugs.md 中仍有未解决项。摘要：${testResult.issue}`);
-
-        if (codexFix.passed) {
-          addMessage('director', 'Codex 完成修复，运行最终测试...');
-          testResult = await phase('integration_test');
-        }
-
-        if (!testResult.passed) {
-          addMessage('director', '自动修复已穷尽，bugs.md 中仍有未解决项。任务暂停，请人工介入。');
-        }
+        addMessage('director', '自愈一轮后仍未通过，将失败信息上报 Director 以调用 code 修复。');
       }
     }
 
-    addMessage('director', '**Test 4/4** — Generating Project Completion Report...');
-    await phase('document');
-
     setCurrentMode('chat');
-    return testResult.passed;
+    return { passed: testResult.passed, issue: testResult.issue };
   };
 
-  // ── QA ──────────────────────────────────────────────────────────────────
+  // ── Document ────────────────────────────────────────────────────────────
 
-  const runQa = async (task: string, wsPath: string | null): Promise<QaResult> => {
+  const runDocument = async (task: string, wsPath: string | null): Promise<void> => {
     if (!wsPath) {
-      throw new Error('没有工作目录。请先运行 plan 技能建立项目目录，再执行 qa。');
+      addMessage('director', '没有工作目录。请先运行 plan 技能建立项目目录，再执行 document。');
+      throw new Error('document skill requires workspace');
     }
-    setCurrentMode('qa');
-    const qaSections = [
-      planReportRef.current
-        ? `## 技术方案（来自 Plan 阶段）\n\n${planReportRef.current}`
-        : null,
-      projectContextRef.current,
-    ].filter((section): section is string => Boolean(section && section.trim()));
-    const qaContext = qaSections.length > 0
-      ? qaSections.join('\n\n---\n\n')
-      : null;
+    setCurrentMode('document');
 
     const { handler: chunkHandler } = createChunkListener();
     const unlistenChunks = await getAppWindow().listen('skill-chunk', chunkHandler);
-
-    let result: QaResult = {
-      verdict: 'FAIL',
-      recommended_next_step: 'review',
-      summary: 'QA did not return a structured verdict.',
-      issue: 'missing qa-result event',
-    };
-    const unlistenQaResult = await getAppWindow().listen<QaResult>('qa-result', (event) => {
-      result = event.payload;
-    });
     const unlistenToolLog = await getAppWindow().listen<ToolLog>('tool-log', (event) => {
       setToolLogs(prev => [...prev, event.payload]);
     });
@@ -368,26 +343,40 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     const unlistenBlackboard = await getAppWindow().listen<BlackboardEvent>('blackboard-updated', (event) => {
       setBlackboardEvents(prev => [...prev, event.payload]);
     });
+    const unlistenCompletionReport = await getAppWindow().listen<string>('completion-report', (event) => {
+      setMessages(prev => [...prev, {
+        id: makeId(),
+        role: 'director',
+        content: event.payload,
+        timestamp: Date.now(),
+        isReport: true,
+      }]);
+    });
 
     try {
       await invoke('run_skill', {
-        mode: 'qa',
+        mode: 'document',
         task,
         workspace: wsPath,
-        context: qaContext,
-        issue: null,
+        context: projectContextRef.current,
         phase: null,
+        issue: null,
       });
+    } catch (err) {
+      const skillErr = parseSkillError(err);
+      if (skillErr.kind !== 'cancelled') {
+        addMessage('director', `**document 技能执行失败：**${skillErr.message}`);
+        notifySkillError(skillErr, 'document');
+      }
+      throw err;
     } finally {
       unlistenChunks();
-      unlistenQaResult();
       unlistenToolLog();
       unlistenTokenUsage();
       unlistenBlackboard();
+      unlistenCompletionReport();
       setCurrentMode('chat');
     }
-
-    return result;
   };
 
   // ── Generic skill (plan, code, debug) ───────────────────────────────────
@@ -477,5 +466,5 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     try { await invoke('cancel_skill'); } catch { /* best-effort */ }
   };
 
-  return { runPhase, runReview, runTest, runQa, runSkill, handleStop };
+  return { runPhase, runReview, runTest, runDocument, runSkill, handleStop };
 }

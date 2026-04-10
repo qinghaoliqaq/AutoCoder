@@ -19,13 +19,13 @@ mod code;
 mod code_events;
 mod code_prompts;
 mod debug;
+mod document;
 pub(crate) mod evidence;
 pub(crate) mod isolated_workspace;
 pub(crate) mod merge_engine;
 mod plan;
 mod plan_board;
 pub(crate) mod planning_schema;
-mod qa;
 mod review;
 pub(crate) mod test_skill;
 mod vendored;
@@ -51,21 +51,6 @@ pub struct ReviewPhaseResult {
     pub phase: String,
     pub passed: bool,
     pub issue: String,
-}
-
-/// Outcome of a QA acceptance pass, emitted via "qa-result".
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct QaResult {
-    pub verdict: String,
-    pub recommended_next_step: String,
-    pub summary: String,
-    pub issue: String,
-    /// Quantitative confidence score (0-100) from the QA agent.
-    #[serde(default)]
-    pub confidence_score: u32,
-    /// Pre-computed health score from evidence metrics (0-100).
-    #[serde(default)]
-    pub health_score: u32,
 }
 
 /// Tool-call entry emitted via "tool-log" whenever Claude or Codex calls a tool.
@@ -262,14 +247,12 @@ pub async fn execute(
             )
             .await
         }
-        "qa" => {
-            qa::run(
+        "document" => {
+            document::run(
                 task,
-                issue,
                 workspace,
                 context,
                 config,
-                prompts,
                 window_label,
                 app_handle,
                 token,

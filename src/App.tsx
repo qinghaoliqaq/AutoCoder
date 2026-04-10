@@ -50,7 +50,7 @@ function ThemeToggle() {
 
 
 import { parseInvoke, stripInvoke } from './invoke';
-import { buildNextInputAfterReview, buildNextInputAfterQaWithEvidence, buildNextInputAfterTestWithEvidence, buildNextInputAfterCodeWithEvidence } from './directorFlow';
+import { buildNextInputAfterReview, buildNextInputAfterTestWithEvidence, buildNextInputAfterDocumentWithEvidence, buildNextInputAfterCodeWithEvidence } from './directorFlow';
 import { makeId, makeSessionId, syncSessionIdentity } from './utils';
 import { useSessionManager } from './hooks/useSessionManager';
 import { createSkillRunner } from './hooks/useSkillRunner';
@@ -328,9 +328,10 @@ export default function App() {
     let currentWsPath: string | null = workspaceRef.current;
 
     try {
-      // Allow one full remediation / re-validation loop after QA while still
-      // keeping runaway Director chains bounded.
-      const MAX_ROUNDS = 16;
+      // Allow multiple code ↔ review ↔ test retry cycles before hitting the
+      // hard cap. A full code → review → test → document cycle burns 4 rounds,
+      // so 24 permits roughly two failure-retry loops plus the final document.
+      const MAX_ROUNDS = 24;
       let hitRoundBudget = true;
       for (let round = 0; round < MAX_ROUNDS; round++) {
         // ── Ask Director ────────────────────────────────────────────────────
@@ -369,15 +370,24 @@ export default function App() {
           const reviewResult = await runReview(invocation.task, currentWsPath);
           nextInput = buildNextInputAfterReview(reviewResult);
         } else if (invocation.skill === 'test') {
-          const testPassed = await runTest(invocation.task, currentWsPath);
-          if (!testPassed) {
+          const testResult = await runTest(invocation.task, currentWsPath);
+          // Do NOT break on failure — continue the loop so the Director
+          // sees the bugs.md summary and can invoke `code` to fix it.
+          nextInput = await buildNextInputAfterTestWithEvidence(testResult, currentWsPath);
+        } else if (invocation.skill === 'document') {
+          if (!currentWsPath) {
+            addMessage('director', 'document 技能需要工作目录。请先运行 plan 技能建立项目目录。');
             hitRoundBudget = false;
             break;
           }
-          nextInput = await buildNextInputAfterTestWithEvidence(currentWsPath);
-        } else if (invocation.skill === 'qa') {
-          const qaResult = await runQa(invocation.task, currentWsPath);
-          nextInput = await buildNextInputAfterQaWithEvidence(qaResult, currentWsPath);
+          try {
+            await runDocument(invocation.task, currentWsPath);
+          } catch {
+            // runDocument already showed an error toast / message.
+            hitRoundBudget = false;
+            break;
+          }
+          nextInput = await buildNextInputAfterDocumentWithEvidence(currentWsPath);
         } else {
           const result = await runSkill(invocation.skill, invocation.task);
           if (result === null) {
@@ -410,7 +420,7 @@ export default function App() {
     }
   };
 
-  const { runReview, runTest, runQa, runSkill, handleStop } = createSkillRunner({
+  const { runReview, runTest, runDocument, runSkill, handleStop } = createSkillRunner({
     workspaceRef, projectContextRef, projectContextMetaRef, planReportRef, stopRequestedRef,
     addMessage, updateMessage,
     setCurrentMode, setToolLogs, setTokenUsages, setBlackboardEvents, setMessages, setWorkspace, setIsStopping,
