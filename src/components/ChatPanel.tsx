@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import { InlineToolCallGroup } from './InlineToolCall';
 import InlineTodoList, { TodoItem } from './InlineTodoList';
 import { ClaudeRoleIcon, CodexRoleIcon, DirectorRoleIcon } from './icons/RoleIcons';
+import { useTheme } from './ThemeProvider';
 
 // ── Role config ──────────────────────────────────────────────────────────────
 
@@ -385,13 +386,22 @@ interface ChatPanelProps {
 
 export default function ChatPanel({ messages, toolLogs = [], todos = [], onOpenProject, workspace }: ChatPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [heroOrbs] = useState(() => [
-    { id: 0, color: 'rgba(139,92,246,0.18)', size: 340, x: -120, y: -80,  dur: '20s', del: '0s' },
-    { id: 1, color: 'rgba(236,72,153,0.12)', size: 280, x:  140, y: -60,  dur: '24s', del: '-6s' },
-    { id: 2, color: 'rgba(56,189,248,0.14)', size: 300, x:   20, y:  100, dur: '22s', del: '-3s' },
-    { id: 3, color: 'rgba(167,139,250,0.10)', size: 220, x: -180, y:  60, dur: '26s', del: '-9s' },
-    { id: 4, color: 'rgba(244,114,182,0.08)', size: 260, x:  200, y:  80, dur: '18s', del: '-12s' },
-  ]);
+  const { isDark } = useTheme();
+
+  // Aurora orbs: high-saturation violet/pink/sky accents that look great
+  // over a dark canvas but bleed into a muddy bruise tint on cream/white
+  // light themes. Halve their alpha on light backgrounds so they read as
+  // soft hints rather than stains.
+  const heroOrbs = useMemo(() => {
+    const scale = isDark ? 1 : 0.35;
+    return [
+      { id: 0, color: `rgba(139,92,246,${0.18 * scale})`, size: 340, x: -120, y: -80,  dur: '20s', del: '0s' },
+      { id: 1, color: `rgba(236,72,153,${0.12 * scale})`, size: 280, x:  140, y: -60,  dur: '24s', del: '-6s' },
+      { id: 2, color: `rgba(56,189,248,${0.14 * scale})`, size: 300, x:   20, y:  100, dur: '22s', del: '-3s' },
+      { id: 3, color: `rgba(167,139,250,${0.10 * scale})`, size: 220, x: -180, y:  60, dur: '26s', del: '-9s' },
+      { id: 4, color: `rgba(244,114,182,${0.08 * scale})`, size: 260, x:  200, y:  80, dur: '18s', del: '-12s' },
+    ];
+  }, [isDark]);
 
   const messageGroups = useMemo(() => groupBySubtask(messages), [messages]);
 
@@ -452,8 +462,8 @@ export default function ChatPanel({ messages, toolLogs = [], todos = [], onOpenP
             <div className="grid w-full max-w-[36.5rem] grid-cols-1 gap-3 sm:grid-cols-2 animate-text-reveal delay-200" style={{ animationDelay: '300ms' }}>
               <button
                 onClick={onOpenProject}
-                className="group relative min-h-[12.4rem] overflow-hidden rounded-[1.65rem] border border-edge-primary/50 p-4 text-left backdrop-blur-2xl transition-all duration-300 hover:-translate-y-1 hover:border-sky-400/50"
-                style={{ backgroundColor: 'rgb(var(--bg-elevated) / 0.55)', boxShadow: '0 16px 40px rgb(var(--bg-primary) / 0.1)' }}
+                className="group relative min-h-[12.4rem] overflow-hidden rounded-[1.65rem] border border-edge-primary/50 p-4 text-left transition-all duration-300 hover:-translate-y-1 hover:border-sky-400/50"
+                style={{ backgroundColor: 'rgb(var(--bg-elevated))', boxShadow: '0 16px 40px rgb(var(--bg-primary) / 0.1)' }}
               >
                 <div className="absolute inset-0 rounded-[1.65rem] bg-[radial-gradient(circle_at_top_left,rgba(125,211,252,0.18),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.12),transparent_36%)] opacity-90 pointer-events-none" />
                 <div className="relative z-10 flex h-full flex-col">
@@ -470,8 +480,8 @@ export default function ChatPanel({ messages, toolLogs = [], todos = [], onOpenP
               </button>
 
               <div
-                className="group relative min-h-[12.4rem] overflow-hidden rounded-[1.65rem] border border-edge-primary/40 p-4 text-left backdrop-blur-2xl"
-                style={{ backgroundColor: 'rgb(var(--bg-elevated) / 0.42)', boxShadow: '0 16px 40px rgb(var(--bg-primary) / 0.08)' }}
+                className="group relative min-h-[12.4rem] overflow-hidden rounded-[1.65rem] border border-edge-primary/40 p-4 text-left"
+                style={{ backgroundColor: 'rgb(var(--bg-elevated))', boxShadow: '0 16px 40px rgb(var(--bg-primary) / 0.08)' }}
               >
                 <div className="absolute inset-0 rounded-[1.65rem] bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.16),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(249,115,22,0.1),transparent_36%)] opacity-90 pointer-events-none" />
                 <div className="relative z-10 flex h-full flex-col opacity-90">

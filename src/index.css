@@ -58,6 +58,19 @@
     overflow: hidden;
   }
 
+  /* Explicit background-color on both html and body.
+   *
+   * Body alone is not enough: on macOS WKWebView (the webview Tauri uses)
+   * an unpainted html root can leak through compositor layers when a
+   * descendant uses `backdrop-filter`, so the filter ends up sampling the
+   * NSWindow backdrop (desktop / other apps) instead of the DOM body.
+   * Setting html's background-color forces an opaque root layer and
+   * prevents the "see-through sidebar" artefact.
+   */
+  html {
+    background-color: rgb(var(--bg-primary));
+  }
+
   body {
     background-color: rgb(var(--bg-primary));
     color: rgb(var(--text-primary));
@@ -99,8 +112,14 @@
   }
 
   .glass-container {
-    background-color: rgb(var(--bg-primary) / 0.7);
-    @apply backdrop-blur-2xl;
+    /* Must be fully opaque: this class is used by the Activity Bar and
+     * docked sidebar, which sit on the window chrome on macOS. A partially
+     * transparent bg combined with backdrop-filter causes WKWebView to
+     * sample content outside the webview (desktop / apps behind the
+     * window), producing a ghost-image artefact. Use `bg-secondary` so the
+     * chrome still reads as a distinct surface against the main content.
+     */
+    background-color: rgb(var(--bg-secondary));
   }
 
   .glass-header {
