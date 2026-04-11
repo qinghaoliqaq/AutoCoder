@@ -2,7 +2,7 @@
 ///
 /// The Director LLM handles all user interaction.
 /// When a dev task is detected, the model appends to its reply:
-///   <invoke skill="plan|code|debug|test|review|document" task="..." />
+///   <invoke skill="plan|code|debug|test|review|qa|document" task="..." />
 /// The frontend parses this tag and routes to the appropriate skill.
 ///
 /// Supports two API wire formats (set api_format in config.toml):

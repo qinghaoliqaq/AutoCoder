@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MODES, type AppMode } from '../types';
 
-const VALID_SKILLS: AppMode[] = ['plan', 'code', 'debug', 'test', 'review', 'document'];
+const VALID_SKILLS: AppMode[] = ['plan', 'code', 'debug', 'test', 'review', 'qa', 'document'];
 const VALID_LEADERS = ['claude', 'codex', 'director', 'user'];
 
 describe('MODES', () => {

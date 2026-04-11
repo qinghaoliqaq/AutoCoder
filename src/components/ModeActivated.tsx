@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AppMode } from '../types';
 import {
   VscCommentDiscussion, VscMap, VscSymbolEvent, VscSearch,
-  VscBeaker, VscShield, VscFile,
+  VscBeaker, VscShield, VscVerified, VscFile,
 } from 'react-icons/vsc';
 
 const MODE_META: Record<AppMode, { icon: React.ReactNode; label: string; color: string; bg: string }> = {
@@ -42,11 +42,17 @@ const MODE_META: Record<AppMode, { icon: React.ReactNode; label: string; color: 
     color: 'text-rose-600 dark:text-rose-400',
     bg: 'border-rose-200/60 bg-rose-50/80 dark:border-rose-500/30 dark:bg-rose-500/15',
   },
+  qa: {
+    icon: <VscVerified className="h-3.5 w-3.5" />,
+    label: 'QA',
+    color: 'text-amber-600 dark:text-amber-400',
+    bg: 'border-amber-200/60 bg-amber-50/80 dark:border-amber-500/30 dark:bg-amber-500/15',
+  },
   document: {
     icon: <VscFile className="h-3.5 w-3.5" />,
     label: 'DOCUMENT',
-    color: 'text-amber-600 dark:text-amber-400',
-    bg: 'border-amber-200/60 bg-amber-50/80 dark:border-amber-500/30 dark:bg-amber-500/15',
+    color: 'text-lime-600 dark:text-lime-400',
+    bg: 'border-lime-200/60 bg-lime-50/80 dark:border-lime-500/30 dark:bg-lime-500/15',
   },
 };
 

@@ -75,6 +75,7 @@ export default function InputBar({
     debug: 'Describe the issue, Codex will help debug...',
     test: 'Tell Claude what module or scenario to test...',
     review: 'Code Review in progress — Director is auditing, cleaning and testing...',
+    qa: 'QA acceptance in progress — Director is judging readiness from the collected evidence...',
     document: 'Generating project completion report (PROJECT_REPORT.md)...',
   };
 

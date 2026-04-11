@@ -1,6 +1,6 @@
 export type AgentRole = 'claude' | 'codex' | 'director' | 'user';
 
-export type AppMode = 'chat' | 'plan' | 'code' | 'debug' | 'test' | 'review' | 'document';
+export type AppMode = 'chat' | 'plan' | 'code' | 'debug' | 'test' | 'review' | 'qa' | 'document';
 
 export interface SystemStatus {
   api_configured: boolean;
@@ -85,6 +85,15 @@ export interface ReviewPhaseResult {
   phase: string;
   passed: boolean;
   issue: string;
+}
+
+export interface QaResult {
+  verdict: 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
+  recommended_next_step: 'complete' | 'review' | 'debug' | 'code';
+  summary: string;
+  issue: string;
+  confidence_score?: number;
+  health_score?: number;
 }
 
 export interface ToolLog {
@@ -196,12 +205,21 @@ export const MODES: ModeConfig[] = [
     requiresBoth: false,
   },
   {
+    id: 'qa',
+    label: 'QA',
+    icon: '✓',
+    leader: 'claude',
+    description: '基于测试证据与 PLAN 验收标准做功能级裁决',
+    color: 'text-amber-400',
+    requiresBoth: false,
+  },
+  {
     id: 'document',
     label: 'Document',
     icon: '✎',
     leader: 'claude',
     description: '生成项目完成报告（PROJECT_REPORT.md）',
-    color: 'text-amber-400',
+    color: 'text-lime-400',
     requiresBoth: false,
   },
 ];

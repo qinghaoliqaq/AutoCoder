@@ -50,7 +50,7 @@ function ThemeToggle() {
 
 
 import { parseInvoke, stripInvoke } from './invoke';
-import { buildNextInputAfterReview, buildNextInputAfterTestWithEvidence, buildNextInputAfterDocumentWithEvidence, buildNextInputAfterCodeWithEvidence } from './directorFlow';
+import { buildNextInputAfterReview, buildNextInputAfterTestWithEvidence, buildNextInputAfterQaWithEvidence, buildNextInputAfterDocumentWithEvidence, buildNextInputAfterCodeWithEvidence } from './directorFlow';
 import { makeId, makeSessionId, syncSessionIdentity } from './utils';
 import { useSessionManager } from './hooks/useSessionManager';
 import { createSkillRunner } from './hooks/useSkillRunner';
@@ -328,10 +328,11 @@ export default function App() {
     let currentWsPath: string | null = workspaceRef.current;
 
     try {
-      // Allow multiple code ↔ review ↔ test retry cycles before hitting the
-      // hard cap. A full code → review → test → document cycle burns 4 rounds,
-      // so 24 permits roughly two failure-retry loops plus the final document.
-      const MAX_ROUNDS = 24;
+      // Allow multiple code ↔ review ↔ test ↔ qa retry cycles before hitting
+      // the hard cap. A full code → review → test → qa → document cycle burns
+      // 5 rounds, so 30 permits roughly 2 failure-retry loops at any stage
+      // (review, test, or qa) plus the final document step.
+      const MAX_ROUNDS = 30;
       let hitRoundBudget = true;
       for (let round = 0; round < MAX_ROUNDS; round++) {
         // ── Ask Director ────────────────────────────────────────────────────
@@ -374,6 +375,11 @@ export default function App() {
           // Do NOT break on failure — continue the loop so the Director
           // sees the bugs.md summary and can invoke `code` to fix it.
           nextInput = await buildNextInputAfterTestWithEvidence(testResult, currentWsPath);
+        } else if (invocation.skill === 'qa') {
+          const qaResult = await runQa(invocation.task, currentWsPath);
+          // Do NOT break on FAIL — the directorFlow builder routes failure
+          // back to `code`, so the Director loop must keep running.
+          nextInput = await buildNextInputAfterQaWithEvidence(qaResult, currentWsPath);
         } else if (invocation.skill === 'document') {
           if (!currentWsPath) {
             addMessage('director', 'document 技能需要工作目录。请先运行 plan 技能建立项目目录。');
@@ -420,7 +426,7 @@ export default function App() {
     }
   };
 
-  const { runReview, runTest, runDocument, runSkill, handleStop } = createSkillRunner({
+  const { runReview, runTest, runQa, runDocument, runSkill, handleStop } = createSkillRunner({
     workspaceRef, projectContextRef, projectContextMetaRef, planReportRef, stopRequestedRef,
     addMessage, updateMessage,
     setCurrentMode, setToolLogs, setTokenUsages, setBlackboardEvents, setMessages, setWorkspace, setIsStopping,

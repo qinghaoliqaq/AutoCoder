@@ -15,7 +15,7 @@ export function parseInvoke(text: string): { skill: AppMode; task: string } | nu
   if (!match) return null;
   const attrs = match[1];
   const skill = parseAttr(attrs, 'skill') as AppMode | undefined;
-  if (!skill || !['plan', 'code', 'debug', 'test', 'review', 'document'].includes(skill)) return null;
+  if (!skill || !['plan', 'code', 'debug', 'test', 'review', 'qa', 'document'].includes(skill)) return null;
   const task = parseAttr(attrs, 'task') ?? '';
   return { skill, task };
 }

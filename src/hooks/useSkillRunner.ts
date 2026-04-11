@@ -1,5 +1,5 @@
 /**
- * Skill execution — runPhase, runReview, runTest, runDocument, runSkill, handleStop.
+ * Skill execution — runPhase, runReview, runTest, runQa, runDocument, runSkill, handleStop.
  *
  * Extracted from App.tsx to keep the main component focused on layout
  * and the Director-loop orchestration.
@@ -7,7 +7,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import type { AppMode, ChatMessage, ReviewPhaseResult, ToolLog, TokenUsage, BlackboardEvent, SkillError } from '../types';
+import type { AppMode, ChatMessage, ReviewPhaseResult, QaResult, ToolLog, TokenUsage, BlackboardEvent, SkillError } from '../types';
 import { makeId } from '../utils';
 import { toast } from 'sonner';
 
@@ -98,6 +98,7 @@ export interface SkillRunnerActions {
     securityIssue?: string;
   }>;
   runTest: (task: string, wsPath: string | null) => Promise<{ passed: boolean; issue: string }>;
+  runQa: (task: string, wsPath: string | null) => Promise<QaResult>;
   runDocument: (task: string, wsPath: string | null) => Promise<void>;
   runSkill: (mode: AppMode, task: string) => Promise<string | null>;
   handleStop: () => Promise<void>;
@@ -323,6 +324,66 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     return { passed: testResult.passed, issue: testResult.issue };
   };
 
+  // ── QA ──────────────────────────────────────────────────────────────────
+
+  const runQa = async (task: string, wsPath: string | null): Promise<QaResult> => {
+    if (!wsPath) {
+      throw new Error('没有工作目录。请先运行 plan 技能建立项目目录，再执行 qa。');
+    }
+    setCurrentMode('qa');
+    const qaSections = [
+      planReportRef.current
+        ? `## 技术方案（来自 Plan 阶段）\n\n${planReportRef.current}`
+        : null,
+      projectContextRef.current,
+    ].filter((section): section is string => Boolean(section && section.trim()));
+    const qaContext = qaSections.length > 0
+      ? qaSections.join('\n\n---\n\n')
+      : null;
+
+    const { handler: chunkHandler } = createChunkListener();
+    const unlistenChunks = await getAppWindow().listen('skill-chunk', chunkHandler);
+
+    let result: QaResult = {
+      verdict: 'FAIL',
+      recommended_next_step: 'code',
+      summary: 'QA did not return a structured verdict.',
+      issue: 'missing qa-result event',
+    };
+    const unlistenQaResult = await getAppWindow().listen<QaResult>('qa-result', (event) => {
+      result = event.payload;
+    });
+    const unlistenToolLog = await getAppWindow().listen<ToolLog>('tool-log', (event) => {
+      setToolLogs(prev => [...prev, event.payload]);
+    });
+    const unlistenTokenUsage = await getAppWindow().listen<TokenUsage>('token-usage', (event) => {
+      setTokenUsages(prev => [...prev, event.payload]);
+    });
+    const unlistenBlackboard = await getAppWindow().listen<BlackboardEvent>('blackboard-updated', (event) => {
+      setBlackboardEvents(prev => [...prev, event.payload]);
+    });
+
+    try {
+      await invoke('run_skill', {
+        mode: 'qa',
+        task,
+        workspace: wsPath,
+        context: qaContext,
+        issue: null,
+        phase: null,
+      });
+    } finally {
+      unlistenChunks();
+      unlistenQaResult();
+      unlistenToolLog();
+      unlistenTokenUsage();
+      unlistenBlackboard();
+      setCurrentMode('chat');
+    }
+
+    return result;
+  };
+
   // ── Document ────────────────────────────────────────────────────────────
 
   const runDocument = async (task: string, wsPath: string | null): Promise<void> => {
@@ -466,5 +527,5 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     try { await invoke('cancel_skill'); } catch { /* best-effort */ }
   };
 
-  return { runPhase, runReview, runTest, runDocument, runSkill, handleStop };
+  return { runPhase, runReview, runTest, runQa, runDocument, runSkill, handleStop };
 }
