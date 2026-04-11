@@ -154,7 +154,15 @@ export function createSkillRunner(deps: SkillRunnerDeps): SkillRunnerActions {
     const { handler: chunkHandler } = createChunkListener();
     const unlistenChunks = await getAppWindow().listen('skill-chunk', chunkHandler);
 
-    let result: ReviewPhaseResult = { phase, passed: true, issue: '' };
+    // Default to FAIL so a missing review-phase-result event can never
+    // produce a silent green light. The backend contract is that every
+    // phase emits review-phase-result at completion; if it doesn't, treat
+    // it as a failure and bubble the issue to the Director.
+    let result: ReviewPhaseResult = {
+      phase,
+      passed: false,
+      issue: 'phase did not emit a review-phase-result event',
+    };
     const unlistenResult = await getAppWindow().listen<ReviewPhaseResult>('review-phase-result', (event) => {
       result = event.payload;
     });

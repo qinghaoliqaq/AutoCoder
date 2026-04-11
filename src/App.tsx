@@ -334,6 +334,12 @@ export default function App() {
       // (review, test, or qa) plus the final document step.
       const MAX_ROUNDS = 30;
       let hitRoundBudget = true;
+      // Set to true once runDocument has successfully written PROJECT_REPORT.md.
+      // After that, the loop only allows the Director one more round to produce
+      // a no-invoke final summary; any further skill invocation is treated as a
+      // hallucination and the loop force-exits cleanly instead of re-running
+      // document / qa / test.
+      let documentFinished = false;
       for (let round = 0; round < MAX_ROUNDS; round++) {
         // ── Ask Director ────────────────────────────────────────────────────
         const replyId = addMessage('director', '', true);
@@ -360,6 +366,18 @@ export default function App() {
             stopRequestedRef.current = false;
             await pauseDirectorLoop('用户手动停止了当前任务。');
           }
+          hitRoundBudget = false;
+          break;
+        }
+
+        // After document has been generated, the only legal Director output is
+        // a plain text summary (no invoke). Any further invocation is a
+        // hallucination — force-exit cleanly instead of re-running skills.
+        if (documentFinished) {
+          addMessage(
+            'director',
+            `**任务已完成**（document 已生成）。忽略 Director 额外的 \`${invocation.skill}\` 调用。`,
+          );
           hitRoundBudget = false;
           break;
         }
@@ -393,6 +411,7 @@ export default function App() {
             hitRoundBudget = false;
             break;
           }
+          documentFinished = true;
           nextInput = await buildNextInputAfterDocumentWithEvidence(currentWsPath);
         } else {
           const result = await runSkill(invocation.skill, invocation.task);
