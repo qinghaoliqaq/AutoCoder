@@ -91,8 +91,15 @@ pub(super) async fn run(
     )
     .await?;
 
-    // Read the file the agent wrote; fall back to empty if somehow not written.
+    // Read the file the agent wrote. If it's missing or empty the skill has
+    // failed — return Err so the frontend doesn't set documentFinished = true
+    // and the user gets a clear error instead of a silent "task complete".
     let report_content = std::fs::read_to_string(&report_path).unwrap_or_default();
+    if report_content.is_empty() {
+        return Err(format!(
+            "document skill: agent did not write {report_path}. PROJECT_REPORT.md was not generated."
+        ));
+    }
 
     // Emit to UI so it appears in the chat (scoped to the requesting window).
     if !report_content.is_empty() {
