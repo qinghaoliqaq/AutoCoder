@@ -5,6 +5,35 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+/// Hard cap on per-stream output captured from a subprocess (256 KiB).
+/// `Command::output()` buffers the entire stdout/stderr into memory, so
+/// a runaway producer (`yes`, `cat huge_file`, accidental log explosion)
+/// would otherwise OOM the process.  Bash/REPL/PowerShell all share this
+/// limit via [`capture_stream`].
+pub const MAX_STREAM_BYTES: usize = 256 * 1024;
+
+/// Truncate raw command output bytes to a UTF-8 string of at most
+/// [`MAX_STREAM_BYTES`], appending a truncation marker when cut.  Splits
+/// on a UTF-8 char boundary so we never hand the model half a codepoint.
+pub fn capture_stream(bytes: &[u8], label: &str) -> String {
+    if bytes.len() <= MAX_STREAM_BYTES {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    // Find the largest valid UTF-8 prefix at or below MAX_STREAM_BYTES.
+    // `from_utf8_lossy` then replaces only any truly invalid trailing
+    // partial codepoint with a replacement char — correct behaviour.
+    let mut end = MAX_STREAM_BYTES;
+    while end > 0 && (bytes[end] & 0b1100_0000) == 0b1000_0000 {
+        end -= 1;
+    }
+    let head = String::from_utf8_lossy(&bytes[..end]);
+    format!(
+        "{head}\n[... {label} truncated: captured {kept} of {total} bytes ...]",
+        kept = end,
+        total = bytes.len(),
+    )
+}
+
 /// Atomically write `data` to `path`.
 ///
 /// Strategy: write to a uniquely-named sibling `.tmp` then rename into

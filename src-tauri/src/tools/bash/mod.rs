@@ -1,5 +1,6 @@
 pub mod prompt;
 
+use super::path_utils::{capture_stream, MAX_STREAM_BYTES};
 use super::{Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -12,35 +13,6 @@ pub struct BashTool;
 const MAX_TIMEOUT_MS: u64 = 600_000;
 /// Default timeout in milliseconds (2 minutes).
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
-/// Hard cap on per-stream output captured from a command (256 KiB).
-/// `Command::output()` buffers the entire stdout/stderr into memory, so
-/// a runaway producer (`yes`, `cat huge_file`, accidental log explosion)
-/// would otherwise OOM the process.  We truncate to this many bytes per
-/// stream and append a clear marker so the model understands the tail
-/// was cut.
-const MAX_STREAM_BYTES: usize = 256 * 1024;
-
-/// Truncate raw command output bytes to a UTF-8 string of at most
-/// `MAX_STREAM_BYTES`, appending a truncation marker when cut.  Splits on
-/// a UTF-8 char boundary so we never hand the model half a codepoint.
-fn capture_stream(bytes: &[u8], label: &str) -> String {
-    if bytes.len() <= MAX_STREAM_BYTES {
-        return String::from_utf8_lossy(bytes).into_owned();
-    }
-    // Find the largest valid UTF-8 prefix at or below MAX_STREAM_BYTES.
-    // `from_utf8_lossy` then replaces only any truly invalid trailing
-    // partial codepoint with a replacement char — correct behaviour.
-    let mut end = MAX_STREAM_BYTES;
-    while end > 0 && (bytes[end] & 0b1100_0000) == 0b1000_0000 {
-        end -= 1;
-    }
-    let head = String::from_utf8_lossy(&bytes[..end]);
-    format!(
-        "{head}\n[... {label} truncated: captured {kept} of {total} bytes ...]",
-        kept = end,
-        total = bytes.len(),
-    )
-}
 
 /// Read-only command prefixes. If a command (trimmed) starts with one of these,
 /// it is considered safe for concurrent execution and won't be blocked in

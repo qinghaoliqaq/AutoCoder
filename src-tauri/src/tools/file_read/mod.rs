@@ -12,6 +12,14 @@ use serde_json::{json, Value};
 /// Maximum number of lines returned when no explicit limit is given.
 const MAX_DEFAULT_LINES: usize = 2000;
 
+/// Hard cap on file size the tool will load into memory (16 MiB).
+/// The tool fully buffers the file before applying `offset`/`limit`, so
+/// a naive read of a multi-GB log would OOM even if the caller only
+/// wants 5 lines.  Refuse the read past this threshold and tell the
+/// model to use `offset` with a tighter window (or use Grep/Glob to
+/// locate the region of interest first).
+const MAX_FILE_SIZE_BYTES: u64 = 16 * 1024 * 1024;
+
 /// Common image file extensions.
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"];
 
@@ -111,6 +119,23 @@ impl Tool for FileReadTool {
                     "[Image file: {} ({} bytes). Image content is presented visually to the model.]",
                     file_path,
                     size
+                ));
+            }
+        }
+
+        // ── Refuse oversize files before loading into memory ─────────────
+        // We stat first because `tokio::fs::read` allocates a Vec sized to
+        // the file — a 4 GiB log would OOM even when the caller only wants
+        // a few lines.  The stat is one syscall; the savings on large logs
+        // are immense.
+        if let Ok(meta) = tokio::fs::metadata(&resolved).await {
+            if meta.len() > MAX_FILE_SIZE_BYTES {
+                return ToolResult::err(format!(
+                    "File {file_path} is {size} bytes (> {cap} byte cap). \
+                     Use Grep to locate the region of interest, then Read with \
+                     a tighter `offset` + `limit` to stream a window.",
+                    size = meta.len(),
+                    cap = MAX_FILE_SIZE_BYTES,
                 ));
             }
         }

@@ -3,6 +3,7 @@
 /// Runs the given code snippet as a subprocess and returns stdout/stderr.
 pub mod prompt;
 
+use super::path_utils::capture_stream;
 use super::{Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -136,14 +137,16 @@ impl Tool for REPLTool {
 
         match result {
             Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
+                // Cap each stream so a runaway REPL program (infinite print
+                // loop, huge dump) cannot OOM the host — mirror Bash.
+                let stdout = capture_stream(&output.stdout, "stdout");
+                let stderr = capture_stream(&output.stderr, "stderr");
                 let exit_code = output.status.code().unwrap_or(-1);
 
                 let mut result_parts = Vec::new();
 
                 if !stdout.is_empty() {
-                    result_parts.push(stdout.to_string());
+                    result_parts.push(stdout);
                 }
 
                 if !stderr.is_empty() {
