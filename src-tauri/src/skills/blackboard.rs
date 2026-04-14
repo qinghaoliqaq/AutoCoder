@@ -87,6 +87,12 @@ impl Blackboard {
                 .map_err(|e| format!("Cannot read {}: {e}", json_path.display()))?;
             let mut board = serde_json::from_str::<Blackboard>(&content)
                 .map_err(|e| format!("Cannot parse {}: {e}", json_path.display()))?;
+            // Reject a corrupted or maliciously-edited blackboard whose
+            // dependency graph has a cycle or a dangling edge.  Without
+            // this check the scheduler would spin forever on the cycle
+            // or repeatedly requeue a subtask whose dependency can never
+            // become Done.
+            validate_dependency_graph(&board.subtasks)?;
             if board.reset_transient_runtime_state() {
                 board.persist(workspace)?;
             }
@@ -102,6 +108,10 @@ impl Blackboard {
                 "PLAN.md does not contain any checklist subtasks for code mode".to_string(),
             );
         }
+        // Same check for freshly-built subtasks — the plan parser can
+        // legitimately emit edges that form cycles if the LLM's plan is
+        // broken, and we'd rather fail loudly than hang silently.
+        validate_dependency_graph(&subtasks)?;
 
         let board = Blackboard {
             task: task.to_string(),
@@ -451,6 +461,19 @@ pub(crate) fn sanitize_persisted_state(workspace: &str) -> Result<(), String> {
         }
     };
 
+    // Refuse to rehydrate a blackboard whose dependency graph is
+    // cyclic or refers to unknown ids — keeping it around would let
+    // the next scheduler run livelock.  Dropping the file forces a
+    // fresh rebuild from PLAN.md on the next load_or_create.
+    if let Err(e) = validate_dependency_graph(&board.subtasks) {
+        tracing::warn!(
+            "Removing {}: invalid dependency graph ({e})",
+            json_path.display()
+        );
+        let _ = std::fs::remove_file(&json_path);
+        return Ok(());
+    }
+
     // Mark crash-recovered subtasks as Done before resetting transient state.
     for subtask_id in &recovered {
         board.mark_recovered(subtask_id);
@@ -492,6 +515,74 @@ pub(crate) fn tick_plan_checkbox(workspace: &str, subtask_id: &str) -> Result<()
 
 fn now_string() -> String {
     Utc::now().to_rfc3339()
+}
+
+/// Validate the subtask dependency graph:
+///   1. every `depends_on` entry must refer to a real subtask id
+///   2. there must be no cycles (Kahn's algorithm — if topological
+///      sort doesn't visit every node, a cycle exists)
+///
+/// Returns a descriptive error on the first problem found so the
+/// caller can surface it to the user instead of silently hanging the
+/// scheduler.
+pub(crate) fn validate_dependency_graph(subtasks: &[SubtaskCard]) -> Result<(), String> {
+    use std::collections::{HashMap, HashSet, VecDeque};
+
+    let ids: HashSet<&str> = subtasks.iter().map(|s| s.id.as_str()).collect();
+    let mut in_degree: HashMap<&str, usize> = HashMap::new();
+    let mut reverse: HashMap<&str, Vec<&str>> = HashMap::new();
+
+    for card in subtasks {
+        in_degree.entry(card.id.as_str()).or_insert(0);
+        for dep in &card.depends_on {
+            if !ids.contains(dep.as_str()) {
+                return Err(format!(
+                    "Subtask {} depends on unknown subtask {}",
+                    card.id, dep
+                ));
+            }
+            if dep == &card.id {
+                return Err(format!("Subtask {} depends on itself", card.id));
+            }
+            *in_degree.entry(card.id.as_str()).or_insert(0) += 1;
+            reverse
+                .entry(dep.as_str())
+                .or_default()
+                .push(card.id.as_str());
+        }
+    }
+
+    // Kahn's algorithm.
+    let mut queue: VecDeque<&str> = in_degree
+        .iter()
+        .filter(|(_, d)| **d == 0)
+        .map(|(id, _)| *id)
+        .collect();
+    let mut visited = 0usize;
+    while let Some(id) = queue.pop_front() {
+        visited += 1;
+        if let Some(children) = reverse.get(id) {
+            for child in children {
+                let d = in_degree.get_mut(child).expect("child tracked");
+                *d -= 1;
+                if *d == 0 {
+                    queue.push_back(child);
+                }
+            }
+        }
+    }
+    if visited != subtasks.len() {
+        let stuck: Vec<&str> = in_degree
+            .iter()
+            .filter(|(_, d)| **d > 0)
+            .map(|(id, _)| *id)
+            .collect();
+        return Err(format!(
+            "Cycle detected in subtask dependency graph involving: {}",
+            stuck.join(", ")
+        ));
+    }
+    Ok(())
 }
 
 /// Write data to a temp file then atomically rename, so concurrent readers
@@ -755,6 +846,64 @@ mod tests {
         assert_eq!(card.attempted_fixes.len(), 1);
         assert!(card.attempted_fixes[0].contains("Added CRUD endpoints"));
         assert!(card.attempted_fixes[0].starts_with("Attempt 1:"));
+    }
+
+    fn stub_card(id: &str, depends_on: Vec<&str>) -> SubtaskCard {
+        SubtaskCard {
+            id: id.to_string(),
+            title: id.to_string(),
+            description: String::new(),
+            kind: SubtaskKind::Feature,
+            depends_on: depends_on.into_iter().map(String::from).collect(),
+            can_run_in_parallel: true,
+            parallel_group: None,
+            suggested_skill: None,
+            expected_touch: Vec::new(),
+            status: SubtaskState::Pending,
+            attempts: 0,
+            latest_implementation: None,
+            latest_review: None,
+            review_findings: Vec::new(),
+            files_touched: Vec::new(),
+            isolated_workspace: None,
+            merge_conflict: None,
+            attempted_fixes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn validate_dependency_graph_accepts_dag() {
+        let cards = vec![
+            stub_card("A", vec![]),
+            stub_card("B", vec!["A"]),
+            stub_card("C", vec!["A", "B"]),
+        ];
+        validate_dependency_graph(&cards).unwrap();
+    }
+
+    #[test]
+    fn validate_dependency_graph_rejects_cycle() {
+        let cards = vec![
+            stub_card("A", vec!["B"]),
+            stub_card("B", vec!["C"]),
+            stub_card("C", vec!["A"]),
+        ];
+        let err = validate_dependency_graph(&cards).unwrap_err();
+        assert!(err.contains("Cycle"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_dependency_graph_rejects_self_dependency() {
+        let cards = vec![stub_card("A", vec!["A"])];
+        let err = validate_dependency_graph(&cards).unwrap_err();
+        assert!(err.contains("itself"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_dependency_graph_rejects_unknown_dependency() {
+        let cards = vec![stub_card("A", vec!["B"])];
+        let err = validate_dependency_graph(&cards).unwrap_err();
+        assert!(err.contains("unknown"), "got: {err}");
     }
 
     #[test]

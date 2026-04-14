@@ -12,6 +12,35 @@ pub struct BashTool;
 const MAX_TIMEOUT_MS: u64 = 600_000;
 /// Default timeout in milliseconds (2 minutes).
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
+/// Hard cap on per-stream output captured from a command (256 KiB).
+/// `Command::output()` buffers the entire stdout/stderr into memory, so
+/// a runaway producer (`yes`, `cat huge_file`, accidental log explosion)
+/// would otherwise OOM the process.  We truncate to this many bytes per
+/// stream and append a clear marker so the model understands the tail
+/// was cut.
+const MAX_STREAM_BYTES: usize = 256 * 1024;
+
+/// Truncate raw command output bytes to a UTF-8 string of at most
+/// `MAX_STREAM_BYTES`, appending a truncation marker when cut.  Splits on
+/// a UTF-8 char boundary so we never hand the model half a codepoint.
+fn capture_stream(bytes: &[u8], label: &str) -> String {
+    if bytes.len() <= MAX_STREAM_BYTES {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    // Find the largest valid UTF-8 prefix at or below MAX_STREAM_BYTES.
+    // `from_utf8_lossy` then replaces only any truly invalid trailing
+    // partial codepoint with a replacement char — correct behaviour.
+    let mut end = MAX_STREAM_BYTES;
+    while end > 0 && (bytes[end] & 0b1100_0000) == 0b1000_0000 {
+        end -= 1;
+    }
+    let head = String::from_utf8_lossy(&bytes[..end]);
+    format!(
+        "{head}\n[... {label} truncated: captured {kept} of {total} bytes ...]",
+        kept = end,
+        total = bytes.len(),
+    )
+}
 
 /// Read-only command prefixes. If a command (trimmed) starts with one of these,
 /// it is considered safe for concurrent execution and won't be blocked in
@@ -284,14 +313,25 @@ impl Tool for BashTool {
         if run_in_background {
             let cmd_owned = command.to_string();
             let ws = workspace.clone();
+            // Clone the cancellation token so the detached task dies
+            // when the owning skill run is cancelled.  Without this, a
+            // long-running background command keeps running after the
+            // user presses "stop" or closes the window.
+            let bg_token = ctx.token.clone();
             tokio::spawn(async move {
-                let result = Command::new("sh")
+                let child_future = Command::new("sh")
                     .arg("-c")
                     .arg(&cmd_owned)
                     .current_dir(&ws)
                     .kill_on_drop(true)
-                    .output()
-                    .await;
+                    .output();
+                let result = tokio::select! {
+                    _ = bg_token.cancelled() => {
+                        tracing::info!(command = %cmd_owned, "background command cancelled");
+                        return;
+                    }
+                    r = child_future => r,
+                };
                 match result {
                     Ok(o) => {
                         let code = o.status.code().unwrap_or(-1);
@@ -339,14 +379,16 @@ impl Tool for BashTool {
 
         match result {
             Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
+                // Cap each stream at MAX_STREAM_BYTES so a runaway producer
+                // (e.g. `yes`, oversize log dumps) cannot OOM the process.
+                let stdout = capture_stream(&output.stdout, "stdout");
+                let stderr = capture_stream(&output.stderr, "stderr");
                 let exit_code = output.status.code().unwrap_or(-1);
 
                 let mut result_parts = Vec::new();
 
                 if !stdout.is_empty() {
-                    result_parts.push(stdout.to_string());
+                    result_parts.push(stdout);
                 }
 
                 if !stderr.is_empty() {
@@ -427,5 +469,40 @@ mod tests {
         let tool = BashTool;
         assert_eq!(tool.name(), "Bash");
         assert_eq!(tool.anthropic_builtin_type(), Some("bash_20250124"));
+    }
+
+    #[test]
+    fn capture_stream_under_limit_is_unchanged() {
+        let bytes = b"hello world\n";
+        let out = capture_stream(bytes, "stdout");
+        assert_eq!(out, "hello world\n");
+    }
+
+    #[test]
+    fn capture_stream_over_limit_truncates_with_marker() {
+        let bytes = vec![b'x'; MAX_STREAM_BYTES * 2];
+        let out = capture_stream(&bytes, "stdout");
+        assert!(
+            out.contains("stdout truncated"),
+            "expected truncation marker, got: {}",
+            &out[..out.len().min(200)]
+        );
+        assert!(
+            out.len() < bytes.len(),
+            "truncated output should be smaller than input"
+        );
+    }
+
+    #[test]
+    fn capture_stream_does_not_split_utf8_codepoints() {
+        // Build a payload where a multi-byte CJK char straddles the cut.
+        let filler_len = MAX_STREAM_BYTES - 1; // leave 1 byte before cap
+        let mut bytes: Vec<u8> = vec![b'a'; filler_len];
+        bytes.extend_from_slice("你好世界".as_bytes()); // spans the cap
+        bytes.extend_from_slice(&vec![b'b'; 100]); // trailing padding
+        let out = capture_stream(&bytes, "stdout");
+        // Must be valid UTF-8 with no replacement chars in the kept head.
+        assert!(!out.contains('\u{FFFD}'), "unexpected replacement char");
+        assert!(out.contains("truncated"));
     }
 }

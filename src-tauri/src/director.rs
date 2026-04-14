@@ -23,6 +23,12 @@ const MAX_TOKENS: u32 = 2048;
 const MAX_HISTORY_MESSAGES: usize = 200;
 /// Number of recent messages to always keep verbatim (never compacted).
 const RECENT_PRESERVE_COUNT: usize = 6;
+/// Maximum seconds allowed between chunks on a streaming API response.
+/// The top-level `reqwest` timeout (120 s) only covers the initial
+/// connect/read; once SSE starts, a stalled server would keep the
+/// connection alive indefinitely and hang the UI.  If no new chunk
+/// arrives within this window we abort the stream.
+const STREAM_INACTIVITY_SECS: u64 = 30;
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -614,11 +620,17 @@ async fn stream_openai(
     let mut stream = resp.bytes_stream();
     let mut buf = String::new();
     let mut full_response = String::new();
+    let inactivity = std::time::Duration::from_secs(STREAM_INACTIVITY_SECS);
 
     loop {
         tokio::select! {
             _ = token.cancelled() => return Err("cancelled".to_string()),
-            chunk = stream.next() => {
+            // Per-chunk inactivity timeout: if the server stalls mid-
+            // stream we abort rather than hang until the top-level timeout.
+            chunk = tokio::time::timeout(inactivity, stream.next()) => {
+                let chunk = chunk.map_err(|_| format!(
+                    "Stream stalled: no data for {STREAM_INACTIVITY_SECS}s"
+                ))?;
                 let Some(item) = chunk else { break };
                 let bytes = item.map_err(|e| format!("Stream read error: {e}"))?;
                 buf.push_str(&String::from_utf8_lossy(&bytes));
@@ -704,11 +716,15 @@ async fn stream_anthropic(
     let mut stream = resp.bytes_stream();
     let mut buf = String::new();
     let mut full_response = String::new();
+    let inactivity = std::time::Duration::from_secs(STREAM_INACTIVITY_SECS);
 
     loop {
         tokio::select! {
             _ = token.cancelled() => return Err("cancelled".to_string()),
-            chunk = stream.next() => {
+            chunk = tokio::time::timeout(inactivity, stream.next()) => {
+                let chunk = chunk.map_err(|_| format!(
+                    "Stream stalled: no data for {STREAM_INACTIVITY_SECS}s"
+                ))?;
                 let Some(item) = chunk else { break };
                 let bytes = item.map_err(|e| format!("Stream read error: {e}"))?;
                 buf.push_str(&String::from_utf8_lossy(&bytes));

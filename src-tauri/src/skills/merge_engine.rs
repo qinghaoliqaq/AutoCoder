@@ -90,16 +90,30 @@ pub(crate) fn recover_pending_merges(workspace: &str) -> Vec<String> {
 
         // Complete the merge: copy remaining staged files to main workspace.
         for relative in &journal.copy_files {
-            // Path traversal protection: reject paths with ".." or absolute paths.
-            if relative.contains("..") || Path::new(relative).is_absolute() {
-                tracing::warn!("Skipping suspicious path in merge journal: {relative}");
+            // Path traversal protection: reject absolute, "..", and paths
+            // whose resolved location escapes staging/main (catches
+            // symlinks planted inside staging that point outside).
+            let Some(staged_file) = resolve_under(&staging, relative) else {
+                tracing::warn!("Skipping suspicious copy source in merge journal: {relative}");
                 continue;
-            }
-            let staged_file = staging.join(relative);
-            let target = main_root.join(relative);
-            if !staged_file.exists() {
-                // Already applied or staging was incomplete — skip.
+            };
+            let Some(target) = resolve_under(main_root, relative) else {
+                tracing::warn!("Skipping suspicious copy target in merge journal: {relative}");
                 continue;
+            };
+            // Reject if the staged entry itself is a symlink — otherwise
+            // `std::fs::copy` follows the link and can exfiltrate data from
+            // anywhere the process can read.
+            match std::fs::symlink_metadata(&staged_file) {
+                Ok(meta) if meta.file_type().is_symlink() => {
+                    tracing::warn!(
+                        "Skipping symlink in staging during recovery: {}",
+                        staged_file.display()
+                    );
+                    continue;
+                }
+                Ok(_) => {}
+                Err(_) => continue, // Already applied or staging incomplete.
             }
             if let Some(parent) = target.parent() {
                 let _ = std::fs::create_dir_all(parent);
@@ -115,12 +129,13 @@ pub(crate) fn recover_pending_merges(workspace: &str) -> Vec<String> {
 
         // Complete deletes.
         for relative in &journal.delete_files {
-            if relative.contains("..") || Path::new(relative).is_absolute() {
+            let Some(target) = resolve_under(main_root, relative) else {
                 tracing::warn!("Skipping suspicious delete path in merge journal: {relative}");
                 continue;
-            }
-            let target = main_root.join(relative);
-            if target.exists() {
+            };
+            // Use symlink_metadata so a symlink target file is NOT followed
+            // for deletion — we only remove the link itself (or regular file).
+            if std::fs::symlink_metadata(&target).is_ok() {
                 let _ = std::fs::remove_file(&target);
             }
         }
@@ -135,6 +150,32 @@ pub(crate) fn recover_pending_merges(workspace: &str) -> Vec<String> {
     }
 
     recovered
+}
+
+/// Join `relative` onto `root` after validating that the result stays
+/// inside `root`.  Rejects absolute paths, `..` components, root
+/// components (drive letters on Windows), and paths that would escape
+/// via any component.  Returns `None` if the path should be refused.
+///
+/// This is a purely lexical check — callers must additionally use
+/// `symlink_metadata` and refuse to follow symlinks if the underlying
+/// filesystem is hostile (the merge journal recovery path does both).
+fn resolve_under(root: &Path, relative: &str) -> Option<PathBuf> {
+    use std::path::Component;
+    let rel = Path::new(relative);
+    if rel.as_os_str().is_empty() || rel.is_absolute() {
+        return None;
+    }
+    let mut out = root.to_path_buf();
+    for comp in rel.components() {
+        match comp {
+            Component::Normal(c) => out.push(c),
+            // Anything else (`.`, `..`, root, prefix) is refused — the
+            // journal only ever legitimately contains Normal components.
+            _ => return None,
+        }
+    }
+    Some(out)
 }
 
 // ── Main merge entry point ─────────────────────────────────────────────────
@@ -807,5 +848,59 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let recovered = recover_pending_merges(dir.path().to_str().unwrap());
         assert!(recovered.is_empty());
+    }
+
+    #[test]
+    fn resolve_under_rejects_traversal_and_absolute_paths() {
+        let root = Path::new("/tmp/root");
+        assert!(resolve_under(root, "../etc/passwd").is_none());
+        assert!(resolve_under(root, "a/../../etc").is_none());
+        assert!(resolve_under(root, "").is_none());
+        assert!(resolve_under(root, "/etc/passwd").is_none());
+        // Legitimate relative path is allowed.
+        let good = resolve_under(root, "src/app.rs").unwrap();
+        assert!(good.ends_with("src/app.rs"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recover_skips_symlinks_in_staging() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path();
+
+        // Create a "sensitive" file outside the workspace that the
+        // symlink could exfiltrate if we naively followed it.
+        let outside = dir.path().join("outside_secret.txt");
+        std::fs::write(&outside, "SECRET").unwrap();
+
+        let subtask_dir = workspace.join(SCRATCH_ROOT_DIR).join("F9");
+        let staging_dir = subtask_dir.join("merge-staging");
+        std::fs::create_dir_all(&staging_dir).unwrap();
+
+        // Plant a symlink inside staging pointing to the outside file.
+        let staged_link = staging_dir.join("innocent_looking.txt");
+        std::os::unix::fs::symlink(&outside, &staged_link).unwrap();
+
+        let journal = MergeJournal {
+            subtask_id: "F9".to_string(),
+            copy_files: vec!["innocent_looking.txt".to_string()],
+            delete_files: vec![],
+            staging_dir: staging_dir.to_string_lossy().into_owned(),
+        };
+        std::fs::write(
+            subtask_dir.join(MERGE_JOURNAL),
+            serde_json::to_string(&journal).unwrap(),
+        )
+        .unwrap();
+
+        let recovered = recover_pending_merges(workspace.to_str().unwrap());
+        assert_eq!(recovered, vec!["F9"]);
+
+        // Crucially: main workspace should NOT now contain the secret.
+        let target = workspace.join("innocent_looking.txt");
+        assert!(
+            !target.exists(),
+            "symlink content must not be copied into main workspace"
+        );
     }
 }

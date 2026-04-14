@@ -450,7 +450,13 @@ pub fn default_registry() -> ToolRegistry {
     reg.register(Box::new(exit_worktree::ExitWorktreeTool));
 
     // MCP / Skills integration
-    reg.register(Box::new(mcp::MCPTool));
+    //
+    // `MCPTool` is intentionally NOT registered here: the dispatch path
+    // is still a stub that returns "not yet available".  Exposing it in
+    // the schema just teaches the model to call it and waste tokens on
+    // the failure message.  The struct and its tests remain so the tool
+    // can be wired in by adding a single `reg.register` line once the
+    // underlying client is implemented.
     reg.register(Box::new(mcp_auth::McpAuthTool));
     reg.register(Box::new(list_mcp::ListMcpResourcesTool));
     reg.register(Box::new(read_mcp::ReadMcpResourceTool));
@@ -664,7 +670,9 @@ mod tests {
     #[test]
     fn default_registry_has_all_tools() {
         let reg = default_registry();
-        assert!(reg.len() >= 21, "expected 21+ tools, got {}", reg.len());
+        // MCPTool is not registered (stub) — see default_registry().
+        assert!(reg.len() >= 20, "expected 20+ tools, got {}", reg.len());
+        assert!(reg.get("MCP").is_none(), "MCP stub must stay unregistered");
     }
 
     #[test]

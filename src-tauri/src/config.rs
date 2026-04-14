@@ -502,16 +502,56 @@ impl AppConfig {
             .map_err(|e| format!("Cannot serialize config.toml: {e}"))?;
         // Atomic write: tmp + rename to prevent corrupt config on crash.
         let tmp_path = path.with_extension("tmp");
-        std::fs::write(&tmp_path, format!("{content}\n"))
-            .map_err(|e| format!("Cannot write {}: {e}", tmp_path.display()))?;
-        // On Windows, rename fails if the destination exists; remove it first.
-        #[cfg(target_os = "windows")]
-        {
-            let _ = std::fs::remove_file(&path);
-        }
-        std::fs::rename(&tmp_path, &path)
-            .map_err(|e| format!("Cannot rename config {}: {e}", path.display()))?;
+        write_config_bytes(&tmp_path, format!("{content}\n").as_bytes())?;
+        atomic_replace(&tmp_path, &path)?;
         Ok(AppConfig::load())
+    }
+}
+
+/// Write config bytes to `path` with owner-only permissions on Unix (0o600).
+/// The config file contains API keys; default umask 0o022 would leave it
+/// world-readable on shared systems, leaking credentials to other local users.
+fn write_config_bytes(path: &std::path::Path, data: &[u8]) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| format!("Cannot open {} for write: {e}", path.display()))?;
+        f.write_all(data)
+            .map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
+        f.sync_all()
+            .map_err(|e| format!("Cannot sync {}: {e}", path.display()))?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, data).map_err(|e| format!("Cannot write {}: {e}", path.display()))
+    }
+}
+
+/// Rename `tmp` to `dest` atomically.  On Windows, `rename` fails if the
+/// destination exists, so we fall back to `ReplaceFile`-style semantics by
+/// retrying with `remove_file` only if the first rename hits AlreadyExists.
+/// This keeps the tmp file around if remove_file or the second rename fails,
+/// so we never end up with *neither* file present on disk.
+fn atomic_replace(tmp: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
+    match std::fs::rename(tmp, dest) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            // Windows path: destination must be removed first.  Keep tmp
+            // intact so that if remove_file fails we still have valid data.
+            std::fs::remove_file(dest)
+                .map_err(|e| format!("Cannot remove old config {}: {e}", dest.display()))?;
+            std::fs::rename(tmp, dest)
+                .map_err(|e| format!("Cannot rename config {}: {e}", dest.display()))
+        }
+        Err(e) => Err(format!("Cannot rename config {}: {e}", dest.display())),
     }
 }
 
@@ -676,6 +716,30 @@ mod tests {
     fn features_default_to_sandbox_execution_mode() {
         let features = FeaturesConfig::default();
         assert_eq!(features.execution_access_mode, ExecutionAccessMode::Sandbox);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_config_bytes_uses_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_config_bytes(&path, b"api_key = \"secret\"\n").unwrap();
+        let meta = std::fs::metadata(&path).unwrap();
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "config file must be owner-only (got {mode:o})");
+    }
+
+    #[test]
+    fn atomic_replace_overwrites_existing_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("config.toml");
+        let tmp = dir.path().join("config.tmp");
+        std::fs::write(&dest, b"old").unwrap();
+        std::fs::write(&tmp, b"new").unwrap();
+        atomic_replace(&tmp, &dest).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"new");
+        assert!(!tmp.exists(), "tmp should be consumed by rename");
     }
 
     #[test]

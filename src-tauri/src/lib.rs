@@ -30,6 +30,43 @@ pub struct AppState {
     pub test_workspaces: Mutex<HashMap<String, String>>,
 }
 
+/// Recover a `RwLock` read guard after a panic poisoned it.
+///
+/// `std::sync::RwLock` poisons itself whenever a thread panics while
+/// holding the write guard.  Silently recovering with `into_inner()`
+/// discards the signal entirely — subsequent readers would continue
+/// with potentially-corrupted state and no one would know.  We surface
+/// a `tracing::error!` on the recovery path so the condition is
+/// observable in logs, then hand back the guard so the app can keep
+/// running (aborting the process on every poisoned lock would be
+/// worse for users).
+fn recover_read<'a, T>(
+    lock: &'a RwLock<T>,
+    label: &'static str,
+) -> std::sync::RwLockReadGuard<'a, T> {
+    lock.read().unwrap_or_else(|e| {
+        tracing::error!("RwLock for {label} was poisoned — continuing with possibly stale state");
+        e.into_inner()
+    })
+}
+
+fn recover_write<'a, T>(
+    lock: &'a RwLock<T>,
+    label: &'static str,
+) -> std::sync::RwLockWriteGuard<'a, T> {
+    lock.write().unwrap_or_else(|e| {
+        tracing::error!("RwLock for {label} was poisoned — continuing with possibly stale state");
+        e.into_inner()
+    })
+}
+
+fn recover_mutex<'a, T>(lock: &'a Mutex<T>, label: &'static str) -> std::sync::MutexGuard<'a, T> {
+    lock.lock().unwrap_or_else(|e| {
+        tracing::error!("Mutex for {label} was poisoned — continuing with possibly stale state");
+        e.into_inner()
+    })
+}
+
 // ── Tauri commands ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -41,7 +78,7 @@ pub struct SystemStatus {
 
 #[tauri::command]
 fn detect_tools(state: tauri::State<'_, AppState>) -> SystemStatus {
-    let config = state.config.read().unwrap_or_else(|e| e.into_inner());
+    let config = recover_read(&state.config, "config");
     let api_configured = config.agent.is_configured() || config.is_configured();
     let api_provider = if config.agent.is_configured() {
         config.agent.provider.clone()
@@ -62,11 +99,7 @@ fn detect_tools(state: tauri::State<'_, AppState>) -> SystemStatus {
 
 #[tauri::command]
 fn get_config(state: tauri::State<'_, AppState>) -> ConfigStatus {
-    state
-        .config
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .status()
+    recover_read(&state.config, "config").status()
 }
 
 #[tauri::command]
@@ -88,7 +121,7 @@ fn save_config(
 ) -> Result<ConfigStatus, String> {
     let effective = AppConfig::persist_draft(config)?;
     let status = effective.status();
-    *state.config.write().unwrap_or_else(|e| e.into_inner()) = effective;
+    *recover_write(&state.config, "config") = effective;
     Ok(status)
 }
 
@@ -103,7 +136,7 @@ fn set_execution_access_mode(
     draft.execution_access_mode = mode;
     let effective = AppConfig::persist_draft(draft)?;
     let status = effective.status();
-    *state.config.write().unwrap_or_else(|e| e.into_inner()) = effective;
+    *recover_write(&state.config, "config") = effective;
     Ok(status)
 }
 
@@ -114,19 +147,12 @@ async fn director_chat(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let config = state
-        .config
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
+    let config = recover_read(&state.config, "config").clone();
     let window_label = window.label().to_string();
     info!(window = %window_label, "director chat started");
     let token = CancellationToken::new();
     {
-        let mut tokens = state
-            .cancel_tokens
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut tokens = recover_mutex(&state.cancel_tokens, "cancel_tokens");
         tokens.insert(window_label.clone(), token.clone());
     }
     let result = chat_with_director(
@@ -139,11 +165,7 @@ async fn director_chat(
         token,
     )
     .await;
-    state
-        .cancel_tokens
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .remove(&window_label);
+    recover_mutex(&state.cancel_tokens, "cancel_tokens").remove(&window_label);
     match &result {
         Err(e) if e == "cancelled" => info!("director chat cancelled"),
         Err(e) => warn!(error = %e, "director chat failed"),
@@ -193,28 +215,36 @@ async fn run_skill(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), SkillError> {
-    let config = state
-        .config
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
+    let config = recover_read(&state.config, "config").clone();
     let window_label = window.label().to_string();
     info!(mode = %mode, phase = ?phase, window = %window_label, "skill started");
     // Create a fresh cancellation token for this run, replacing any previous one.
     let token = CancellationToken::new();
     {
-        let mut tokens = state
-            .cancel_tokens
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut tokens = recover_mutex(&state.cancel_tokens, "cancel_tokens");
         tokens.insert(window_label.clone(), token.clone());
     }
+    // Canonicalize workspace path at the entry point.  Individual tools
+    // defend against traversal on their own, but centralising here means
+    // skill code can assume `workspace` is an absolute, symlink-resolved
+    // path.  Some skills (e.g. plan) are allowed to pre-create the
+    // workspace, so a NotFound from canonicalize is treated as "pass
+    // through untouched" rather than a hard error.
+    let workspace = match workspace.as_deref().filter(|p| !p.trim().is_empty()) {
+        Some(raw) => match std::fs::canonicalize(raw) {
+            Ok(canon) => Some(canon.to_string_lossy().into_owned()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(raw.to_string()),
+            Err(e) => {
+                return Err(SkillError::from_raw(&format!(
+                    "Invalid workspace {raw}: {e}"
+                )));
+            }
+        },
+        None => None,
+    };
     if mode == "test" {
         if let Some(ws) = workspace.as_ref().filter(|path| !path.trim().is_empty()) {
-            state
-                .test_workspaces
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
+            recover_mutex(&state.test_workspaces, "test_workspaces")
                 .insert(window_label.clone(), ws.clone());
         }
     }
@@ -233,17 +263,10 @@ async fn run_skill(
     )
     .await;
     // Remove token after run completes (cancelled or finished normally).
-    state
-        .cancel_tokens
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .remove(&window_label);
+    recover_mutex(&state.cancel_tokens, "cancel_tokens").remove(&window_label);
     if mode == "test" && (result.is_err() || phase.as_deref() == Some("document")) {
-        let cleanup_workspace = state
-            .test_workspaces
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&window_label);
+        let cleanup_workspace =
+            recover_mutex(&state.test_workspaces, "test_workspaces").remove(&window_label);
         let _ = skills::test_skill::cleanup_runtime_for_window(
             &window_label,
             cleanup_workspace.as_deref(),
@@ -259,20 +282,22 @@ async fn run_skill(
 
 #[tauri::command]
 fn cancel_skill(window: tauri::WebviewWindow, state: tauri::State<'_, AppState>) {
-    let window_label = window.label();
-    let token = state
-        .cancel_tokens
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(window_label)
+    let window_label = window.label().to_string();
+    let token = recover_mutex(&state.cancel_tokens, "cancel_tokens")
+        .get(&window_label)
         .cloned();
     if let Some(token) = token {
         token.cancel();
+        // Notify the frontend that cancellation has been requested so
+        // the UI can show a "cleaning up" state.  `run_skill`'s
+        // post-await cleanup then owns the actual teardown — we do NOT
+        // call cleanup_runtime_for_window here (doing so would race
+        // with run_skill's cleanup and orphan workspaces).
+        use tauri::Emitter as _;
+        if let Err(e) = window.emit("skill-cancel-requested", &window_label) {
+            tracing::warn!("Failed to emit skill-cancel-requested: {e}");
+        }
     }
-    // Do NOT call cleanup_runtime_for_window here — let run_skill's
-    // post-await cleanup handle it.  Calling it in both places causes a race
-    // where cancel_skill removes the workspace from the map, then run_skill's
-    // cleanup finds None and skips cleanup, or both run cleanup concurrently.
 }
 
 #[tauri::command]
