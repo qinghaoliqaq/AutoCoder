@@ -3,7 +3,7 @@
 /// Creates parent directories as needed. Full content replacement.
 pub mod prompt;
 
-use super::path_utils::resolve_path;
+use super::path_utils::{atomic_write, resolve_path};
 use super::{Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -85,17 +85,11 @@ impl Tool for FileWriteTool {
         // ── Determine if creating or updating ────────────────────────────
         let is_new = !resolved.exists();
 
-        // ── Create parent directories if needed ──────────────────────────
-        if let Some(parent) = resolved.parent() {
-            if !parent.exists() {
-                if let Err(e) = tokio::fs::create_dir_all(parent).await {
-                    return ToolResult::err(format!("Failed to create parent directories: {e}"));
-                }
-            }
-        }
-
-        // ── Write content ────────────────────────────────────────────────
-        match tokio::fs::write(&resolved, content).await {
+        // ── Write content atomically ─────────────────────────────────────
+        // `atomic_write` writes to a unique tmp sibling then renames, so a
+        // disk-full or power-loss mid-write cannot leave a truncated source
+        // file on disk.  It also creates parent directories for us.
+        match atomic_write(&resolved, content.as_bytes()).await {
             Ok(()) => {
                 if is_new {
                     ToolResult::ok(format!("File created successfully at: {file_path}"))

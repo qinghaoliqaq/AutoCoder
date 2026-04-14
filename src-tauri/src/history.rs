@@ -133,14 +133,27 @@ pub fn save_session(workspace: Option<String>, session: SessionJson) -> Result<(
     let path = dir.join(session_file_name(&session.meta.id)?);
     let json =
         serde_json::to_string_pretty(&session).map_err(|e| format!("Serialize error: {e}"))?;
-    let tmp_path = path.with_extension("json.tmp");
+    // Tmp name must be unique: two parallel `save_session` calls for the
+    // same session id would otherwise both write to `<id>.json.tmp`,
+    // producing a corrupt mixed-content file when the later writer
+    // lands while the earlier rename is in flight.
+    let pid = std::process::id();
+    let ns = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = path.with_extension(format!("json.{pid}.{ns}.tmp"));
     std::fs::write(&tmp_path, &json).map_err(|e| format!("Write error: {e}"))?;
     // On Windows, rename fails if the destination exists; remove it first.
     #[cfg(target_os = "windows")]
     {
         let _ = std::fs::remove_file(&path);
     }
-    std::fs::rename(&tmp_path, &path).map_err(|e| format!("Rename error: {e}"))
+    std::fs::rename(&tmp_path, &path).map_err(|e| {
+        // Remove the orphan tmp so it can't accumulate across retries.
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("Rename error: {e}")
+    })
 }
 
 /// Lightweight struct for extracting only metadata from session files without

@@ -5,6 +5,56 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+/// Atomically write `data` to `path`.
+///
+/// Strategy: write to a uniquely-named sibling `.tmp` then rename into
+/// place.  This prevents partial-write corruption on disk-full or power
+/// loss, and keeps concurrent writers from trampling each other's
+/// staging files (the tmp name includes pid + nanoseconds).
+///
+/// On Windows `rename` fails if the destination exists, so we fall
+/// back to remove-then-rename.  If the remove succeeds but the rename
+/// fails, the tmp file is left on disk so the caller can recover
+/// rather than being left with neither version present.
+///
+/// Creates parent directories as needed.
+pub async fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+        }
+    }
+    let pid = std::process::id();
+    let ns = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let ext = path
+        .extension()
+        .map(|e| format!("{}.{pid}.{ns}.tmp", e.to_string_lossy()))
+        .unwrap_or_else(|| format!("{pid}.{ns}.tmp"));
+    let tmp = path.with_extension(ext);
+    tokio::fs::write(&tmp, data)
+        .await
+        .map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
+    match tokio::fs::rename(&tmp, path).await {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            // Windows: destination must be removed first.  Keep tmp intact
+            // if remove_file fails so we never end up with neither file.
+            tokio::fs::remove_file(path)
+                .await
+                .map_err(|e| format!("Cannot remove old {}: {e}", path.display()))?;
+            tokio::fs::rename(&tmp, path)
+                .await
+                .map_err(|e| format!("Cannot rename {}: {e}", path.display()))
+        }
+        Err(e) => Err(format!("Cannot rename {}: {e}", path.display())),
+    }
+}
+
 /// Resolve a user-supplied path relative to the workspace, ensuring it does
 /// not escape the workspace boundary. Handles symlinks, `..`, and `.` components.
 pub fn resolve_path(path_str: &str, workspace: &Path) -> Result<PathBuf, String> {
@@ -98,5 +148,35 @@ mod tests {
         let workspace = dir.path().canonicalize().unwrap();
         let resolved = resolve_path("src/../src/new.txt", &workspace).unwrap();
         assert!(resolved.starts_with(&workspace));
+    }
+
+    #[tokio::test]
+    async fn atomic_write_creates_file_with_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("deep/nested/file.txt");
+        atomic_write(&target, b"hello").await.unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"hello");
+    }
+
+    #[tokio::test]
+    async fn atomic_write_overwrites_existing() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("file.txt");
+        std::fs::write(&target, b"old").unwrap();
+        atomic_write(&target, b"new").await.unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+    }
+
+    #[tokio::test]
+    async fn atomic_write_leaves_no_tmp_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("file.txt");
+        atomic_write(&target, b"content").await.unwrap();
+        let stray_tmp: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().to_string_lossy().contains(".tmp"))
+            .collect();
+        assert!(stray_tmp.is_empty(), "tmp files leaked: {stray_tmp:?}");
     }
 }

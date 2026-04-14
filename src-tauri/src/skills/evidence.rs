@@ -546,66 +546,87 @@ fn append_event(workspace: &str, event: &EvidenceEvent) -> Result<(), String> {
         .map_err(|e| format!("Cannot serialize {BLACKBOARD_EVENTS_JSONL} line: {e}"))?;
     line.push('\n');
 
-    // Open the file for both read+write so we can truncate-then-append in one
-    // session.  Hold the file open for the whole operation so that the
-    // truncate and append are not interleaved by concurrent callers.
-    let file = std::fs::OpenOptions::new()
+    // Open in append mode.  On POSIX (O_APPEND) and on Windows
+    // (FILE_APPEND_DATA), a single `write_all` is positioned and
+    // committed atomically at the current end-of-file, so parallel
+    // writers cannot interleave or overwrite each other.  The previous
+    // implementation did seek+write in two syscalls which *could* race
+    // under concurrent subtasks.
+    let mut file = std::fs::OpenOptions::new()
         .create(true)
-        .read(true)
-        .write(true)
+        .append(true)
         .open(&path)
         .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
 
-    // Truncate the file if it's grown too large, keeping only recent events.
+    // Size-based rotation BEFORE appending the new line — otherwise a
+    // burst of parallel writes could race on truncation and one writer
+    // would keep a file handle pointing to the truncated file, producing
+    // a zero-length rotated file when its queued write finally lands.
+    // We check the size on a separate handle (metadata does not follow
+    // append-mode semantics); best-effort because rotation is not
+    // critical to correctness.
     if let Ok(meta) = file.metadata() {
         if meta.len() > MAX_EVENTS_FILE_BYTES {
-            truncate_events_file_locked(&file);
+            if let Err(e) = rotate_events_file(&path) {
+                // Rotation failure is non-fatal — log and keep appending
+                // so we don't drop the event just because the log was big.
+                tracing::warn!(
+                    "Evidence log rotation failed for {}: {e} (continuing)",
+                    path.display()
+                );
+            } else {
+                // Reopen the (now rotated) file in append mode.
+                file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                    .map_err(|e| format!("Cannot reopen {}: {e}", path.display()))?;
+            }
         }
     }
 
-    // Seek to end and append.
-    use std::io::{Seek, SeekFrom};
-    let mut file = file;
-    let _ = file.seek(SeekFrom::End(0));
-    // Use a single write_all so the JSON + newline cannot be split across
-    // two syscalls — prevents interleaving when parallel subtasks append
-    // to the same JSONL file concurrently.
     file.write_all(line.as_bytes())
         .map_err(|e| format!("Cannot append {}: {e}", path.display()))
 }
 
-/// Truncate the events JSONL file in-place to the last N lines.
-/// Called while holding the file handle open so the truncate and rewrite
-/// are not interleaved by concurrent callers.
+/// Rotate the events JSONL by writing the last N lines to a tmp file
+/// then renaming it over the target.  This avoids the previous in-place
+/// `set_len(0)` + `write_all` sequence which could zero the file and
+/// then fail the write on disk-full, losing ALL evidence permanently.
 ///
-/// Uses raw bytes (not `read_to_string`) to handle potentially corrupted
-/// content from concurrent append races — invalid UTF-8 lines are discarded
-/// rather than causing the entire truncation to fail.
-fn truncate_events_file_locked(file: &std::fs::File) {
-    use std::io::{Read, Seek, SeekFrom, Write};
-    let mut file = file;
-    if file.seek(SeekFrom::Start(0)).is_err() {
-        return;
-    }
-    let mut raw = Vec::new();
-    if file.read_to_end(&mut raw).is_err() {
-        return;
-    }
-    // Split by newline bytes and keep only valid UTF-8 lines.
+/// The tmp name includes pid + nanos so two concurrent callers cannot
+/// clobber each other's staging file.  Malformed UTF-8 lines are
+/// dropped (concurrent append races can occasionally leave these).
+fn rotate_events_file(path: &Path) -> Result<(), String> {
+    let raw = std::fs::read(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
     let lines: Vec<&str> = raw
         .split(|&b| b == b'\n')
         .filter_map(|chunk| std::str::from_utf8(chunk).ok())
         .filter(|s| !s.is_empty())
         .collect();
     if lines.len() <= TRUNCATE_KEEP_LINES {
-        return;
+        return Ok(()); // Nothing to rotate.
     }
     let kept = &lines[lines.len() - TRUNCATE_KEEP_LINES..];
     let mut content = kept.join("\n");
     content.push('\n');
-    let _ = file.seek(SeekFrom::Start(0));
-    let _ = file.set_len(0);
-    let _ = file.write_all(content.as_bytes());
+
+    let pid = std::process::id();
+    let ns = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = path.with_extension(format!("jsonl.{pid}.{ns}.rot"));
+    std::fs::write(&tmp, content.as_bytes())
+        .map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::fs::remove_file(path);
+    }
+    std::fs::rename(&tmp, path).map_err(|e| {
+        // Keep the tmp file so the data is recoverable.
+        format!("Cannot rotate {}: {e}", path.display())
+    })
 }
 
 fn read_blackboard(workspace: &str) -> Result<Option<Blackboard>, String> {

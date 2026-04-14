@@ -4,7 +4,7 @@
 /// By default requires exactly one match; `replace_all` replaces every occurrence.
 pub mod prompt;
 
-use super::path_utils::resolve_path;
+use super::path_utils::{atomic_write, resolve_path};
 use super::{Tool, ToolContext, ToolResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -130,8 +130,10 @@ impl Tool for FileEditTool {
         // ── Handle empty old_string on existing file ─────────────────────
         if old_string.is_empty() {
             if content.trim().is_empty() {
-                // Empty file — replace empty content with new content
-                return match tokio::fs::write(&resolved, new_string).await {
+                // Empty file — replace empty content with new content.
+                // Use atomic_write so a crash mid-write can't leave a
+                // half-written source file.
+                return match atomic_write(&resolved, new_string.as_bytes()).await {
                     Ok(()) => ToolResult::ok(format!(
                         "The file {file_path} has been updated successfully."
                     )),
@@ -166,8 +168,10 @@ impl Tool for FileEditTool {
             content.replacen(old_string, new_string, 1)
         };
 
-        // ── Write back ──────────────────────────────────────────────────
-        match tokio::fs::write(&resolved, &updated).await {
+        // ── Write back atomically ───────────────────────────────────────
+        // `atomic_write` stages to a unique tmp sibling and renames into
+        // place; a crash mid-write can't leave a truncated source file.
+        match atomic_write(&resolved, updated.as_bytes()).await {
             Ok(()) => {
                 if replace_all {
                     ToolResult::ok(format!(
@@ -185,14 +189,14 @@ impl Tool for FileEditTool {
 }
 
 /// Create a new file, including parent directories, and write initial content.
+/// Uses `atomic_write` so the file never appears half-written.
 async fn create_file_with_content(
     path: &std::path::Path,
     content: &str,
 ) -> Result<(), std::io::Error> {
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    tokio::fs::write(path, content).await
+    atomic_write(path, content.as_bytes())
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 }
 
 #[cfg(test)]
