@@ -159,7 +159,7 @@ fn scan_topic_files(workspace: Option<&str>) -> Vec<(PathBuf, String)> {
         }
     }
     // Newest first
-    entries.sort_by(|a, b| b.1.cmp(&a.1));
+    entries.sort_by_key(|e| std::cmp::Reverse(e.1));
 
     entries
         .into_iter()
