@@ -25,7 +25,10 @@ const BUILTIN_SKILLS: &[(&str, &str)] = &[
     ("verify", include_str!("verify/SKILL.md")),
     ("frontend-dev", include_str!("frontend_dev/SKILL.md")),
     ("fullstack-dev", include_str!("fullstack_dev/SKILL.md")),
-    ("ui-design-system", include_str!("ui_design_system/SKILL.md")),
+    (
+        "ui-design-system",
+        include_str!("ui_design_system/SKILL.md"),
+    ),
     ("write-tech-spec", include_str!("write_tech_spec/SKILL.md")),
     ("implement-specs", include_str!("implement_specs/SKILL.md")),
     (

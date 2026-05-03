@@ -174,7 +174,10 @@ mod tests {
     #[async_trait]
     impl UserQuestionAsker for FakeAsker {
         async fn ask(&self, request: UserQuestionRequest<'_>) -> Result<String, String> {
-            self.captured.lock().unwrap().push(request.question.to_string());
+            self.captured
+                .lock()
+                .unwrap()
+                .push(request.question.to_string());
             Ok(self.answer.clone())
         }
     }
@@ -217,9 +220,7 @@ mod tests {
         let tool = AskUserQuestionTool;
         let token = CancellationToken::new();
         let ctx = ToolContext::new(Path::new("/tmp"), false, &token);
-        let result = tool
-            .execute(json!({"question": "What now?"}), &ctx)
-            .await;
+        let result = tool.execute(json!({"question": "What now?"}), &ctx).await;
         assert!(result.is_error);
         assert!(result.content.contains("orchestration"));
     }

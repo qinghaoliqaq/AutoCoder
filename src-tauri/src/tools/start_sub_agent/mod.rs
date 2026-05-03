@@ -151,9 +151,7 @@ impl Tool for StartSubAgentTool {
         };
 
         match orch.sub_agent_runner.run(request).await {
-            Ok(output) => ToolResult::ok(format!(
-                "# Sub-agent `{label}` completed\n\n{output}"
-            )),
+            Ok(output) => ToolResult::ok(format!("# Sub-agent `{label}` completed\n\n{output}")),
             Err(e) => ToolResult::err(format!("Sub-agent `{label}` failed: {e}")),
         }
     }
@@ -265,16 +263,17 @@ mod tests {
         let tool = StartSubAgentTool;
         let token = CancellationToken::new();
         let ctx = ToolContext::new(Path::new("/tmp"), false, &token);
-        let result = tool
-            .execute(json!({"prompt": "do something"}), &ctx)
-            .await;
+        let result = tool.execute(json!({"prompt": "do something"}), &ctx).await;
         assert!(result.is_error);
         assert!(result.content.contains("orchestration"));
     }
 
     #[test]
     fn derive_label_strips_punctuation_and_kebabs() {
-        assert_eq!(derive_label("audit auth.rs for issues"), "audit-auth-rs-for-issues");
+        assert_eq!(
+            derive_label("audit auth.rs for issues"),
+            "audit-auth-rs-for-issues"
+        );
         assert_eq!(derive_label("   "), "agent");
         assert_eq!(derive_label("!!"), "agent");
         let long_label = derive_label("a very long prompt about many things");

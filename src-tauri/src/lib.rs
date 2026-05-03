@@ -701,7 +701,11 @@ mod tests {
         // override). The set should match exactly what
         // `bundled_skills::default_skill_registry()` exposes.
         let skills = list_skills(None);
-        assert!(skills.len() >= 8, "expected >=8 builtins, got {}", skills.len());
+        assert!(
+            skills.len() >= 8,
+            "expected >=8 builtins, got {}",
+            skills.len()
+        );
 
         for n in [
             "simplify",
@@ -740,8 +744,7 @@ mod tests {
         // they're in a separate section). For builtins everything
         // listed under "Related Skills" must be a real builtin.
         let skills = list_skills(None);
-        let names: std::collections::HashSet<_> =
-            skills.iter().map(|s| s.name.clone()).collect();
+        let names: std::collections::HashSet<_> = skills.iter().map(|s| s.name.clone()).collect();
         for s in &skills {
             for rel in &s.related {
                 assert!(

@@ -96,9 +96,7 @@ impl UserQuestionAsker for TauriUserQuestionAsker {
         let registry = request
             .app_handle
             .try_state::<UserQuestionRegistry>()
-            .ok_or_else(|| {
-                "UserQuestionRegistry not registered on AppHandle".to_string()
-            })?;
+            .ok_or_else(|| "UserQuestionRegistry not registered on AppHandle".to_string())?;
 
         let request_id = format!(
             "{}-{}",

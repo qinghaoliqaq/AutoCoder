@@ -175,8 +175,8 @@ impl ParsedSkill {
         provider: SkillProvider,
         scope: SkillScope,
     ) -> Result<Self, String> {
-        let raw = std::fs::read_to_string(path)
-            .map_err(|e| format!("read {}: {e}", path.display()))?;
+        let raw =
+            std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
         // Fallback name = parent directory if frontmatter omits it.
         let fallback = path
             .parent()
@@ -199,8 +199,12 @@ impl ParsedSkill {
 /// Returns `None` if the document doesn't start with `---\n`.
 fn split_frontmatter(raw: &str) -> Option<(&str, &str)> {
     // Tolerate UTF-8 BOM and leading blank lines.
-    let trimmed = raw.trim_start_matches('\u{feff}').trim_start_matches(['\r', '\n']);
-    let after_open = trimmed.strip_prefix("---\n").or_else(|| trimmed.strip_prefix("---\r\n"))?;
+    let trimmed = raw
+        .trim_start_matches('\u{feff}')
+        .trim_start_matches(['\r', '\n']);
+    let after_open = trimmed
+        .strip_prefix("---\n")
+        .or_else(|| trimmed.strip_prefix("---\r\n"))?;
     // Closing delimiter must be on its own line.
     let close_idx_lf = after_open.find("\n---\n");
     let close_idx_crlf = after_open.find("\r\n---\r\n");
@@ -258,9 +262,9 @@ fn parse_frontmatter(text: &str) -> Result<std::collections::HashMap<String, Str
 
         // `key: value` — value may be empty, quoted, or trailing on the next
         // continuation line(s).
-        let (key, value) = line.split_once(':').ok_or_else(|| {
-            format!("line {line_num}: expected `key: value`, got `{line}`")
-        })?;
+        let (key, value) = line
+            .split_once(':')
+            .ok_or_else(|| format!("line {line_num}: expected `key: value`, got `{line}`"))?;
         let key = key.trim().to_string();
         if key.is_empty() {
             return Err(format!("line {line_num}: empty key"));
@@ -616,10 +620,7 @@ mod tests {
 1. `frontend-dev`
 ";
         let skill = parse_with_body(body);
-        assert_eq!(
-            skill.related,
-            vec!["verify", "simplify", "frontend-dev"]
-        );
+        assert_eq!(skill.related, vec!["verify", "simplify", "frontend-dev"]);
     }
 
     #[test]

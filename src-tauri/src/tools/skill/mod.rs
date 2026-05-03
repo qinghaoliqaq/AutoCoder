@@ -112,7 +112,10 @@ fn render_related_footer(skill: &ParsedSkill, registry: &SkillRegistry) -> Strin
 
     let mut out = String::from("\n\n---\n\n## Related skills (chain via the Skill tool)\n\n");
     for r in &resolved {
-        out.push_str(&format!("- `/{}` — {}: {}\n", r.name, r.label, r.description));
+        out.push_str(&format!(
+            "- `/{}` — {}: {}\n",
+            r.name, r.label, r.description
+        ));
     }
     if !unresolved.is_empty() {
         out.push_str(
@@ -188,9 +191,7 @@ mod tests {
     async fn unknown_skill_lists_available_with_provider_tags() {
         let tool = SkillTool;
         let (_token, ctx) = ctx_with_workspace(Path::new("/tmp"));
-        let result = tool
-            .execute(json!({"skill": "nonexistent"}), &ctx)
-            .await;
+        let result = tool.execute(json!({"skill": "nonexistent"}), &ctx).await;
         assert!(result.is_error);
         assert!(result.content.contains("Unknown skill"));
         assert!(result.content.contains("/simplify"));
@@ -235,9 +236,7 @@ mod tests {
     async fn underscore_alias_resolves_to_kebab_skill() {
         let tool = SkillTool;
         let (_token, ctx) = ctx_with_workspace(Path::new("/tmp"));
-        let result = tool
-            .execute(json!({"skill": "frontend_dev"}), &ctx)
-            .await;
+        let result = tool.execute(json!({"skill": "frontend_dev"}), &ctx).await;
         assert!(!result.is_error);
         assert!(result.content.contains("Frontend Dev"));
     }
@@ -253,7 +252,9 @@ mod tests {
         let result = tool.execute(json!({"skill": "simplify"}), &ctx).await;
         assert!(!result.is_error);
         assert!(
-            result.content.contains("Related skills (chain via the Skill tool)"),
+            result
+                .content
+                .contains("Related skills (chain via the Skill tool)"),
             "footer header missing"
         );
         assert!(
@@ -311,7 +312,9 @@ mod tests {
         let result = tool.execute(json!({"skill": "mixed"}), &ctx).await;
         assert!(!result.is_error);
         assert!(result.content.contains("`/verify`"));
-        assert!(result.content.contains("Referenced but not currently registered"));
+        assert!(result
+            .content
+            .contains("Referenced but not currently registered"));
         assert!(result.content.contains("`does-not-exist`"));
     }
 

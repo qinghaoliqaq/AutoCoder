@@ -231,8 +231,7 @@ pub async fn dispatch(config: &HooksConfig, ctx: HookContext<'_>) -> HookOutcome
         workspace: &workspace_str,
         agent_id: ctx.agent_id,
     };
-    let payload_json = serde_json::to_string(&payload)
-        .unwrap_or_else(|_| "{}".to_string());
+    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
 
     let mut accumulated = String::new();
     // Helper: append `chunk` to `accumulated` with a separator, but stop
@@ -743,15 +742,8 @@ mod tests {
             ..Default::default()
         };
         let token = cancel_token();
-        let outcome = pre_tool_use(
-            &cfg,
-            Path::new("/tmp"),
-            &token,
-            "Bash",
-            &json!({}),
-            "main",
-        )
-        .await;
+        let outcome =
+            pre_tool_use(&cfg, Path::new("/tmp"), &token, "Bash", &json!({}), "main").await;
         // First hook timed out → spawn-error path → logged warning, second
         // hook proceeds and returns clean → final outcome is Allow.
         assert_eq!(outcome, HookOutcome::Allow);
@@ -778,15 +770,8 @@ mod tests {
             ..Default::default()
         };
         let token = cancel_token();
-        let outcome = pre_tool_use(
-            &cfg,
-            Path::new("/tmp"),
-            &token,
-            "Bash",
-            &json!({}),
-            "main",
-        )
-        .await;
+        let outcome =
+            pre_tool_use(&cfg, Path::new("/tmp"), &token, "Bash", &json!({}), "main").await;
         match outcome {
             HookOutcome::Block(reason) => assert!(reason.contains("first-blocked")),
             other => panic!("expected Block, got {other:?}"),
@@ -807,10 +792,7 @@ mod tests {
         use std::time::Duration as StdDuration;
         let tmp = tempfile::TempDir::new().unwrap();
         let marker = tmp.path().join("kill_on_drop.marker");
-        let cmd = format!(
-            "sleep 1.5 && echo wrote > {}",
-            marker.to_string_lossy()
-        );
+        let cmd = format!("sleep 1.5 && echo wrote > {}", marker.to_string_lossy());
         let cfg = HooksConfig {
             pre_tool_use: vec![HookConfig {
                 matcher: "*".to_string(),
@@ -851,15 +833,8 @@ mod tests {
         let token = cancel_token();
         // Cancel before invoking; dispatch should bail without executing.
         token.cancel();
-        let outcome = pre_tool_use(
-            &cfg,
-            Path::new("/tmp"),
-            &token,
-            "Bash",
-            &json!({}),
-            "main",
-        )
-        .await;
+        let outcome =
+            pre_tool_use(&cfg, Path::new("/tmp"), &token, "Bash", &json!({}), "main").await;
         // The single hook errored (cancelled) → warning logged → no blocks
         // and no append → Allow. The important assertion is that the call
         // returns *immediately* rather than waiting 5 seconds.
@@ -975,21 +950,18 @@ mod tests {
         // floats for integer types. If this test ever passes a 1.5
         // value, the frontend's floor-on-save is no longer needed —
         // until then, it is.
-        let r: Result<HookConfig, _> = serde_json::from_str(
-            r#"{"matcher":"Bash","command":"echo","timeout_secs":1.5}"#,
-        );
+        let r: Result<HookConfig, _> =
+            serde_json::from_str(r#"{"matcher":"Bash","command":"echo","timeout_secs":1.5}"#);
         assert!(r.is_err(), "expected float timeout to be rejected");
 
         // Sanity: integer and null both succeed.
-        let r: HookConfig = serde_json::from_str(
-            r#"{"matcher":"Bash","command":"echo","timeout_secs":1}"#,
-        )
-        .expect("integer timeout should parse");
+        let r: HookConfig =
+            serde_json::from_str(r#"{"matcher":"Bash","command":"echo","timeout_secs":1}"#)
+                .expect("integer timeout should parse");
         assert_eq!(r.timeout_secs, Some(1));
 
-        let r: HookConfig =
-            serde_json::from_str(r#"{"matcher":"Bash","command":"echo"}"#)
-                .expect("missing timeout should parse as None");
+        let r: HookConfig = serde_json::from_str(r#"{"matcher":"Bash","command":"echo"}"#)
+            .expect("missing timeout should parse as None");
         assert_eq!(r.timeout_secs, None);
     }
 

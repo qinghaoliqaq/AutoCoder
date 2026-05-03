@@ -530,8 +530,8 @@ impl AppConfig {
 /// old or the new file, never a half-written one.
 fn write_config_atomic(cfg: &AppConfig) -> Result<(), String> {
     let path = writable_config_path()?;
-    let content = toml::to_string_pretty(cfg)
-        .map_err(|e| format!("Cannot serialize config.toml: {e}"))?;
+    let content =
+        toml::to_string_pretty(cfg).map_err(|e| format!("Cannot serialize config.toml: {e}"))?;
     let tmp_path = path.with_extension("tmp");
     std::fs::write(&tmp_path, format!("{content}\n"))
         .map_err(|e| format!("Cannot write {}: {e}", tmp_path.display()))?;
