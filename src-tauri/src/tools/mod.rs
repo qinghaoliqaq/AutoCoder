@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 use tokio_util::sync::CancellationToken;
 
 // ── Tool submodules ──────────────────────────────────────────────────────────
+pub mod ask_user_question;
 pub mod bash;
 pub mod config_tool;
 pub mod enter_worktree;
@@ -53,10 +54,15 @@ pub mod repl;
 pub mod schedule_cron;
 pub mod skill;
 pub mod sleep;
+pub mod start_sub_agent;
+pub mod sub_agent_runner;
 pub mod todo_write;
 pub mod web_fetch;
 
+use crate::config::AppConfig;
 use crate::tool_runner::providers::WireFormat;
+use ask_user_question::UserQuestionAsker;
+use sub_agent_runner::SubAgentRunner;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -98,6 +104,53 @@ pub struct ToolContext<'a> {
     pub read_only: bool,
     /// Cancellation token for long-running operations.
     pub token: &'a CancellationToken,
+    /// Optional orchestration handles. Present when this tool call originates
+    /// from a real agent loop (carries config/app_handle/window_label plus the
+    /// `SubAgentRunner` and `UserQuestionAsker` impls). `None` when invoked
+    /// from a unit test or any context that doesn't allow sub-agent spawning
+    /// or user-question pauses — tools requiring it must error gracefully.
+    pub orchestration: Option<&'a OrchestrationCtx<'a>>,
+}
+
+impl<'a> ToolContext<'a> {
+    /// Construct a context without orchestration handles. Use this for tests
+    /// and for tool-runner code paths that don't need to spawn sub-agents.
+    pub fn new(workspace: &'a Path, read_only: bool, token: &'a CancellationToken) -> Self {
+        Self {
+            workspace,
+            read_only,
+            token,
+            orchestration: None,
+        }
+    }
+
+    /// Builder-style attach for orchestration handles.
+    pub fn with_orchestration(mut self, orch: &'a OrchestrationCtx<'a>) -> Self {
+        self.orchestration = Some(orch);
+        self
+    }
+}
+
+/// Orchestration handles required by tools that recursively invoke the agent
+/// loop (`StartSubAgentTool`) or pause waiting for user input
+/// (`AskUserQuestionTool`). Constructed once per top-level agent run inside
+/// `tool_runner::run_inner` and threaded through `run_partitioned` into each
+/// tool's `ToolContext`.
+pub struct OrchestrationCtx<'a> {
+    pub config: &'a AppConfig,
+    pub app_handle: &'a tauri::AppHandle,
+    /// Tauri webview window label — used as the event-emission target so
+    /// sub-agent output streams back to the same UI surface as its parent.
+    pub window_label: &'a str,
+    /// Stable identifier for the agent emitting events at this level. Top-
+    /// level chats use `"main"`; subtask runs use the subtask id.
+    pub agent_id: &'a str,
+    /// Pluggable runner — production wires to `tool_runner::run_subtask`,
+    /// tests inject fakes that don't hit an LLM.
+    pub sub_agent_runner: &'a dyn SubAgentRunner,
+    /// Pluggable asker — production wires to a Tauri-event-based registry
+    /// keyed by request id; tests inject fakes that resolve immediately.
+    pub user_question_asker: &'a dyn UserQuestionAsker,
 }
 
 // ── Tool scope ───────────────────────────────────────────────────────────────
@@ -445,6 +498,10 @@ pub fn default_registry() -> ToolRegistry {
     reg.register(Box::new(config_tool::ConfigTool));
     reg.register(Box::new(schedule_cron::ScheduleCronTool));
 
+    // Sub-agent orchestration / user interaction (Warp-inspired)
+    reg.register(Box::new(start_sub_agent::StartSubAgentTool));
+    reg.register(Box::new(ask_user_question::AskUserQuestionTool));
+
     // Git worktree
     reg.register(Box::new(enter_worktree::EnterWorktreeTool));
     reg.register(Box::new(exit_worktree::ExitWorktreeTool));
@@ -464,6 +521,9 @@ const MAX_TOOL_CONCURRENCY: usize = 10;
 
 /// Execute tool calls with read-only batching (concurrent) and write (serial).
 /// `in_subtask` is threaded to [`ToolRegistry::execute`] for scope enforcement.
+/// `orch` is the orchestration context attached to each `ToolContext`; pass
+/// `None` only when the agent loop has no sub-agent / user-question
+/// capabilities (effectively never in production).
 pub async fn run_partitioned(
     registry: &ToolRegistry,
     tool_calls: &[(String, String, Value)],
@@ -471,6 +531,7 @@ pub async fn run_partitioned(
     token: &CancellationToken,
     read_only: bool,
     in_subtask: bool,
+    orch: Option<&OrchestrationCtx<'_>>,
 ) -> Result<Vec<Value>, String> {
     // Group consecutive read-only calls into batches
     let mut batches: Vec<(bool, Vec<usize>)> = Vec::new();
@@ -495,6 +556,7 @@ pub async fn run_partitioned(
                 registry,
                 tool_calls,
                 indices,
+                orch,
                 workspace,
                 token,
                 read_only,
@@ -509,15 +571,13 @@ pub async fn run_partitioned(
                     return Err("cancelled".to_string());
                 }
                 let (id, name, input) = &tool_calls[idx];
-                let ctx = ToolContext {
-                    workspace,
-                    read_only,
-                    token,
-                };
-                let result = registry
-                    .execute(name, input.clone(), &ctx, in_subtask)
-                    .await;
-                results[idx] = build_tool_result(id, name, result);
+                let mut ctx = ToolContext::new(workspace, read_only, token);
+                if let Some(o) = orch {
+                    ctx = ctx.with_orchestration(o);
+                }
+                let result =
+                    dispatch_one_tool(registry, name, input, id, &ctx, orch, in_subtask).await;
+                results[idx] = result;
             }
         }
     }
@@ -529,6 +589,7 @@ async fn run_concurrent_batch(
     registry: &ToolRegistry,
     tool_calls: &[(String, String, Value)],
     indices: &[usize],
+    orch: Option<&OrchestrationCtx<'_>>,
     workspace: &Path,
     token: &CancellationToken,
     read_only: bool,
@@ -548,25 +609,98 @@ async fn run_concurrent_batch(
                 let name_owned = name.clone();
                 let input_owned = input.clone();
                 async move {
-                    let ctx = ToolContext {
-                        workspace,
-                        read_only,
-                        token,
-                    };
-                    let result = registry
-                        .execute(&name_owned, input_owned, &ctx, in_subtask)
-                        .await;
+                    let mut ctx = ToolContext::new(workspace, read_only, token);
+                    if let Some(o) = orch {
+                        ctx = ctx.with_orchestration(o);
+                    }
+                    let result = dispatch_one_tool(
+                        registry,
+                        &name_owned,
+                        &input_owned,
+                        &id,
+                        &ctx,
+                        orch,
+                        in_subtask,
+                    )
+                    .await;
                     (idx, id, name_owned, result)
                 }
             })
             .collect();
 
         let batch_results = join_all(futs).await;
-        for (idx, id, name, result) in batch_results {
-            results[idx] = build_tool_result(&id, &name, result);
+        for (idx, _id, _name, result) in batch_results {
+            results[idx] = result;
         }
     }
     Ok(())
+}
+
+/// Single tool dispatch with PreToolUse / PostToolUse hooks firing at the
+/// right boundaries. Lives at this layer (rather than inside the loops)
+/// so the serial and concurrent paths share one source of truth for hook
+/// ordering. Returns the same `Value` shape that `build_tool_result`
+/// produces — i.e. a fully-formed tool_result block ready to push into
+/// the message thread.
+async fn dispatch_one_tool(
+    registry: &ToolRegistry,
+    name: &str,
+    input: &Value,
+    id: &str,
+    ctx: &ToolContext<'_>,
+    orch: Option<&OrchestrationCtx<'_>>,
+    in_subtask: bool,
+) -> Value {
+    use crate::hooks;
+
+    // ── PreToolUse ────────────────────────────────────────────────────────
+    if let Some(o) = orch {
+        let outcome = hooks::pre_tool_use(
+            &o.config.hooks,
+            ctx.workspace,
+            ctx.token,
+            name,
+            input,
+            o.agent_id,
+        )
+        .await;
+        if let hooks::HookOutcome::Block(reason) = outcome {
+            return build_tool_result(
+                id,
+                name,
+                ToolResult::err(format!("[hook blocked] {reason}")),
+            );
+        }
+    }
+
+    // ── Tool execution ────────────────────────────────────────────────────
+    let exec_result = registry.execute(name, input.clone(), ctx, in_subtask).await;
+    let mut wrapped = build_tool_result(id, name, exec_result);
+
+    // ── PostToolUse ───────────────────────────────────────────────────────
+    if let Some(o) = orch {
+        let outcome = hooks::post_tool_use(
+            &o.config.hooks,
+            ctx.workspace,
+            ctx.token,
+            name,
+            input,
+            &wrapped,
+            o.agent_id,
+        )
+        .await;
+        if let hooks::HookOutcome::AppendContext(text) = outcome {
+            // Append to the textual content the model sees. Other fields
+            // (tool_use_id, is_error) stay intact.
+            if let Some(content) = wrapped.get_mut("content") {
+                if let Some(s) = content.as_str() {
+                    *content = json!(format!("{s}\n\n[hook] {text}"));
+                }
+            }
+        }
+    }
+
+    wrapped
 }
 
 fn build_tool_result(id: &str, tool_name: &str, result: ToolResult) -> Value {
@@ -788,11 +922,7 @@ mod tests {
         let reg = default_registry();
         let token = CancellationToken::new();
         let tmp = std::env::temp_dir();
-        let ctx = ToolContext {
-            workspace: &tmp,
-            read_only: false,
-            token: &token,
-        };
+        let ctx = ToolContext::new(&tmp, false, &token);
 
         // Dispatching TodoWrite with in_subtask=true must fail fast, even
         // if the model manages to call it (e.g. hallucinated the name).

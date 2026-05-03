@@ -15,14 +15,18 @@ import FileTreePanel from './components/FileTreePanel';
 import ToolLogPanel from './components/ToolLogPanel';
 import HistoryPanel from './components/HistoryPanel';
 import BlackboardPanel from './components/BlackboardPanel';
+import SkillsBrowserPanel from './components/SkillsBrowserPanel';
 import ConfigEditorModal from './components/ConfigEditorModal';
 import ProjectContextEditorModal from './components/ProjectContextEditorModal';
-import { VscColorMode, VscFiles, VscHistory, VscMultipleWindows, VscTerminal, VscChecklist, VscSettingsGear } from 'react-icons/vsc';
+import UserQuestionModal from './components/UserQuestionModal';
+import { VscColorMode, VscFiles, VscHistory, VscMultipleWindows, VscTerminal, VscChecklist, VscSettingsGear, VscSymbolMisc } from 'react-icons/vsc';
 import { makeSessionId, syncSessionIdentity } from './utils';
 import { useSessionManager } from './hooks/useSessionManager';
 import { useDirectorLoop } from './hooks/useDirectorLoop';
 import { useConfigState } from './hooks/useConfigState';
 import { useSidebarState } from './hooks/useSidebarState';
+import { useUserQuestion } from './hooks/useUserQuestion';
+import { useSkillsList } from './hooks/useSkillsList';
 
 // ── Small helpers ────────────────────────────────────────────────────────────
 
@@ -87,6 +91,8 @@ function DevHub() {
   // ── Composed hooks ─────────────────────────────────────────────────────
   const config = useConfigState();
   const sidebar = useSidebarState(messages);
+  const userQuestion = useUserQuestion();
+  const skillsList = useSkillsList(workspace);
 
   const { handleSubmit, isRunning, isStopping, handleStop } = useDirectorLoop({
     workspaceRef, projectContextRef, projectContextMetaRef, planReportRef, stopRequestedRef,
@@ -328,6 +334,7 @@ function DevHub() {
               { tab: 'explorer' as const, icon: <VscFiles className="w-[18px] h-[18px]" />, title: 'Explorer', badge: false },
               { tab: 'logs' as const, icon: <VscTerminal className="w-[18px] h-[18px]" />, title: 'Tool Logs', badge: toolLogs.length > 0 && sidebar.activeSidebarTab !== 'logs' },
               { tab: 'history' as const, icon: <VscHistory className="w-[18px] h-[18px]" />, title: 'History', badge: sessions.length > 0 && sidebar.activeSidebarTab !== 'history' },
+              { tab: 'skills' as const, icon: <VscSymbolMisc className="w-[18px] h-[18px]" />, title: `Skills${skillsList.skills.length ? ` (${skillsList.skills.length})` : ''}`, badge: false },
             ] as const).map(({ tab, icon, title, badge }) => (
               <button
                 key={tab}
@@ -376,6 +383,15 @@ function DevHub() {
               </div>
               <div className={`absolute inset-0 transition-opacity duration-300 ${sidebar.activeSidebarTab === 'history' ? 'opacity-100 z-10 pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'}`}>
                 <HistoryPanel sessions={sessions} currentSessionId={currentSessionId} onLoad={handleLoadSession} onDelete={handleDeleteSession} onNewChat={handleNewChat} onClose={() => sidebar.setActiveSidebarTab(null)} />
+              </div>
+              <div className={`absolute inset-0 transition-opacity duration-300 ${sidebar.activeSidebarTab === 'skills' ? 'opacity-100 z-10 pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'}`}>
+                <SkillsBrowserPanel
+                  skills={skillsList.skills}
+                  loading={skillsList.loading}
+                  error={skillsList.error}
+                  onRefresh={skillsList.refresh}
+                  onClose={() => sidebar.setActiveSidebarTab(null)}
+                />
               </div>
               <div className={`absolute inset-0 transition-opacity duration-300 ${sidebar.activeSidebarTab === 'blackboard' && !sidebar.blackboardFullscreen ? 'opacity-100 z-10 pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'}`}>
                 <BlackboardPanel workspacePath={workspace} events={blackboardEvents} onClose={() => sidebar.setActiveSidebarTab(null)} />
@@ -429,6 +445,12 @@ function DevHub() {
           onSave={handleSaveContext}
           onClear={handleClearContext}
           onClose={() => setShowContextEditor(false)}
+        />
+      )}
+      {userQuestion.activeQuestion && (
+        <UserQuestionModal
+          question={userQuestion.activeQuestion}
+          onSubmit={userQuestion.submitAnswer}
         />
       )}
     </ThemeProvider>

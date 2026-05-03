@@ -96,11 +96,7 @@ mod tests {
         assert!(tool.is_read_only(&json!({})));
 
         let token = CancellationToken::new();
-        let ctx = ToolContext {
-            workspace: Path::new("/tmp"),
-            read_only: false,
-            token: &token,
-        };
+        let ctx = ToolContext::new(Path::new("/tmp"), false, &token);
         let result = tool.execute(json!({"duration_ms": 10}), &ctx).await;
         assert!(!result.is_error);
         assert_eq!(result.content, "Slept for 10ms");
@@ -112,11 +108,7 @@ mod tests {
         let token = CancellationToken::new();
         // Cancel immediately so we don't actually wait 5 minutes
         token.cancel();
-        let ctx = ToolContext {
-            workspace: Path::new("/tmp"),
-            read_only: false,
-            token: &token,
-        };
+        let ctx = ToolContext::new(Path::new("/tmp"), false, &token);
         let result = tool.execute(json!({"duration_ms": 999999}), &ctx).await;
         assert!(!result.is_error);
         // Should be interrupted immediately since token was cancelled
@@ -128,11 +120,7 @@ mod tests {
         let tool = SleepTool;
         let token = CancellationToken::new();
         token.cancel();
-        let ctx = ToolContext {
-            workspace: Path::new("/tmp"),
-            read_only: false,
-            token: &token,
-        };
+        let ctx = ToolContext::new(Path::new("/tmp"), false, &token);
         let result = tool.execute(json!({"duration_ms": 60000}), &ctx).await;
         assert!(!result.is_error);
         assert!(result.content.contains("interrupted"));
@@ -142,11 +130,7 @@ mod tests {
     async fn sleep_missing_duration() {
         let tool = SleepTool;
         let token = CancellationToken::new();
-        let ctx = ToolContext {
-            workspace: Path::new("/tmp"),
-            read_only: false,
-            token: &token,
-        };
+        let ctx = ToolContext::new(Path::new("/tmp"), false, &token);
         let result = tool.execute(json!({}), &ctx).await;
         assert!(result.is_error);
         assert!(result.content.contains("duration_ms"));
@@ -156,11 +140,7 @@ mod tests {
     async fn sleep_negative_duration() {
         let tool = SleepTool;
         let token = CancellationToken::new();
-        let ctx = ToolContext {
-            workspace: Path::new("/tmp"),
-            read_only: false,
-            token: &token,
-        };
+        let ctx = ToolContext::new(Path::new("/tmp"), false, &token);
         let result = tool.execute(json!({"duration_ms": -100}), &ctx).await;
         assert!(result.is_error);
     }

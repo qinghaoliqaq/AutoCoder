@@ -1,4 +1,13 @@
-pub const PROMPT: &str = r#"# Fullstack Dev
+---
+name: fullstack-dev
+label: Fullstack Dev
+category: full-stack
+description: Implement features that span backend and frontend together —
+  API endpoints with their UI, auth flows, CRUD modules, validation. Use when
+  the subtask requires both sides of the system to ship a working feature.
+---
+
+# Fullstack Dev
 
 This skill is a compact execution guide for API-backed feature work.
 
@@ -51,4 +60,10 @@ The subtask is only ready for review when:
 - auth and access control remain correct
 - the implementation is integrated into the actual user flow, not left orphaned
 - touched files are limited to what the subtask really needs
-"#;
+
+## Related Skills
+
+- `frontend-dev` — for UI-only subtasks that don't need backend changes.
+- `ui-design-system` — once the feature is wired, polish the surfaces it
+  introduced.
+- `verify` — confirm the end-to-end flow before declaring done.

@@ -6,7 +6,7 @@
 import { useState, useCallback } from 'react';
 import type { ChatMessage } from '../types';
 
-export type SidebarTab = 'explorer' | 'logs' | 'history' | 'blackboard';
+export type SidebarTab = 'explorer' | 'logs' | 'history' | 'skills' | 'blackboard';
 
 export function useSidebarState(messages: ChatMessage[]) {
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab | null>(null);

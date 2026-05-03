@@ -1,4 +1,14 @@
-pub const PROMPT: &str = r#"# UI Design System
+---
+name: ui-design-system
+label: UI Design System
+category: design
+description: Polish existing UI to production quality — spacing, typography,
+  color consistency, hover/focus states, responsive breakpoints. Use when the
+  subtask is about visual polish, design-system enforcement, or beautifying
+  an existing screen rather than building new features.
+---
+
+# UI Design System
 
 This skill focuses on making existing UI look production-quality.
 It is about visual polish, not feature building.
@@ -109,4 +119,9 @@ Ready for review when:
 - Every interactive element has hover + focus states
 - Responsive at 375px / 768px / 1280px
 - No hardcoded hex colors
-"#;
+
+## Related Skills
+
+- `frontend-dev` — when the underlying surface needs functional changes
+  before polish makes sense.
+- `verify` — confirm the polished UI still renders and interacts correctly.

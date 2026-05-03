@@ -8,13 +8,14 @@ use super::{
     emit_chunk, emit_token_usage, emit_tool_log, CONTEXT_BUDGET_TOKENS, MAX_LOOP_ITERATIONS,
     MAX_RESPONSE_TOKENS, PRUNE_THRESHOLD,
 };
-use crate::tools::{self, ToolRegistry};
+use crate::tools::{self, OrchestrationCtx, ToolRegistry};
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::path::Path;
 use tokio_util::sync::CancellationToken;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_loop(
     client: &Client,
     base_url: &str,
@@ -30,6 +31,7 @@ pub async fn run_loop(
     token: CancellationToken,
     read_only: bool,
     subtask_id: Option<&str>,
+    orch: Option<&OrchestrationCtx<'_>>,
 ) -> Result<String, String> {
     let endpoint = format!("{}/messages", base_url.trim_end_matches('/'));
     let mut messages: Vec<Value> = vec![json!({ "role": "user", "content": user_prompt })];
@@ -95,6 +97,7 @@ pub async fn run_loop(
             &token,
             read_only,
             subtask_id.is_some(),
+            orch,
         )
         .await?;
         messages.push(json!({ "role": "user", "content": tool_results }));

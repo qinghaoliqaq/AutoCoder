@@ -2,6 +2,7 @@ pub(crate) mod bundled_skills;
 mod config;
 mod director;
 mod history;
+pub(crate) mod hooks;
 pub(crate) mod memory;
 mod prompts;
 mod skills;
@@ -353,6 +354,86 @@ fn memory_list(workspace: Option<String>) -> Vec<String> {
     memory::list_memories(workspace.as_deref())
 }
 
+// ── Hooks UI ─────────────────────────────────────────────────────────────────
+
+/// Read the current `[hooks]` section from `config.toml`. Returns the
+/// default (empty) `HooksConfig` if no config file exists yet — the
+/// Hooks tab can then start with an empty editor instead of erroring.
+#[tauri::command]
+fn get_hooks_config(state: tauri::State<'_, AppState>) -> hooks::HooksConfig {
+    let config = state.config.read().unwrap_or_else(|e| e.into_inner());
+    config.hooks.clone()
+}
+
+/// Replace the `[hooks]` section in `config.toml` with `hooks` and
+/// reload the in-memory `AppState` so subsequent runs pick up the new
+/// hooks immediately. Other config fields are preserved verbatim.
+#[tauri::command]
+fn save_hooks_config(
+    state: tauri::State<'_, AppState>,
+    hooks: hooks::HooksConfig,
+) -> Result<(), String> {
+    let updated = AppConfig::persist_hooks(hooks)?;
+    // Match the convention used by `save_config` / `set_execution_access_mode`:
+    // recover from poisoned locks instead of silently leaving the in-memory
+    // copy stale (which would cause the next agent run to use the OLD hooks
+    // until the app restarts).
+    *state.config.write().unwrap_or_else(|e| e.into_inner()) = updated;
+    Ok(())
+}
+
+// ── Skill browser ─────────────────────────────────────────────────────────────
+
+/// Frontend-facing DTO for one skill. Mirrors `bundled_skills::ParsedSkill`
+/// minus the `SkillSource` enum (which carries platform-specific paths the
+/// UI shouldn't have to think about) and serializes the provider + scope
+/// as flat strings to keep the TypeScript side simple.
+#[derive(Debug, Serialize)]
+pub struct SkillSummary {
+    pub name: String,
+    pub label: String,
+    pub description: String,
+    pub category: Option<String>,
+    /// Markdown body. Returned in full so the UI can render a preview
+    /// without a second round-trip per click — skills are typically
+    /// 60-200 lines, so the total payload stays bounded.
+    pub content: String,
+    /// One of `builtin` / `project` / `user` / `claude` / `codex`.
+    pub provider: &'static str,
+    /// Resolved cross-references — names of other skills mentioned in
+    /// the document's `## Related Skills` section that exist in the
+    /// current registry.
+    pub related: Vec<String>,
+}
+
+#[tauri::command]
+fn list_skills(workspace: Option<String>) -> Vec<SkillSummary> {
+    use std::path::Path;
+    let workspace_path = workspace.as_deref().map(Path::new);
+    let registry = bundled_skills::SkillRegistry::discover(workspace_path);
+    let resolved_names: std::collections::HashSet<String> =
+        registry.list().iter().map(|s| s.name.clone()).collect();
+
+    registry
+        .list()
+        .iter()
+        .map(|s| SkillSummary {
+            name: s.name.clone(),
+            label: s.label.clone(),
+            description: s.description.clone(),
+            category: s.category.clone(),
+            content: s.content.clone(),
+            provider: s.provider.label(),
+            related: s
+                .related
+                .iter()
+                .filter(|name| resolved_names.contains(*name))
+                .cloned()
+                .collect(),
+        })
+        .collect()
+}
+
 // ── Evidence commands ─────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -525,6 +606,9 @@ pub fn run() {
             cancel_tokens: Mutex::new(HashMap::new()),
             test_workspaces: Mutex::new(HashMap::new()),
         })
+        // Backs the AskUserQuestion tool — pending replies are keyed by
+        // request id and resolved through the `submit_user_answer` command.
+        .manage(tools::ask_user_question::registry::UserQuestionRegistry::new())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -562,8 +646,12 @@ pub fn run() {
             memory_list,
             evidence_digest,
             evidence_subtask_context,
+            list_skills,
+            get_hooks_config,
+            save_hooks_config,
             test_agent_connection,
             resolve_agent_provider,
+            tools::ask_user_question::registry::submit_user_answer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -601,4 +689,91 @@ fn init_tracing() {
         .with(stderr_layer)
         .with(file_layer)
         .try_init();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_skills_returns_all_builtins_for_clean_workspace() {
+        // No workspace → only builtins discovered (no project SKILL.md
+        // override). The set should match exactly what
+        // `bundled_skills::default_skill_registry()` exposes.
+        let skills = list_skills(None);
+        assert!(
+            skills.len() >= 8,
+            "expected >=8 builtins, got {}",
+            skills.len()
+        );
+
+        for n in [
+            "simplify",
+            "verify",
+            "frontend-dev",
+            "fullstack-dev",
+            "ui-design-system",
+            "write-tech-spec",
+            "implement-specs",
+            "spec-driven-implementation",
+        ] {
+            assert!(
+                skills.iter().any(|s| s.name == n),
+                "missing builtin in list_skills: {n}"
+            );
+        }
+    }
+
+    #[test]
+    fn list_skills_populates_required_fields() {
+        let skills = list_skills(None);
+        for s in &skills {
+            assert!(!s.name.is_empty());
+            assert!(!s.label.is_empty());
+            assert!(!s.description.is_empty());
+            assert!(!s.content.is_empty(), "{}: empty content", s.name);
+            assert!(!s.provider.is_empty());
+        }
+    }
+
+    #[test]
+    fn list_skills_resolves_related_against_registry() {
+        // The dangling-references filter is part of the contract: the UI
+        // shouldn't see related entries that point at non-existent
+        // skills (that's the SkillTool footer's job, and even there
+        // they're in a separate section). For builtins everything
+        // listed under "Related Skills" must be a real builtin.
+        let skills = list_skills(None);
+        let names: std::collections::HashSet<_> = skills.iter().map(|s| s.name.clone()).collect();
+        for s in &skills {
+            for rel in &s.related {
+                assert!(
+                    names.contains(rel),
+                    "{}: related ref `{rel}` is not in the registry",
+                    s.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn list_skills_picks_up_project_overrides() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path().join(".agents").join("skills").join("simplify");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("SKILL.md"),
+            "---\nname: simplify\nlabel: Simplify (project)\n\
+             description: Project override.\n---\n\nProject body.",
+        )
+        .unwrap();
+
+        let skills = list_skills(Some(tmp.path().to_string_lossy().to_string()));
+        let simplify = skills
+            .iter()
+            .find(|s| s.name == "simplify")
+            .expect("simplify present");
+        assert_eq!(simplify.label, "Simplify (project)");
+        assert_eq!(simplify.provider, "project");
+    }
 }

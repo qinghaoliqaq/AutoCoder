@@ -118,13 +118,16 @@ pub(crate) fn select_for_subtask(card: &SubtaskCard) -> Option<VendoredSkillId> 
 }
 
 /// Load a vendored skill from the bundled skills registry.
-/// No longer reads from the filesystem — skills are compiled into the binary.
+///
+/// This pulls from the builtin-only registry — vendored skills are always
+/// compiled into the binary, so they're guaranteed to resolve regardless of
+/// the user's filesystem state.
 pub(crate) fn load(skill_id: VendoredSkillId) -> Result<VendoredSkill, String> {
     let registry = bundled_skills::default_skill_registry();
     match registry.get(skill_id.slug()) {
         Some(def) => Ok(VendoredSkill {
             id: skill_id,
-            excerpt: def.prompt.to_string(),
+            excerpt: def.content.clone(),
         }),
         None => Err(format!(
             "Bundled skill {} not found in registry",
