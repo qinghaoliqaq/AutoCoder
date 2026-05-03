@@ -56,11 +56,18 @@ esac`,
     event: 'post_tool_use',
     entry: {
       matcher: 'Edit',
+      // NOTE: avoid `cargo fmt --check 2>&1 | head -20` — piping into
+      // head masks cargo's exit code (head's success becomes the
+      // pipeline status), so drift wouldn't surface as a non-zero
+      // exit. Instead capture both streams to a temp var and emit
+      // them on drift only.
       command: `path=$(jq -r '.tool_input.file_path' 2>/dev/null)
 case "$path" in
   *.rs)
     cd "$AUTOCODER_WORKSPACE" || exit 0
-    cargo fmt --check 2>&1 | head -20
+    out=$(cargo fmt --check 2>&1) && exit 0
+    echo "$out" | head -20
+    exit 1
     ;;
 esac`,
       timeout_secs: 30,
@@ -74,10 +81,14 @@ esac`,
     event: 'post_tool_use',
     entry: {
       matcher: 'Edit',
+      // `--no` (alias for --no-install) makes npx fail rather than
+      // silently install prettier on first use. Don't combine with
+      // `-y`: that flag would auto-confirm an install, contradicting
+      // --no, and recent npx versions warn or skip in the conflict.
       command: `path=$(jq -r '.tool_input.file_path' 2>/dev/null)
 case "$path" in
   *.ts|*.tsx|*.js|*.jsx|*.json|*.md)
-    npx --no -y prettier --write "$path" 2>/dev/null && echo "prettier: formatted $path"
+    npx --no prettier --write "$path" 2>/dev/null && echo "prettier: formatted $path"
     ;;
 esac`,
       timeout_secs: 20,

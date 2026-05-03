@@ -58,15 +58,18 @@ export function validateEntry(entry: HookEntry, event: HookEvent): string | null
 }
 
 /**
- * Trim user-typed strings and force the matcher field to `"*"` for
- * stop hooks (where the backend ignores it but a stale value would be
- * confusing on next load).
+ * Trim user-typed strings, force the matcher field to `"*"` for stop
+ * hooks (where the backend ignores it but a stale value would be
+ * confusing on next load), and floor `timeout_secs` to an integer so
+ * a decimal that snuck into state can never reach the backend (which
+ * deserializes to `Option<u64>` and rejects floats).
  */
 export function cleanForSave(config: HooksConfig): HooksConfig {
   const clean = (entry: HookEntry, event: HookEvent): HookEntry => ({
     matcher: event === 'stop' ? '*' : entry.matcher.trim() || '*',
     command: entry.command.trim(),
-    timeout_secs: entry.timeout_secs,
+    timeout_secs:
+      entry.timeout_secs == null ? null : Math.max(1, Math.floor(entry.timeout_secs)),
   });
   return {
     pre_tool_use: config.pre_tool_use.map((e) => clean(e, 'pre_tool_use')),
@@ -364,11 +367,19 @@ function HookSection({ event, entries, onChange }: HookSectionProps) {
                   type="number"
                   min={1}
                   max={300}
+                  step={1}
                   value={entry.timeout_secs ?? ''}
                   onChange={(e) => {
                     const raw = e.target.value;
+                    // Floor to integer: the backend deserializes to
+                    // `Option<u64>` and serde_json rejects floats. A
+                    // user typing "1.5" with the default <input
+                    // type=number> would otherwise fail save with a
+                    // confusing serde error.
                     const next =
-                      raw === '' ? null : Math.max(1, Math.min(300, Number(raw) || 1));
+                      raw === ''
+                        ? null
+                        : Math.max(1, Math.min(300, Math.floor(Number(raw)) || 1));
                     updateEntry(idx, { timeout_secs: next });
                   }}
                   placeholder="30"

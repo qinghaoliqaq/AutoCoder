@@ -107,4 +107,45 @@ describe('cleanForSave', () => {
     expect(out.post_tool_use[0].matcher).toBe('B');
     expect(out.stop[0].matcher).toBe('*');
   });
+
+  it('floors decimal timeouts to integers', () => {
+    // Regression: the backend deserializes timeout_secs to Option<u64>
+    // and serde_json rejects floats. The HooksTab's number input
+    // doesn't enforce step=1 by default, so a user typing 1.5 would
+    // round-trip into state as 1.5 and fail save. cleanForSave is the
+    // last line of defense.
+    const raw: HooksConfig = {
+      pre_tool_use: [{ matcher: 'Bash', command: 'echo', timeout_secs: 1.5 }],
+      post_tool_use: [{ matcher: '*', command: 'echo', timeout_secs: 29.9 }],
+      stop: [{ matcher: '*', command: 'echo', timeout_secs: 4.0001 }],
+    };
+    const out = cleanForSave(raw);
+    expect(out.pre_tool_use[0].timeout_secs).toBe(1);
+    expect(out.post_tool_use[0].timeout_secs).toBe(29);
+    expect(out.stop[0].timeout_secs).toBe(4);
+  });
+
+  it('clamps floored zero/negative to the 1s minimum', () => {
+    // Math.floor(0.5) = 0, which the backend would also reject (the
+    // clamp range is 1..=300). cleanForSave must lift to 1 rather
+    // than passing 0 through.
+    const raw: HooksConfig = {
+      pre_tool_use: [{ matcher: 'Bash', command: 'echo', timeout_secs: 0.5 }],
+      post_tool_use: [{ matcher: '*', command: 'echo', timeout_secs: -3 }],
+      stop: [],
+    };
+    const out = cleanForSave(raw);
+    expect(out.pre_tool_use[0].timeout_secs).toBe(1);
+    expect(out.post_tool_use[0].timeout_secs).toBe(1);
+  });
+
+  it('preserves null timeout (= use backend default)', () => {
+    const raw: HooksConfig = {
+      pre_tool_use: [{ matcher: 'Bash', command: 'echo', timeout_secs: null }],
+      post_tool_use: [],
+      stop: [],
+    };
+    const out = cleanForSave(raw);
+    expect(out.pre_tool_use[0].timeout_secs).toBeNull();
+  });
 });

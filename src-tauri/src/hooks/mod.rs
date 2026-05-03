@@ -859,6 +859,32 @@ mod tests {
     }
 
     #[test]
+    fn timeout_secs_deserialization_rejects_floats() {
+        // Documents the contract that drives `cleanForSave` on the
+        // frontend side: HookConfig.timeout_secs is `Option<u64>`, and
+        // serde_json (the format Tauri uses for command args) rejects
+        // floats for integer types. If this test ever passes a 1.5
+        // value, the frontend's floor-on-save is no longer needed —
+        // until then, it is.
+        let r: Result<HookConfig, _> = serde_json::from_str(
+            r#"{"matcher":"Bash","command":"echo","timeout_secs":1.5}"#,
+        );
+        assert!(r.is_err(), "expected float timeout to be rejected");
+
+        // Sanity: integer and null both succeed.
+        let r: HookConfig = serde_json::from_str(
+            r#"{"matcher":"Bash","command":"echo","timeout_secs":1}"#,
+        )
+        .expect("integer timeout should parse");
+        assert_eq!(r.timeout_secs, Some(1));
+
+        let r: HookConfig =
+            serde_json::from_str(r#"{"matcher":"Bash","command":"echo"}"#)
+                .expect("missing timeout should parse as None");
+        assert_eq!(r.timeout_secs, None);
+    }
+
+    #[test]
     fn hooks_config_deserializes_minimal_toml() {
         let toml = r#"
 [[pre_tool_use]]

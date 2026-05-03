@@ -374,9 +374,11 @@ fn save_hooks_config(
     hooks: hooks::HooksConfig,
 ) -> Result<(), String> {
     let updated = AppConfig::persist_hooks(hooks)?;
-    if let Ok(mut guard) = state.config.write() {
-        *guard = updated;
-    }
+    // Match the convention used by `save_config` / `set_execution_access_mode`:
+    // recover from poisoned locks instead of silently leaving the in-memory
+    // copy stale (which would cause the next agent run to use the OLD hooks
+    // until the app restarts).
+    *state.config.write().unwrap_or_else(|e| e.into_inner()) = updated;
     Ok(())
 }
 
