@@ -6,15 +6,17 @@ import ToggleSwitch from './ToggleSwitch';
 import ProviderSelect from './ProviderSelect';
 import { useTheme, THEMES } from './ThemeProvider';
 import { ClaudeRoleIcon, CodexRoleIcon } from './icons/RoleIcons';
-import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, Keyboard, Zap, Palette, Lightbulb, Compass } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, LoaderCircle, Settings2, Bot, Keyboard, Zap, Palette, Lightbulb, Compass, Webhook } from 'lucide-react';
+import HooksTab from './HooksTab';
 
 // ── Settings tab definitions ─────────────────────────────────────────────────
 
-type SettingsTab = 'general' | 'agent' | 'appearance' | 'shortcuts';
+type SettingsTab = 'general' | 'agent' | 'hooks' | 'appearance' | 'shortcuts';
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: 'general', label: '通用', icon: <Settings2 className="h-4 w-4" /> },
   { id: 'agent', label: '智能体', icon: <Bot className="h-4 w-4" /> },
+  { id: 'hooks', label: 'Hooks', icon: <Webhook className="h-4 w-4" /> },
   { id: 'appearance', label: '外观', icon: <Palette className="h-4 w-4" /> },
   { id: 'shortcuts', label: '快捷键', icon: <Keyboard className="h-4 w-4" /> },
 ];
@@ -131,7 +133,7 @@ export default function ConfigEditorModal({
       if (!saving) onClose();
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '4') {
+    if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '5') {
       e.preventDefault();
       const idx = parseInt(e.key) - 1;
       if (idx < TABS.length) setActiveTab(TABS[idx].id);
@@ -185,6 +187,7 @@ export default function ConfigEditorModal({
             <div className="mx-auto max-w-2xl px-8 py-6">
               {activeTab === 'general' && <GeneralTab draft={draft} update={update} />}
               {activeTab === 'agent' && <AgentTab draft={draft} update={update} />}
+              {activeTab === 'hooks' && <HooksTab />}
               {activeTab === 'appearance' && <AppearanceTab />}
               {activeTab === 'shortcuts' && <ShortcutsTab />}
 
@@ -210,25 +213,30 @@ export default function ConfigEditorModal({
       </div>
 
       {/* ── Footer ──────────────────────────────────────────────── */}
+      {/* Hooks tab manages its own load/save lifecycle and renders an
+          inline Save button — hide the global Save here so users don't
+          mistakenly click it expecting hook changes to persist. */}
       <div className="flex items-center justify-end gap-2.5 border-t border-edge-primary/20 px-6 py-3">
         <button
           onClick={onClose}
           className="rounded-lg px-4 py-1.5 text-[12px] font-medium text-content-secondary transition-colors hover:bg-surface-tertiary/50"
         >
-          取消
+          {activeTab === 'hooks' ? '关闭' : '取消'}
         </button>
-        <button
-          onClick={onSave}
-          disabled={!draft || saving}
-          className="rounded-lg bg-themed-accent/90 px-4 py-1.5 text-[12px] font-semibold text-white transition-all hover:bg-themed-accent active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {saving ? (
-            <span className="flex items-center gap-1.5">
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-              保存中...
-            </span>
-          ) : '保存配置'}
-        </button>
+        {activeTab !== 'hooks' && (
+          <button
+            onClick={onSave}
+            disabled={!draft || saving}
+            className="rounded-lg bg-themed-accent/90 px-4 py-1.5 text-[12px] font-semibold text-white transition-all hover:bg-themed-accent active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? (
+              <span className="flex items-center gap-1.5">
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                保存中...
+              </span>
+            ) : '保存配置'}
+          </button>
+        )}
       </div>
     </div>
   );

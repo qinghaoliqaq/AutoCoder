@@ -133,6 +133,28 @@ export interface FileNode {
 /** Provider that supplied a skill, used for grouping in the UI. */
 export type SkillProvider = 'builtin' | 'project' | 'user' | 'claude' | 'codex';
 
+/** Lifecycle event for a user hook. Mirrors `hooks::HookEvent` on the Rust side. */
+export type HookEvent = 'pre_tool_use' | 'post_tool_use' | 'stop';
+
+/**
+ * One hook entry as stored in `config.toml`. The `matcher` field is
+ * required at the type level (Rust serde defaults it to "*" on parse)
+ * but ignored for `stop` hooks.
+ */
+export interface HookEntry {
+  matcher: string;
+  command: string;
+  /** Per-hook timeout in seconds. `null` means use the 30s default. */
+  timeout_secs: number | null;
+}
+
+/** Returned by `get_hooks_config` and accepted by `save_hooks_config`. */
+export interface HooksConfig {
+  pre_tool_use: HookEntry[];
+  post_tool_use: HookEntry[];
+  stop: HookEntry[];
+}
+
 /** Returned by the `list_skills` Tauri command. */
 export interface SkillSummary {
   name: string;

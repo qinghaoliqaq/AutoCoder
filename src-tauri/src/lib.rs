@@ -354,6 +354,32 @@ fn memory_list(workspace: Option<String>) -> Vec<String> {
     memory::list_memories(workspace.as_deref())
 }
 
+// ── Hooks UI ─────────────────────────────────────────────────────────────────
+
+/// Read the current `[hooks]` section from `config.toml`. Returns the
+/// default (empty) `HooksConfig` if no config file exists yet — the
+/// Hooks tab can then start with an empty editor instead of erroring.
+#[tauri::command]
+fn get_hooks_config(state: tauri::State<'_, AppState>) -> hooks::HooksConfig {
+    let config = state.config.read().unwrap_or_else(|e| e.into_inner());
+    config.hooks.clone()
+}
+
+/// Replace the `[hooks]` section in `config.toml` with `hooks` and
+/// reload the in-memory `AppState` so subsequent runs pick up the new
+/// hooks immediately. Other config fields are preserved verbatim.
+#[tauri::command]
+fn save_hooks_config(
+    state: tauri::State<'_, AppState>,
+    hooks: hooks::HooksConfig,
+) -> Result<(), String> {
+    let updated = AppConfig::persist_hooks(hooks)?;
+    if let Ok(mut guard) = state.config.write() {
+        *guard = updated;
+    }
+    Ok(())
+}
+
 // ── Skill browser ─────────────────────────────────────────────────────────────
 
 /// Frontend-facing DTO for one skill. Mirrors `bundled_skills::ParsedSkill`
@@ -619,6 +645,8 @@ pub fn run() {
             evidence_digest,
             evidence_subtask_context,
             list_skills,
+            get_hooks_config,
+            save_hooks_config,
             test_agent_connection,
             resolve_agent_provider,
             tools::ask_user_question::registry::submit_user_answer,

@@ -500,28 +500,49 @@ impl AppConfig {
                 second_base_url: draft.agent_second_base_url.trim().to_string(),
                 second_model: draft.agent_second_model.trim().to_string(),
             },
-            // Hooks aren't editable from the UI (yet) — preserve whatever
-            // the user wrote in their config.toml verbatim.
+            // Hooks have their own dedicated save path
+            // (`AppConfig::persist_hooks`) — preserve whatever's currently
+            // on disk so saving the General/Agent draft doesn't wipe
+            // hooks the user added via the Hooks tab.
             hooks: existing.hooks.clone(),
         };
         normalize_agent_config(&mut cfg.agent);
 
-        let path = writable_config_path()?;
-        let content = toml::to_string_pretty(&cfg)
-            .map_err(|e| format!("Cannot serialize config.toml: {e}"))?;
-        // Atomic write: tmp + rename to prevent corrupt config on crash.
-        let tmp_path = path.with_extension("tmp");
-        std::fs::write(&tmp_path, format!("{content}\n"))
-            .map_err(|e| format!("Cannot write {}: {e}", tmp_path.display()))?;
-        // On Windows, rename fails if the destination exists; remove it first.
-        #[cfg(target_os = "windows")]
-        {
-            let _ = std::fs::remove_file(&path);
-        }
-        std::fs::rename(&tmp_path, &path)
-            .map_err(|e| format!("Cannot rename config {}: {e}", path.display()))?;
+        write_config_atomic(&cfg)?;
         Ok(AppConfig::load())
     }
+
+    /// Replace just the `[hooks]` section on disk, preserving every other
+    /// field. Used by the Hooks tab in the Settings UI; isolates hook
+    /// edits from the General/Agent save flow so the two can't clobber
+    /// each other.
+    pub fn persist_hooks(hooks: crate::hooks::HooksConfig) -> Result<Self, String> {
+        let mut cfg = AppConfig::load_persisted().unwrap_or_default();
+        cfg.hooks = hooks;
+        write_config_atomic(&cfg)?;
+        Ok(AppConfig::load())
+    }
+}
+
+/// Serialize `cfg` to TOML and atomically replace the user's
+/// `config.toml`. The tmp+rename dance prevents leaving a corrupt config
+/// behind if the process dies mid-write — readers always see either the
+/// old or the new file, never a half-written one.
+fn write_config_atomic(cfg: &AppConfig) -> Result<(), String> {
+    let path = writable_config_path()?;
+    let content = toml::to_string_pretty(cfg)
+        .map_err(|e| format!("Cannot serialize config.toml: {e}"))?;
+    let tmp_path = path.with_extension("tmp");
+    std::fs::write(&tmp_path, format!("{content}\n"))
+        .map_err(|e| format!("Cannot write {}: {e}", tmp_path.display()))?;
+    // On Windows, rename fails if the destination exists; remove it first.
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::fs::remove_file(&path);
+    }
+    std::fs::rename(&tmp_path, &path)
+        .map_err(|e| format!("Cannot rename config {}: {e}", path.display()))?;
+    Ok(())
 }
 
 // ── File helpers ──────────────────────────────────────────────────────────────
