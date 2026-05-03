@@ -187,7 +187,15 @@ export default function ConfigEditorModal({
             <div className="mx-auto max-w-2xl px-8 py-6">
               {activeTab === 'general' && <GeneralTab draft={draft} update={update} />}
               {activeTab === 'agent' && <AgentTab draft={draft} update={update} />}
-              {activeTab === 'hooks' && <HooksTab />}
+              {/* HooksTab manages its own load/save lifecycle and holds
+                  unsaved edits in component state. Other tabs lift their
+                  state into `draft` so unmounting on tab-switch is fine,
+                  but here we keep HooksTab mounted (CSS-hidden when
+                  inactive) so switching to General and back doesn't blow
+                  away the user's unsaved hook edits. */}
+              <div className={activeTab === 'hooks' ? '' : 'hidden'}>
+                <HooksTab />
+              </div>
               {activeTab === 'appearance' && <AppearanceTab />}
               {activeTab === 'shortcuts' && <ShortcutsTab />}
 

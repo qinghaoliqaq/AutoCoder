@@ -295,6 +295,12 @@ async fn run_one(
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    // CRITICAL: `wait_with_output(self)` consumes the `Child` into a
+    // future. When that future is dropped (timeout fires or cancel
+    // token trips), tokio does NOT kill the child unless we opt in here.
+    // Without this, a misconfigured `sleep 60` hook with `timeout_secs=1`
+    // would leak a process for the full 60 seconds.
+    cmd.kill_on_drop(true);
 
     let mut child = cmd.spawn().map_err(|e| match e.kind() {
         ErrorKind::NotFound => format!("shell `{shell}` not found"),
@@ -740,6 +746,50 @@ mod tests {
             HookOutcome::Block(reason) => assert!(reason.contains("first-blocked")),
             other => panic!("expected Block, got {other:?}"),
         }
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn timeout_kills_the_child_process() {
+        // Regression: without `kill_on_drop(true)`, a hook that sleeps
+        // longer than its timeout would leak — the future is dropped
+        // when the timeout fires, but the underlying OS process keeps
+        // running. This test spawns a hook that creates a marker file
+        // *after* a sleep, times out before the sleep completes, then
+        // waits long enough for the leaked process (if any) to write
+        // the marker. If kill_on_drop is wired correctly, the marker
+        // never appears.
+        use std::time::Duration as StdDuration;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let marker = tmp.path().join("kill_on_drop.marker");
+        let cmd = format!(
+            "sleep 1.5 && echo wrote > {}",
+            marker.to_string_lossy()
+        );
+        let cfg = HooksConfig {
+            pre_tool_use: vec![HookConfig {
+                matcher: "*".to_string(),
+                command: cmd,
+                timeout_secs: Some(1), // shorter than the sleep
+            }],
+            ..Default::default()
+        };
+        let token = cancel_token();
+        let _ = pre_tool_use(
+            &cfg,
+            tmp.path(),
+            &token,
+            "Bash",
+            &serde_json::json!({}),
+            "main",
+        )
+        .await;
+        // Wait long enough for the (would-be-leaked) sleep to finish.
+        tokio::time::sleep(StdDuration::from_millis(2000)).await;
+        assert!(
+            !marker.exists(),
+            "child process should have been killed when the hook timed out"
+        );
     }
 
     #[cfg(not(windows))]
