@@ -18,9 +18,12 @@ import {
   LoaderCircle,
   Plus,
   Save,
+  Sparkles,
   Trash2,
 } from 'lucide-react';
 import type { HookEntry, HookEvent, HooksConfig } from '../types';
+import type { HookTemplate } from '../hookTemplates';
+import HookTemplatePicker from './HookTemplatePicker';
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
 
@@ -99,6 +102,7 @@ export default function HooksTab() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +132,19 @@ export default function HooksTab() {
     },
     [],
   );
+
+  const insertTemplate = useCallback((tpl: HookTemplate) => {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      // Clone the entry — the template itself is shared `readonly`
+      // module-level data; without the clone, edits in the form would
+      // mutate it across the whole app.
+      const next = { ...tpl.entry };
+      return { ...prev, [tpl.event]: [...prev[tpl.event], next] };
+    });
+    setDirty(true);
+    setSavedAt(null);
+  }, []);
 
   // First validation error across all events, or null if everything's clean.
   const firstError = useMemo(() => {
@@ -187,6 +204,16 @@ export default function HooksTab() {
         for env vars and payload shape.
       </div>
 
+      <button
+        onClick={() => setPickerOpen(true)}
+        className="flex items-center justify-center gap-1.5 rounded-lg border border-themed-accent/40
+                   bg-themed-accent/5 px-3 py-2 text-[11.5px] font-semibold text-themed-accent-text
+                   transition-colors hover:bg-themed-accent/10"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        Browse templates
+      </button>
+
       {events.map((event) => (
         <HookSection
           key={event}
@@ -242,6 +269,13 @@ export default function HooksTab() {
           )}
         </button>
       </div>
+
+      {pickerOpen && (
+        <HookTemplatePicker
+          onInsert={insertTemplate}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
     </div>
   );
 }
