@@ -1,4 +1,13 @@
-pub const PROMPT: &str = r#"# Verify — End-to-End Verification of Code Changes
+---
+name: verify
+label: Verify
+category: testing
+description: Verify recent code changes work end-to-end by building, running
+  tests, and exercising affected features. Use when the user asks to verify
+  changes, requests "/verify", or wants confirmation a feature actually works.
+---
+
+# Verify — End-to-End Verification of Code Changes
 
 Verify that recent code changes actually work by running the application
 and testing the affected functionality.
@@ -67,4 +76,3 @@ If any step fails:
 - Do NOT fix unrelated issues during verification — only fix what the changes broke
 - Report outcomes faithfully — failures are valuable information
 - If the project has no test infrastructure, note this and focus on build + manual testing
-"#;

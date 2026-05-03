@@ -1,4 +1,13 @@
-pub const PROMPT: &str = r#"# Simplify — Code Review for Reuse, Quality, and Efficiency
+---
+name: simplify
+label: Simplify
+category: review
+description: Review recent code changes for reuse, quality, and efficiency. Use
+  when the user asks for a code-quality pass, requests "/simplify", or asks to
+  audit recent changes for duplication or technical debt.
+---
+
+# Simplify — Code Review for Reuse, Quality, and Efficiency
 
 Review the recent code changes across three dimensions simultaneously.
 For each dimension, analyze the changed files and provide actionable findings.
@@ -67,4 +76,3 @@ If a dimension has no significant findings, say so briefly and move on.
 Only review files that were recently changed. Do not review the entire codebase.
 Use Grep and Glob to find related code for the reuse analysis.
 Read changed files to understand the full context before commenting.
-"#;

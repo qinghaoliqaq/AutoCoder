@@ -1,97 +1,103 @@
-/// Bundled skills registry — prompt-based contextual guides for the coding agent.
-///
-/// Skills are NOT executable tools. They are domain-specific instruction sets
-/// that get injected into the system prompt (or returned by the Skill tool)
-/// to guide the model's behavior for specific task types.
-///
-/// ```text
-/// bundled_skills/
-///   mod.rs              ← SkillDef, SkillRegistry (this file)
-///   frontend_dev/       ← Frontend implementation guide
-///   fullstack_dev/      ← Full-stack feature guide
-///   ui_design_system/   ← UI polish and visual consistency
-///   simplify/           ← Code review: reuse, quality, efficiency
-///   verify/             ← End-to-end verification of changes
-/// ```
-pub mod frontend_dev;
-pub mod fullstack_dev;
-pub mod simplify;
-pub mod ui_design_system;
-pub mod verify;
+//! Bundled skills — Warp/Claude/Codex-compatible markdown skill registry.
+//!
+//! Skills are markdown documents with YAML frontmatter (`name`, `description`,
+//! optional `label` / `category`). The Skill tool exposes them to the model as
+//! "slash commands"; the model picks one based on the description and follows
+//! the skill body's instructions.
+//!
+//! ## Layout
+//! ```text
+//! bundled_skills/
+//!   mod.rs                     ← public API (this file)
+//!   parsed_skill.rs            ← ParsedSkill type + frontmatter parser
+//!   loader.rs                  ← discovery across builtin + project + user dirs
+//!   simplify/SKILL.md          ← compiled-in builtins
+//!   verify/SKILL.md
+//!   frontend_dev/SKILL.md
+//!   fullstack_dev/SKILL.md
+//!   ui_design_system/SKILL.md
+//! ```
+//!
+//! ## Discovery sources (highest priority first)
+//! 1. `<workspace>/.agents/skills/<name>/SKILL.md`
+//! 2. `~/.config/ai-dev-hub/skills/<name>/SKILL.md`
+//! 3. `~/.claude/skills/<name>/SKILL.md`           — interop with Claude Code
+//! 4. `~/.codex/skills/<name>/SKILL.md`            — interop with Codex
+//! 5. Compiled-in builtins
+//!
+//! Duplicate names resolve to the highest-priority provider (see
+//! `SkillProvider::rank`).
 
-use std::collections::HashMap;
+pub mod loader;
+pub mod parsed_skill;
 
-/// A bundled skill definition.
-pub struct SkillDef {
-    /// Machine name / slug (e.g. "frontend-dev").
-    pub slug: &'static str,
-    /// Human-readable label.
-    pub label: &'static str,
-    /// Short description (shown in skill listings).
-    pub description: &'static str,
-    /// Category for grouping (e.g. "frontend", "review", "testing").
-    pub category: &'static str,
-    /// Full prompt content — the entire instruction set injected into context.
-    pub prompt: &'static str,
-}
+use std::path::Path;
 
-/// Registry holding all bundled skills.
+pub use loader::{dedupe_by_priority, discover_all, load_builtins};
+pub use parsed_skill::{ParsedSkill, SkillProvider};
+// `SkillScope` and `SkillSource` are reachable via `parsed_skill::*` for
+// callers that need them; we don't re-export from the crate root because
+// today no external code consumes them and the unused-import lint would
+// trip CI's `-D warnings`.
+
+/// Read-only view over a deduplicated set of skills, indexed by name.
 pub struct SkillRegistry {
-    skills: Vec<SkillDef>,
-    by_slug: HashMap<&'static str, usize>,
+    skills: Vec<ParsedSkill>,
 }
 
 impl SkillRegistry {
-    pub fn new() -> Self {
+    /// Build a registry from builtins plus all on-disk skill sources rooted
+    /// at `workspace` (project skills) and the user's home directories
+    /// (user / Claude / Codex skills).
+    pub fn discover(workspace: Option<&Path>) -> Self {
         Self {
-            skills: Vec::new(),
-            by_slug: HashMap::new(),
+            skills: dedupe_by_priority(discover_all(workspace)),
         }
     }
 
-    /// Register a skill. Panics on duplicate slug.
-    pub fn register(&mut self, skill: SkillDef) {
-        assert!(
-            !self.by_slug.contains_key(skill.slug),
-            "duplicate skill: {}",
-            skill.slug
-        );
-        let idx = self.skills.len();
-        self.by_slug.insert(skill.slug, idx);
-        self.skills.push(skill);
+    /// Builtin-only registry. Use when a workspace path isn't available.
+    pub fn builtins_only() -> Self {
+        Self {
+            skills: dedupe_by_priority(load_builtins()),
+        }
     }
 
-    /// Number of registered skills.
+    /// Look up by exact kebab-case name.
+    pub fn get(&self, name: &str) -> Option<&ParsedSkill> {
+        self.skills.iter().find(|s| s.name == name)
+    }
+
+    /// Resolve a user-typed skill identifier, accepting `_` ↔ `-` swaps and
+    /// case variants. Used by the Skill tool to be forgiving about how
+    /// the model writes the slug.
+    pub fn resolve(&self, query: &str) -> Option<&ParsedSkill> {
+        if let Some(s) = self.get(query) {
+            return Some(s);
+        }
+        let normalized = query.trim().to_ascii_lowercase().replace('_', "-");
+        self.get(&normalized)
+    }
+
+    pub fn list(&self) -> &[ParsedSkill] {
+        &self.skills
+    }
+
     #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.skills.len()
     }
 
-    /// Look up a skill by slug.
-    pub fn get(&self, slug: &str) -> Option<&SkillDef> {
-        self.by_slug.get(slug).map(|&idx| &self.skills[idx])
-    }
-
-    /// List all registered skills (slug, label, description, category).
-    pub fn list(&self) -> Vec<(&str, &str, &str, &str)> {
-        self.skills
-            .iter()
-            .map(|s| (s.slug, s.label, s.description, s.category))
-            .collect()
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.skills.is_empty()
     }
 }
 
-/// Build the default skill registry with all bundled skills.
+/// Default registry: builtins only. Prefer `SkillRegistry::discover(workspace)`
+/// from any code path that has a workspace path available — that picks up
+/// project skills and Claude/Codex skill directories too.
 pub fn default_skill_registry() -> SkillRegistry {
-    let mut reg = SkillRegistry::new();
-
-    reg.register(frontend_dev::skill_def());
-    reg.register(fullstack_dev::skill_def());
-    reg.register(ui_design_system::skill_def());
-    reg.register(simplify::skill_def());
-    reg.register(verify::skill_def());
-
-    reg
+    SkillRegistry::builtins_only()
 }
 
 #[cfg(test)]
@@ -99,29 +105,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_loads_all_skills() {
+    fn builtins_only_has_five_skills() {
         let reg = default_skill_registry();
         assert_eq!(reg.len(), 5);
     }
 
     #[test]
-    fn lookup_by_slug() {
+    fn lookup_each_builtin_by_name() {
         let reg = default_skill_registry();
-        let skill = reg.get("frontend-dev").unwrap();
-        assert_eq!(skill.label, "Frontend Dev");
-        assert!(!skill.prompt.is_empty());
+        for n in [
+            "simplify",
+            "verify",
+            "frontend-dev",
+            "fullstack-dev",
+            "ui-design-system",
+        ] {
+            let s = reg.get(n).unwrap_or_else(|| panic!("missing {n}"));
+            assert_eq!(s.name, n);
+            assert!(!s.content.is_empty());
+            assert!(!s.description.is_empty());
+        }
     }
 
     #[test]
-    fn list_returns_all() {
+    fn resolve_normalizes_underscores_and_case() {
+        let reg = default_skill_registry();
+        assert!(reg.resolve("frontend_dev").is_some());
+        assert!(reg.resolve("Frontend-Dev").is_some());
+        assert!(reg.resolve("  ui_design_system  ").is_some());
+        assert!(reg.resolve("nonexistent").is_none());
+    }
+
+    #[test]
+    fn list_returns_all_builtins_with_metadata() {
         let reg = default_skill_registry();
         let list = reg.list();
         assert_eq!(list.len(), 5);
-        let slugs: Vec<&str> = list.iter().map(|s| s.0).collect();
-        assert!(slugs.contains(&"frontend-dev"));
-        assert!(slugs.contains(&"fullstack-dev"));
-        assert!(slugs.contains(&"ui-design-system"));
-        assert!(slugs.contains(&"simplify"));
-        assert!(slugs.contains(&"verify"));
+        // Every builtin has the Builtin provider.
+        for s in list {
+            assert_eq!(s.provider, SkillProvider::Builtin);
+        }
     }
 }

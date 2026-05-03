@@ -1,4 +1,14 @@
-pub const PROMPT: &str = r#"# Frontend Dev
+---
+name: frontend-dev
+label: Frontend Dev
+category: frontend
+description: Build or update UI screens, dashboards, forms, modals, and tables.
+  Use when the subtask is primarily a frontend implementation — page layout,
+  component composition, responsive design, interaction polish, or UI state
+  wiring to existing APIs.
+---
+
+# Frontend Dev
 
 This skill is a compact execution guide for frontend subtasks.
 It produces production-quality UI that looks modern and polished out of the box.
@@ -142,4 +152,3 @@ The subtask is only ready for review when:
 - all 4 states (loading, empty, error, success) are implemented
 - responsive layout works on mobile and desktop
 - accessibility basics are met (labels, focus, keyboard)
-"#;
