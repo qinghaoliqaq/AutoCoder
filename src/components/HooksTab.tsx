@@ -10,7 +10,7 @@
  * exported so the panel logic can be unit-tested without rendering.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   AlertCircle,
@@ -106,6 +106,15 @@ export default function HooksTab() {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [dirty, setDirty] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Mirror of `config` for race-detection in onSave. We can't read the
+  // freshest state from inside the closure (closures capture the value
+  // at click time), and `setConfig` callbacks can't run synchronously
+  // in concurrent React. A ref kept in sync via `useEffect` lets us
+  // peek at "what's currently in state" right after the await resolves.
+  const configRef = useRef<HooksConfig | null>(null);
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,14 +173,26 @@ export default function HooksTab() {
 
   const onSave = async () => {
     if (!config || saving) return;
+    const snapshot = config;
     setSaving(true);
     setSaveError(null);
     try {
-      const payload = cleanForSave(config);
+      const payload = cleanForSave(snapshot);
       await invoke('save_hooks_config', { hooks: payload });
-      setConfig(payload);
-      setDirty(false);
-      setSavedAt(Date.now());
+      // Race guard: if the user typed during the await, `configRef`
+      // points at the newer state. Replacing `config` with `payload`
+      // would silently drop their post-save edits, AND showing
+      // "Hooks saved." would lie about the dirty state. Only sync to
+      // the normalized form when the snapshot is still current.
+      if (configRef.current === snapshot) {
+        setConfig(payload);
+        setDirty(false);
+        setSavedAt(Date.now());
+      } else {
+        // Disk has the snapshot, local has newer edits. Surface
+        // "Unsaved changes" so the user re-saves.
+        setSavedAt(null);
+      }
     } catch (err) {
       setSaveError(String(err));
     } finally {

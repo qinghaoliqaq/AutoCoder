@@ -40,6 +40,15 @@ pub struct PendingQuestion<'a> {
 
 /// Tauri-managed state. One instance per app, holds in-flight question
 /// senders keyed by request id.
+///
+/// **Concurrency contract:** `pending` is a `std::sync::Mutex`. Every
+/// access in this file completes synchronously (insert / remove / send)
+/// — no `.await` is reached while the lock is held. Future maintainers
+/// MUST preserve this invariant: holding a std mutex across an
+/// `.await` blocks the tokio worker until the awaited future resolves
+/// and risks deadlock under contention. If you need to call something
+/// async while logically holding the lock, swap to
+/// `tokio::sync::Mutex` first.
 #[derive(Default)]
 pub struct UserQuestionRegistry {
     pending: Mutex<HashMap<String, oneshot::Sender<String>>>,
@@ -105,14 +114,18 @@ impl UserQuestionAsker for TauriUserQuestionAsker {
             options: request.options,
         };
 
-        request
-            .app_handle
-            .emit_to(
-                EventTarget::webview_window(request.window_label),
-                "user-question-pending",
-                payload,
-            )
-            .map_err(|e| format!("emit user-question-pending: {e}"))?;
+        if let Err(e) = request.app_handle.emit_to(
+            EventTarget::webview_window(request.window_label),
+            "user-question-pending",
+            payload,
+        ) {
+            // Emit failed — most likely the target webview is gone.
+            // We've already registered a sender; drop it now so the
+            // entry doesn't leak (registry would otherwise hold a stale
+            // pending question for the lifetime of the app).
+            registry.drop_pending(&request_id);
+            return Err(format!("emit user-question-pending: {e}"));
+        }
 
         // Await the user's reply with timeout + cancellation, dropping the
         // pending entry on every exit path so a stale id can't accept a

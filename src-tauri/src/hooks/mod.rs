@@ -65,6 +65,19 @@ use tokio_util::sync::CancellationToken;
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const MAX_TIMEOUT_SECS: u64 = 300;
 
+/// Per-hook stdout/stderr cap. Anything beyond this is truncated with a
+/// `[…N more chars]` marker. A misbehaving hook (`cat /dev/urandom`,
+/// dumping a 5 MB log file) must not be able to flood the model's
+/// context: tool_runner already prunes oversize tool results, but
+/// hook-appended text bypassed that path before this cap.
+const MAX_HOOK_OUTPUT_CHARS: usize = 4096;
+
+/// Cap across an entire `dispatch` invocation (the sum of all matching
+/// hooks' output). Same rationale as `MAX_HOOK_OUTPUT_CHARS`, applied
+/// to the rolling accumulator so a chain of N hooks each at the
+/// per-hook cap can't multiply.
+const MAX_HOOK_DISPATCH_CHARS: usize = 16_384;
+
 // ── Configuration types ──────────────────────────────────────────────────────
 
 /// One hook entry as written by the user in `config.toml`.
@@ -222,15 +235,30 @@ pub async fn dispatch(config: &HooksConfig, ctx: HookContext<'_>) -> HookOutcome
         .unwrap_or_else(|_| "{}".to_string());
 
     let mut accumulated = String::new();
+    // Helper: append `chunk` to `accumulated` with a separator, but stop
+    // once we hit the per-dispatch cap. Surplus is dropped silently with
+    // a marker on the way out so a chain of misbehaving hooks can't
+    // multiply past the cap.
+    let append_capped = |accumulated: &mut String, chunk: &str| {
+        if accumulated.chars().count() >= MAX_HOOK_DISPATCH_CHARS {
+            return;
+        }
+        if !accumulated.is_empty() {
+            accumulated.push_str("\n\n");
+        }
+        let remaining = MAX_HOOK_DISPATCH_CHARS.saturating_sub(accumulated.chars().count());
+        if chunk.chars().count() <= remaining {
+            accumulated.push_str(chunk);
+        } else {
+            accumulated.push_str(&cap_chars(chunk, remaining));
+        }
+    };
 
     for hook in hooks {
         match run_one(hook, &payload, &payload_json, ctx.workspace, ctx.token).await {
             Ok(SingleOutcome::Pass(text)) => {
                 if !text.is_empty() {
-                    if !accumulated.is_empty() {
-                        accumulated.push_str("\n\n");
-                    }
-                    accumulated.push_str(&text);
+                    append_capped(&mut accumulated, &text);
                 }
             }
             Ok(SingleOutcome::Block(reason)) => {
@@ -243,11 +271,7 @@ pub async fn dispatch(config: &HooksConfig, ctx: HookContext<'_>) -> HookOutcome
                     event = ctx.event.as_str(),
                     "hook returned non-zero (treating as warning): {reason}"
                 );
-                if !accumulated.is_empty() {
-                    accumulated.push_str("\n\n");
-                }
-                accumulated.push_str("[hook warning] ");
-                accumulated.push_str(&reason);
+                append_capped(&mut accumulated, &format!("[hook warning] {reason}"));
             }
             Err(e) => {
                 // A failed *spawn* (bad command, missing shell) is logged
@@ -328,8 +352,14 @@ async fn run_one(
     };
 
     let status = output.status.code().unwrap_or(-1);
-    let stdout_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout_text = cap_chars(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        MAX_HOOK_OUTPUT_CHARS,
+    );
+    let stderr_text = cap_chars(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        MAX_HOOK_OUTPUT_CHARS,
+    );
 
     if status == 0 {
         Ok(SingleOutcome::Pass(stdout_text))
@@ -343,6 +373,21 @@ async fn run_one(
         };
         Ok(SingleOutcome::Block(reason))
     }
+}
+
+/// Truncate a string at the given char count, appending a marker so the
+/// reader knows truncation happened. Char-boundary safe.
+fn cap_chars(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let cutoff = s
+        .char_indices()
+        .nth(max_chars)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len());
+    let dropped = s.chars().count().saturating_sub(max_chars);
+    format!("{}\n[\u{2026}{dropped} more chars truncated]", &s[..cutoff])
 }
 
 #[cfg(windows)]
@@ -856,6 +901,70 @@ mod tests {
         assert!(s.contains(r#""event":"PreToolUse""#));
         assert!(s.contains(r#""tool_name":"Bash""#));
         assert!(s.contains(r#""command":"ls""#));
+    }
+
+    #[test]
+    fn cap_chars_is_a_noop_under_limit() {
+        assert_eq!(cap_chars("hello", 10), "hello");
+        assert_eq!(cap_chars("", 10), "");
+    }
+
+    #[test]
+    fn cap_chars_truncates_with_marker() {
+        let s = "a".repeat(100);
+        let out = cap_chars(&s, 10);
+        assert!(out.starts_with(&"a".repeat(10)));
+        assert!(out.contains("90 more chars truncated"));
+    }
+
+    #[test]
+    fn cap_chars_is_char_boundary_safe() {
+        // Multi-byte UTF-8 must not get sliced mid-code-point.
+        let s = "日".repeat(20); // 20 chars, 60 bytes (3 each in UTF-8)
+        let out = cap_chars(&s, 5);
+        // Should round-trip 5 chars + a marker; no panic.
+        assert!(out.starts_with(&"日".repeat(5)));
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn hook_stdout_is_capped_per_dispatch() {
+        // Regression: an aggressive hook (`cat /dev/urandom | base64`,
+        // dumping a multi-MB log) used to flood the model context
+        // because the appended text was unbounded. Now both the
+        // per-hook output and the rolling dispatch accumulator cap
+        // out, with truncation markers.
+        let big = "x".repeat(MAX_HOOK_OUTPUT_CHARS * 4);
+        let cfg = HooksConfig {
+            post_tool_use: vec![HookConfig {
+                matcher: "*".to_string(),
+                command: format!("printf '%s' '{big}'"),
+                timeout_secs: Some(5),
+            }],
+            ..Default::default()
+        };
+        let token = cancel_token();
+        let outcome = post_tool_use(
+            &cfg,
+            std::path::Path::new("/tmp"),
+            &token,
+            "Bash",
+            &serde_json::json!({}),
+            &serde_json::json!({"content": "ok"}),
+            "main",
+        )
+        .await;
+        match outcome {
+            HookOutcome::AppendContext(text) => {
+                let chars = text.chars().count();
+                assert!(
+                    chars <= MAX_HOOK_DISPATCH_CHARS + 200, // + marker headroom
+                    "output not capped: {chars} chars"
+                );
+                assert!(text.contains("more chars truncated"));
+            }
+            other => panic!("expected AppendContext, got {other:?}"),
+        }
     }
 
     #[test]

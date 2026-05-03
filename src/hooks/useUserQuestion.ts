@@ -16,7 +16,7 @@
  * (pending overrides, mismatched cancellation, double-submit) live there.
  */
 
-import { useCallback, useEffect, useReducer } from 'react';
+import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 
@@ -77,9 +77,16 @@ export interface UseUserQuestionResult {
 
 export function useUserQuestion(): UseUserQuestionResult {
   const [state, dispatch] = useReducer(userQuestionReducer, INITIAL_STATE);
+  // Tracks whether the hook's owning component is still mounted. The
+  // submitAnswer closure can be invoked from a button click whose
+  // backend round-trip outlives the modal — the post-invoke dispatch
+  // would then run against an unmounted component and trigger React's
+  // "state update on unmounted" warning. The flag is also reused by
+  // the event-listener subscription cleanup.
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
     let unlistenPending: (() => void) | null = null;
     let unlistenCancelled: (() => void) | null = null;
 
@@ -89,14 +96,15 @@ export function useUserQuestion(): UseUserQuestionResult {
       // other and `await Promise.all` halves the time-to-first-event.
       const [u1, u2] = await Promise.all([
         w.listen<PendingQuestion>('user-question-pending', (e) => {
-          if (mounted) dispatch({ type: 'pending', payload: e.payload });
+          if (mountedRef.current) dispatch({ type: 'pending', payload: e.payload });
         }),
         w.listen<{ request_id: string }>('user-question-cancelled', (e) => {
-          if (mounted) dispatch({ type: 'cancelled', request_id: e.payload.request_id });
+          if (mountedRef.current)
+            dispatch({ type: 'cancelled', request_id: e.payload.request_id });
         }),
       ]);
       // If we unmounted while subscribing, drop the listeners now.
-      if (!mounted) {
+      if (!mountedRef.current) {
         u1();
         u2();
         return;
@@ -106,7 +114,7 @@ export function useUserQuestion(): UseUserQuestionResult {
     })();
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
       unlistenPending?.();
       unlistenCancelled?.();
     };
@@ -128,7 +136,13 @@ export function useUserQuestion(): UseUserQuestionResult {
         // eslint-disable-next-line no-console
         console.warn('submit_user_answer failed:', err);
       } finally {
-        dispatch({ type: 'submitted', request_id: active.request_id });
+        // Skip the post-invoke dispatch if the component unmounted
+        // mid-flight — otherwise React logs a "state update on
+        // unmounted" warning in dev, and the dispatched action would
+        // hit a stale reducer instance with no observable effect.
+        if (mountedRef.current) {
+          dispatch({ type: 'submitted', request_id: active.request_id });
+        }
       }
     },
     [state.active],
