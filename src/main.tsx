@@ -17,12 +17,14 @@ import HistoryPanel from './components/HistoryPanel';
 import BlackboardPanel from './components/BlackboardPanel';
 import ConfigEditorModal from './components/ConfigEditorModal';
 import ProjectContextEditorModal from './components/ProjectContextEditorModal';
+import UserQuestionModal from './components/UserQuestionModal';
 import { VscColorMode, VscFiles, VscHistory, VscMultipleWindows, VscTerminal, VscChecklist, VscSettingsGear } from 'react-icons/vsc';
 import { makeSessionId, syncSessionIdentity } from './utils';
 import { useSessionManager } from './hooks/useSessionManager';
 import { useDirectorLoop } from './hooks/useDirectorLoop';
 import { useConfigState } from './hooks/useConfigState';
 import { useSidebarState } from './hooks/useSidebarState';
+import { useUserQuestion } from './hooks/useUserQuestion';
 
 // ── Small helpers ────────────────────────────────────────────────────────────
 
@@ -87,6 +89,7 @@ function DevHub() {
   // ── Composed hooks ─────────────────────────────────────────────────────
   const config = useConfigState();
   const sidebar = useSidebarState(messages);
+  const userQuestion = useUserQuestion();
 
   const { handleSubmit, isRunning, isStopping, handleStop } = useDirectorLoop({
     workspaceRef, projectContextRef, projectContextMetaRef, planReportRef, stopRequestedRef,
@@ -429,6 +432,12 @@ function DevHub() {
           onSave={handleSaveContext}
           onClear={handleClearContext}
           onClose={() => setShowContextEditor(false)}
+        />
+      )}
+      {userQuestion.activeQuestion && (
+        <UserQuestionModal
+          question={userQuestion.activeQuestion}
+          onSubmit={userQuestion.submitAnswer}
         />
       )}
     </ThemeProvider>
