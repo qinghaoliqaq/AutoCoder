@@ -26,6 +26,12 @@ const BUILTIN_SKILLS: &[(&str, &str)] = &[
     ("frontend-dev", include_str!("frontend_dev/SKILL.md")),
     ("fullstack-dev", include_str!("fullstack_dev/SKILL.md")),
     ("ui-design-system", include_str!("ui_design_system/SKILL.md")),
+    ("write-tech-spec", include_str!("write_tech_spec/SKILL.md")),
+    ("implement-specs", include_str!("implement_specs/SKILL.md")),
+    (
+        "spec-driven-implementation",
+        include_str!("spec_driven_implementation/SKILL.md"),
+    ),
 ];
 
 /// Load every embedded builtin skill. Panics on parse error — these are
@@ -151,15 +157,22 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn loads_all_five_builtins() {
+    fn loads_all_builtins() {
         let skills = load_builtins();
         let names: Vec<_> = skills.iter().map(|s| s.name.as_str()).collect();
-        assert!(names.contains(&"simplify"));
-        assert!(names.contains(&"verify"));
-        assert!(names.contains(&"frontend-dev"));
-        assert!(names.contains(&"fullstack-dev"));
-        assert!(names.contains(&"ui-design-system"));
-        assert_eq!(skills.len(), 5);
+        for expected in [
+            "simplify",
+            "verify",
+            "frontend-dev",
+            "fullstack-dev",
+            "ui-design-system",
+            "write-tech-spec",
+            "implement-specs",
+            "spec-driven-implementation",
+        ] {
+            assert!(names.contains(&expected), "missing builtin: {expected}");
+        }
+        assert_eq!(skills.len(), 8);
     }
 
     #[test]
@@ -242,13 +255,16 @@ mod tests {
         let simplify = deduped.iter().find(|s| s.name == "simplify").unwrap();
         assert_eq!(simplify.provider, SkillProvider::Project);
         assert_eq!(simplify.description, "Project override.");
-        // All five builtin names still resolvable.
+        // All builtin names still resolvable after the project override.
         for n in [
             "simplify",
             "verify",
             "frontend-dev",
             "fullstack-dev",
             "ui-design-system",
+            "write-tech-spec",
+            "implement-specs",
+            "spec-driven-implementation",
         ] {
             assert!(deduped.iter().any(|s| s.name == n), "missing {n}");
         }

@@ -8,14 +8,17 @@
 //! ## Layout
 //! ```text
 //! bundled_skills/
-//!   mod.rs                     ← public API (this file)
-//!   parsed_skill.rs            ← ParsedSkill type + frontmatter parser
-//!   loader.rs                  ← discovery across builtin + project + user dirs
-//!   simplify/SKILL.md          ← compiled-in builtins
+//!   mod.rs                              ← public API (this file)
+//!   parsed_skill.rs                     ← ParsedSkill type + frontmatter parser
+//!   loader.rs                           ← discovery across builtin + project + user dirs
+//!   simplify/SKILL.md                   ← compiled-in builtins
 //!   verify/SKILL.md
 //!   frontend_dev/SKILL.md
 //!   fullstack_dev/SKILL.md
 //!   ui_design_system/SKILL.md
+//!   write_tech_spec/SKILL.md            ← spec-driven workflow
+//!   implement_specs/SKILL.md
+//!   spec_driven_implementation/SKILL.md
 //! ```
 //!
 //! ## Discovery sources (highest priority first)
@@ -105,9 +108,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtins_only_has_five_skills() {
+    fn builtins_only_has_all_eight_skills() {
         let reg = default_skill_registry();
-        assert_eq!(reg.len(), 5);
+        assert_eq!(reg.len(), 8);
     }
 
     #[test]
@@ -119,6 +122,9 @@ mod tests {
             "frontend-dev",
             "fullstack-dev",
             "ui-design-system",
+            "write-tech-spec",
+            "implement-specs",
+            "spec-driven-implementation",
         ] {
             let s = reg.get(n).unwrap_or_else(|| panic!("missing {n}"));
             assert_eq!(s.name, n);
@@ -140,7 +146,7 @@ mod tests {
     fn list_returns_all_builtins_with_metadata() {
         let reg = default_skill_registry();
         let list = reg.list();
-        assert_eq!(list.len(), 5);
+        assert_eq!(list.len(), 8);
         // Every builtin has the Builtin provider.
         for s in list {
             assert_eq!(s.provider, SkillProvider::Builtin);
