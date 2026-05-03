@@ -119,3 +119,9 @@ Ready for review when:
 - Every interactive element has hover + focus states
 - Responsive at 375px / 768px / 1280px
 - No hardcoded hex colors
+
+## Related Skills
+
+- `frontend-dev` — when the underlying surface needs functional changes
+  before polish makes sense.
+- `verify` — confirm the polished UI still renders and interacts correctly.

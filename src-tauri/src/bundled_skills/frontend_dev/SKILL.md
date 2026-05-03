@@ -152,3 +152,10 @@ The subtask is only ready for review when:
 - all 4 states (loading, empty, error, success) are implemented
 - responsive layout works on mobile and desktop
 - accessibility basics are met (labels, focus, keyboard)
+
+## Related Skills
+
+- `ui-design-system` — visual polish pass once functional UI is wired up.
+- `fullstack-dev` — if the screen needs a new API endpoint, switch to the
+  full-stack guide instead.
+- `verify` — confirm the UI renders and interacts correctly end-to-end.

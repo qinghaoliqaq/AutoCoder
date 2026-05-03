@@ -60,3 +60,10 @@ The subtask is only ready for review when:
 - auth and access control remain correct
 - the implementation is integrated into the actual user flow, not left orphaned
 - touched files are limited to what the subtask really needs
+
+## Related Skills
+
+- `frontend-dev` — for UI-only subtasks that don't need backend changes.
+- `ui-design-system` — once the feature is wired, polish the surfaces it
+  introduced.
+- `verify` — confirm the end-to-end flow before declaring done.

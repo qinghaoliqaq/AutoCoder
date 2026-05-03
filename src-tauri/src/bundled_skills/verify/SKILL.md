@@ -76,3 +76,9 @@ If any step fails:
 - Do NOT fix unrelated issues during verification — only fix what the changes broke
 - Report outcomes faithfully — failures are valuable information
 - If the project has no test infrastructure, note this and focus on build + manual testing
+
+## Related Skills
+
+- `simplify` — pre-verification review for code reuse and quality issues.
+- `implement-specs` — if verification surfaces a regression that needs a
+  plan, fold the fix into the active spec.

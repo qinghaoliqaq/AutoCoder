@@ -76,3 +76,9 @@ If a dimension has no significant findings, say so briefly and move on.
 Only review files that were recently changed. Do not review the entire codebase.
 Use Grep and Glob to find related code for the reuse analysis.
 Read changed files to understand the full context before commenting.
+
+## Related Skills
+
+- `verify` — once findings are addressed, run an end-to-end verification.
+- `implement-specs` — if findings need a tracked plan, fold them into the
+  active spec's Implementation Plan.

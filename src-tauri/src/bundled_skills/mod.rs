@@ -94,6 +94,25 @@ impl SkillRegistry {
     pub fn is_empty(&self) -> bool {
         self.skills.is_empty()
     }
+
+    /// Resolve a skill's `Related Skills` cross-references against this
+    /// registry. Returns `(resolved, unresolved)` — a parallel pair of the
+    /// found `ParsedSkill`s and the names that didn't match anything. Used
+    /// by the `Skill` tool to render a discoverable next-step footer.
+    pub fn resolve_related<'a>(
+        &'a self,
+        skill: &ParsedSkill,
+    ) -> (Vec<&'a ParsedSkill>, Vec<String>) {
+        let mut resolved = Vec::new();
+        let mut unresolved = Vec::new();
+        for name in &skill.related {
+            match self.get(name) {
+                Some(s) => resolved.push(s),
+                None => unresolved.push(name.clone()),
+            }
+        }
+        (resolved, unresolved)
+    }
 }
 
 /// Default registry: builtins only. Prefer `SkillRegistry::discover(workspace)`

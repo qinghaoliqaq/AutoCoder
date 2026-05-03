@@ -100,6 +100,12 @@ pub struct ParsedSkill {
     pub scope: SkillScope,
     #[allow(dead_code)]
     pub source: SkillSource,
+    /// Names of skills cross-referenced under the document's
+    /// `## Related Skills` heading. The SkillTool resolves these against
+    /// the live registry when rendering its tool output, surfacing them
+    /// as discoverable next-step `/<name>` slash commands. Order
+    /// preserved from the markdown source; duplicates removed.
+    pub related: Vec<String>,
 }
 
 impl ParsedSkill {
@@ -136,15 +142,19 @@ impl ParsedSkill {
             .unwrap_or_else(|| title_case(&name));
         let category = fields.get("category").cloned();
 
+        let body_str = body.trim_start_matches('\n').to_string();
+        let related = extract_related_skills(&body_str);
+
         Ok(Self {
             name,
             label,
             description,
             category,
-            content: body.trim_start_matches('\n').to_string(),
+            content: body_str,
             provider,
             scope,
             source,
+            related,
         })
     }
 
@@ -303,6 +313,119 @@ fn title_case(name: &str) -> String {
         .join(" ")
 }
 
+// ── Related Skills extraction ────────────────────────────────────────────────
+//
+// Convention: somewhere in the body, a markdown section like
+//
+//     ## Related Skills
+//     - `implement-specs` — picks up where this leaves off.
+//     - `verify` — sanity-check before shipping.
+//
+// We extract the kebab-case identifiers backticked at the start of each list
+// item under the heading. Stops at the next H2/H1 boundary or EOF. Tolerant
+// of common formatting variations: `## ` / `### `, `- `/`* `/`1. ` list
+// markers, "Related Skills" / "Related skills" / "Related Skill" casing.
+
+/// Find the `## Related Skills` section (if any) and pull out the kebab-
+/// case skill names referenced as the first backticked token of each list
+/// item. Order preserved; duplicates dropped.
+fn extract_related_skills(body: &str) -> Vec<String> {
+    let mut lines = body.lines();
+    // Phase 1 — locate the heading.
+    let mut found = false;
+    for line in lines.by_ref() {
+        if is_related_skills_heading(line) {
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        return Vec::new();
+    }
+
+    // Phase 2 — collect list items until the next heading boundary.
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for line in lines {
+        let trimmed = line.trim_start();
+        // Any new heading at H1 / H2 ends the section. Sub-headings (H3+)
+        // don't terminate, so a skill description containing a `### Note`
+        // wouldn't accidentally cut us off — though list items appearing
+        // after a sub-heading are still scanned.
+        if trimmed.starts_with("# ") || trimmed.starts_with("## ") {
+            break;
+        }
+        if let Some(name) = extract_skill_ref_from_list_item(trimmed) {
+            if seen.insert(name.clone()) {
+                out.push(name);
+            }
+        }
+    }
+    out
+}
+
+fn is_related_skills_heading(line: &str) -> bool {
+    let trimmed = line.trim();
+    let after_hashes = trimmed.trim_start_matches('#').trim();
+    if after_hashes.len() == trimmed.len() {
+        return false; // no leading `#`
+    }
+    let lower = after_hashes.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "related skills" | "related skill" | "see also"
+    )
+}
+
+/// From a single (already-trimmed-leading) line, extract the first kebab-
+/// case identifier wrapped in backticks at the start of a markdown list
+/// item. Returns None if the line isn't a list item or has no leading
+/// backticked identifier.
+fn extract_skill_ref_from_list_item(line: &str) -> Option<String> {
+    // Strip the list marker. Accept `- `, `* `, `+ `, or a numeric
+    // ordered-list prefix `1. ` / `12. `.
+    let after_marker = strip_list_marker(line)?;
+    // Must start with a backtick — otherwise this isn't a skill ref line.
+    let after_tick = after_marker.strip_prefix('`')?;
+    // Identifier is everything up to the closing backtick.
+    let close = after_tick.find('`')?;
+    let candidate = &after_tick[..close];
+    if is_kebab_identifier(candidate) {
+        Some(candidate.to_string())
+    } else {
+        None
+    }
+}
+
+fn strip_list_marker(line: &str) -> Option<&str> {
+    if let Some(rest) = line.strip_prefix("- ") {
+        return Some(rest);
+    }
+    if let Some(rest) = line.strip_prefix("* ") {
+        return Some(rest);
+    }
+    if let Some(rest) = line.strip_prefix("+ ") {
+        return Some(rest);
+    }
+    // Ordered list: a run of digits followed by `. `.
+    let digits_end = line.bytes().take_while(|b| b.is_ascii_digit()).count();
+    if digits_end > 0 {
+        let after = &line[digits_end..];
+        if let Some(rest) = after.strip_prefix(". ") {
+            return Some(rest);
+        }
+    }
+    None
+}
+
+fn is_kebab_identifier(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && !s.starts_with('-')
+        && !s.ends_with('-')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,5 +541,163 @@ mod tests {
         let raw = "\u{feff}---\nname: simplify\ndescription: Review.\n---\nbody";
         let skill = parse_ok(raw);
         assert_eq!(skill.name, "simplify");
+    }
+
+    // ── Related Skills extraction ─────────────────────────────────────────
+
+    fn parse_with_body(body: &str) -> ParsedSkill {
+        let raw = format!("---\nname: x\ndescription: x.\n---\n{body}");
+        parse_ok(&raw)
+    }
+
+    #[test]
+    fn related_empty_when_no_section() {
+        let skill = parse_with_body("# Body\n\nSome content with no Related Skills heading.");
+        assert!(skill.related.is_empty());
+    }
+
+    #[test]
+    fn extracts_basic_related_skills() {
+        let body = "\
+## Related Skills
+
+- `implement-specs` — picks up after spec is approved.
+- `verify` — final sanity sweep.
+";
+        let skill = parse_with_body(body);
+        assert_eq!(skill.related, vec!["implement-specs", "verify"]);
+    }
+
+    #[test]
+    fn related_section_terminates_at_next_h2() {
+        let body = "\
+## Related Skills
+
+- `verify`
+
+## Anti-Patterns
+
+- `should-not-appear` — different section.
+";
+        let skill = parse_with_body(body);
+        assert_eq!(skill.related, vec!["verify"]);
+    }
+
+    #[test]
+    fn related_h3_heading_works() {
+        let body = "\
+### Related Skills
+
+- `simplify`
+";
+        let skill = parse_with_body(body);
+        assert_eq!(skill.related, vec!["simplify"]);
+    }
+
+    #[test]
+    fn related_accepts_see_also_alias() {
+        let body = "\
+## See Also
+
+- `verify`
+- `simplify`
+";
+        let skill = parse_with_body(body);
+        assert_eq!(skill.related, vec!["verify", "simplify"]);
+    }
+
+    #[test]
+    fn related_handles_star_and_plus_and_ordered_lists() {
+        let body = "\
+## Related Skills
+
+* `verify`
++ `simplify`
+1. `frontend-dev`
+";
+        let skill = parse_with_body(body);
+        assert_eq!(
+            skill.related,
+            vec!["verify", "simplify", "frontend-dev"]
+        );
+    }
+
+    #[test]
+    fn related_dedupes_repeats() {
+        let body = "\
+## Related Skills
+
+- `verify`
+- `verify` — listed twice for some reason
+- `simplify`
+";
+        let skill = parse_with_body(body);
+        assert_eq!(skill.related, vec!["verify", "simplify"]);
+    }
+
+    #[test]
+    fn related_skips_non_kebab_or_uppercase() {
+        let body = "\
+## Related Skills
+
+- `My_Skill` — not kebab
+- `valid-one` — kept
+- `Another Skill` — has space
+";
+        let skill = parse_with_body(body);
+        assert_eq!(skill.related, vec!["valid-one"]);
+    }
+
+    #[test]
+    fn related_ignores_list_items_without_leading_backtick() {
+        let body = "\
+## Related Skills
+
+- See the docs — no skill ref here
+- `verify` — this one counts
+- the `verify` skill — backtick not at start, skipped
+";
+        let skill = parse_with_body(body);
+        assert_eq!(skill.related, vec!["verify"]);
+    }
+
+    #[test]
+    fn related_case_insensitive_heading() {
+        let body = "\
+## related skills
+
+- `verify`
+";
+        let skill = parse_with_body(body);
+        assert_eq!(skill.related, vec!["verify"]);
+    }
+
+    #[test]
+    fn related_terminates_at_h1() {
+        let body = "\
+## Related Skills
+
+- `verify`
+
+# Different Top-Level
+
+- `out-of-section`
+";
+        let skill = parse_with_body(body);
+        assert_eq!(skill.related, vec!["verify"]);
+    }
+
+    #[test]
+    fn related_tolerates_blank_lines_between_items() {
+        let body = "\
+## Related Skills
+
+- `verify`
+
+
+- `simplify`
+";
+        let skill = parse_with_body(body);
+        assert_eq!(skill.related, vec!["verify", "simplify"]);
     }
 }
