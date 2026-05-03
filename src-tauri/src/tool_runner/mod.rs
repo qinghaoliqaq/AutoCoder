@@ -247,7 +247,7 @@ async fn run_inner(
         user_question_asker: &PRODUCTION_USER_QUESTION_ASKER,
     };
 
-    match provider.wire {
+    let loop_result = match provider.wire {
         WireFormat::Anthropic => {
             anthropic::run_loop(
                 &client,
@@ -288,7 +288,22 @@ async fn run_inner(
             )
             .await
         }
+    };
+
+    // Fire Stop hooks on top-level runs only. Subtasks emit their own
+    // `PostToolUse` after the parent's `StartSubAgent` returns, which is
+    // the right granularity — nesting Stop on every subtask would flood
+    // notification-style hooks.
+    //
+    // Cancellation: even if the user hit Ctrl-C, run Stop hooks against
+    // a fresh token so post-mortem cleanup (e.g. `notify-send`,
+    // `git status`) still fires. Per-hook timeouts still apply.
+    if subtask_id.is_none() && !config.hooks.stop.is_empty() {
+        let stop_token = CancellationToken::new();
+        let _ = crate::hooks::stop(&config.hooks, &workspace, &stop_token, agent_id).await;
     }
+
+    loop_result
 }
 
 // ── Workspace canonicalization ──────────────────────────────────────────────

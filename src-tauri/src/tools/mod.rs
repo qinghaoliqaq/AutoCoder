@@ -575,10 +575,9 @@ pub async fn run_partitioned(
                 if let Some(o) = orch {
                     ctx = ctx.with_orchestration(o);
                 }
-                let result = registry
-                    .execute(name, input.clone(), &ctx, in_subtask)
-                    .await;
-                results[idx] = build_tool_result(id, name, result);
+                let result =
+                    dispatch_one_tool(registry, name, input, id, &ctx, orch, in_subtask).await;
+                results[idx] = result;
             }
         }
     }
@@ -614,20 +613,94 @@ async fn run_concurrent_batch(
                     if let Some(o) = orch {
                         ctx = ctx.with_orchestration(o);
                     }
-                    let result = registry
-                        .execute(&name_owned, input_owned, &ctx, in_subtask)
-                        .await;
+                    let result = dispatch_one_tool(
+                        registry,
+                        &name_owned,
+                        &input_owned,
+                        &id,
+                        &ctx,
+                        orch,
+                        in_subtask,
+                    )
+                    .await;
                     (idx, id, name_owned, result)
                 }
             })
             .collect();
 
         let batch_results = join_all(futs).await;
-        for (idx, id, name, result) in batch_results {
-            results[idx] = build_tool_result(&id, &name, result);
+        for (idx, _id, _name, result) in batch_results {
+            results[idx] = result;
         }
     }
     Ok(())
+}
+
+/// Single tool dispatch with PreToolUse / PostToolUse hooks firing at the
+/// right boundaries. Lives at this layer (rather than inside the loops)
+/// so the serial and concurrent paths share one source of truth for hook
+/// ordering. Returns the same `Value` shape that `build_tool_result`
+/// produces — i.e. a fully-formed tool_result block ready to push into
+/// the message thread.
+async fn dispatch_one_tool(
+    registry: &ToolRegistry,
+    name: &str,
+    input: &Value,
+    id: &str,
+    ctx: &ToolContext<'_>,
+    orch: Option<&OrchestrationCtx<'_>>,
+    in_subtask: bool,
+) -> Value {
+    use crate::hooks;
+
+    // ── PreToolUse ────────────────────────────────────────────────────────
+    if let Some(o) = orch {
+        let outcome = hooks::pre_tool_use(
+            &o.config.hooks,
+            ctx.workspace,
+            ctx.token,
+            name,
+            input,
+            o.agent_id,
+        )
+        .await;
+        if let hooks::HookOutcome::Block(reason) = outcome {
+            return build_tool_result(
+                id,
+                name,
+                ToolResult::err(format!("[hook blocked] {reason}")),
+            );
+        }
+    }
+
+    // ── Tool execution ────────────────────────────────────────────────────
+    let exec_result = registry.execute(name, input.clone(), ctx, in_subtask).await;
+    let mut wrapped = build_tool_result(id, name, exec_result);
+
+    // ── PostToolUse ───────────────────────────────────────────────────────
+    if let Some(o) = orch {
+        let outcome = hooks::post_tool_use(
+            &o.config.hooks,
+            ctx.workspace,
+            ctx.token,
+            name,
+            input,
+            &wrapped,
+            o.agent_id,
+        )
+        .await;
+        if let hooks::HookOutcome::AppendContext(text) = outcome {
+            // Append to the textual content the model sees. Other fields
+            // (tool_use_id, is_error) stay intact.
+            if let Some(content) = wrapped.get_mut("content") {
+                if let Some(s) = content.as_str() {
+                    *content = json!(format!("{s}\n\n[hook] {text}"));
+                }
+            }
+        }
+    }
+
+    wrapped
 }
 
 fn build_tool_result(id: &str, tool_name: &str, result: ToolResult) -> Value {

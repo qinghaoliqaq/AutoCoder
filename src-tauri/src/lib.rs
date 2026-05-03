@@ -2,6 +2,7 @@ pub(crate) mod bundled_skills;
 mod config;
 mod director;
 mod history;
+pub(crate) mod hooks;
 pub(crate) mod memory;
 mod prompts;
 mod skills;

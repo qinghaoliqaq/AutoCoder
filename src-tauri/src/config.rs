@@ -141,6 +141,11 @@ pub struct AppConfig {
     pub features: FeaturesConfig,
     #[serde(default)]
     pub agent: AgentConfig,
+    /// User-defined hooks (PreToolUse / PostToolUse / Stop). Default is
+    /// empty — pre-hook config files don't have to declare a `[hooks]`
+    /// section to keep working.
+    #[serde(default)]
+    pub hooks: crate::hooks::HooksConfig,
 }
 
 /// Returned to the frontend — API key is masked for security.
@@ -241,6 +246,7 @@ impl Default for AppConfig {
             director: DirectorConfig::default(),
             features: FeaturesConfig::default(),
             agent: AgentConfig::default(),
+            hooks: crate::hooks::HooksConfig::default(),
         }
     }
 }
@@ -494,6 +500,9 @@ impl AppConfig {
                 second_base_url: draft.agent_second_base_url.trim().to_string(),
                 second_model: draft.agent_second_model.trim().to_string(),
             },
+            // Hooks aren't editable from the UI (yet) — preserve whatever
+            // the user wrote in their config.toml verbatim.
+            hooks: existing.hooks.clone(),
         };
         normalize_agent_config(&mut cfg.agent);
 
@@ -676,6 +685,58 @@ mod tests {
     fn features_default_to_sandbox_execution_mode() {
         let features = FeaturesConfig::default();
         assert_eq!(features.execution_access_mode, ExecutionAccessMode::Sandbox);
+    }
+
+    #[test]
+    fn app_config_deserializes_without_hooks_section() {
+        // Backward compat: existing user config files don't have a [hooks]
+        // section. Deserializing must succeed and leave hooks empty.
+        let toml_no_hooks = r#"
+[director]
+api_key = "k"
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o"
+api_format = "openai"
+provider = "openai"
+context_budget = 24000
+"#;
+        let cfg: AppConfig = toml::from_str(toml_no_hooks).expect("parse");
+        assert!(cfg.hooks.pre_tool_use.is_empty());
+        assert!(cfg.hooks.post_tool_use.is_empty());
+        assert!(cfg.hooks.stop.is_empty());
+    }
+
+    #[test]
+    fn app_config_round_trips_hooks_section() {
+        let toml_with_hooks = r#"
+[director]
+api_key = "k"
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o"
+api_format = "openai"
+provider = "openai"
+context_budget = 24000
+
+[[hooks.pre_tool_use]]
+matcher = "Bash"
+command = "echo pre"
+
+[[hooks.post_tool_use]]
+matcher = "*"
+command = "echo post"
+timeout_secs = 10
+
+[[hooks.stop]]
+matcher = "*"
+command = "echo done"
+"#;
+        let cfg: AppConfig = toml::from_str(toml_with_hooks).expect("parse");
+        assert_eq!(cfg.hooks.pre_tool_use.len(), 1);
+        assert_eq!(cfg.hooks.pre_tool_use[0].matcher, "Bash");
+        assert_eq!(cfg.hooks.post_tool_use.len(), 1);
+        assert_eq!(cfg.hooks.post_tool_use[0].timeout_secs, Some(10));
+        assert_eq!(cfg.hooks.stop.len(), 1);
+        assert_eq!(cfg.hooks.stop[0].command, "echo done");
     }
 
     #[test]

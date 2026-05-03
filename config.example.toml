@@ -118,3 +118,49 @@ api_format = "openai"
 vendored_skills = true
 max_parallel_subtasks = 5
 execution_access_mode = "sandbox"
+
+# ── Hooks ──────────────────────────────────────────────────────────────────────
+#
+# Hooks fire shell commands at agent lifecycle events. Use them to wire
+# linters, notifications, audit logging, or policy gates into the loop
+# without modifying the agent itself.
+#
+# Events:
+#   * pre_tool_use   — fires before each tool dispatch. Non-zero exit code
+#                      blocks the dispatch; the hook's stderr (or stdout
+#                      if stderr is empty) becomes the tool error message.
+#   * post_tool_use  — fires after a tool returns. Hook stdout (when
+#                      present) is appended to the result the model sees.
+#                      Non-zero exit codes log a warning but don't roll back.
+#   * stop           — fires once the top-level agent run finishes
+#                      (success, failure, or cancellation). Subtasks
+#                      don't trigger Stop — use post_tool_use on
+#                      StartSubAgent for that.
+#
+# Each hook entry has:
+#   matcher       — exact tool name (e.g. "Bash") or "*" for all tools.
+#                   Required for tool-use events; ignored for stop.
+#   command       — shell command (run via `sh -c` on Unix, `cmd /C` on
+#                   Windows). Receives a JSON payload on stdin and these
+#                   environment variables: AUTOCODER_HOOK_EVENT,
+#                   AUTOCODER_TOOL_NAME, AUTOCODER_AGENT_ID,
+#                   AUTOCODER_WORKSPACE.
+#   timeout_secs  — optional. Defaults to 30, hard cap 300.
+#
+# Examples (uncomment and edit as needed):
+#
+# [[hooks.pre_tool_use]]
+# matcher = "Bash"
+# command = '''
+#   case "$(jq -r .tool_input.command)" in
+#     "rm -rf /"*|"sudo "*) echo "blocked: dangerous command" >&2; exit 1 ;;
+#   esac
+# '''
+#
+# [[hooks.post_tool_use]]
+# matcher = "Edit"
+# command = "cargo fmt --check 2>&1 | head -20"
+# timeout_secs = 15
+#
+# [[hooks.stop]]
+# command = "notify-send 'AutoCoder' 'Agent run finished'"
