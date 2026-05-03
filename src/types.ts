@@ -130,6 +130,22 @@ export interface FileNode {
   children: FileNode[];
 }
 
+/** Provider that supplied a skill, used for grouping in the UI. */
+export type SkillProvider = 'builtin' | 'project' | 'user' | 'claude' | 'codex';
+
+/** Returned by the `list_skills` Tauri command. */
+export interface SkillSummary {
+  name: string;
+  label: string;
+  description: string;
+  category: string | null;
+  /** Full markdown body — used to power the inline preview. */
+  content: string;
+  provider: SkillProvider;
+  /** Names of related skills that resolved against the live registry. */
+  related: string[];
+}
+
 export interface ModeConfig {
   id: AppMode;
   label: string;
