@@ -117,11 +117,7 @@ mod tests {
     fn ctx_with_workspace(workspace: &'static Path) -> (CancellationToken, ToolContext<'static>) {
         let token = CancellationToken::new();
         let token_box: &'static CancellationToken = Box::leak(Box::new(token.clone()));
-        let ctx = ToolContext {
-            workspace,
-            read_only: false,
-            token: token_box,
-        };
+        let ctx = ToolContext::new(workspace, false, token_box);
         (token, ctx)
     }
 

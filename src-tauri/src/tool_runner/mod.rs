@@ -19,13 +19,58 @@ mod system_prompt;
 
 use crate::config::AppConfig;
 use crate::skills::{SkillChunk, TokenUsage, ToolLog};
-use crate::tools::{self, ToolRegistry};
+use crate::tools::ask_user_question::registry::TauriUserQuestionAsker;
+use crate::tools::sub_agent_runner::{SubAgentRequest, SubAgentRunner};
+use crate::tools::{self, OrchestrationCtx, ToolRegistry};
+use async_trait::async_trait;
 use providers::{ProviderConfig, WireFormat};
 use reqwest::Client;
 use serde_json::Value;
 use std::path::PathBuf;
 use tauri::{Emitter, EventTarget};
 use tokio_util::sync::CancellationToken;
+
+// ── Production sub-agent runner ──────────────────────────────────────────────
+
+/// Wires `SubAgentRunner` to the existing `run_subtask` /
+/// `run_read_only_subtask` entry points. Stateless — held as a `static`
+/// reference inside `OrchestrationCtx`.
+pub struct ProductionSubAgentRunner;
+
+#[async_trait]
+impl SubAgentRunner for ProductionSubAgentRunner {
+    async fn run(&self, req: SubAgentRequest<'_>) -> Result<String, String> {
+        let cwd = req.workspace.to_string_lossy().into_owned();
+        if req.read_only {
+            run_read_only_subtask(
+                req.config,
+                req.system_prompt,
+                req.user_prompt,
+                Some(&cwd),
+                req.window_label,
+                req.app_handle,
+                req.token,
+                req.subtask_id,
+            )
+            .await
+        } else {
+            run_subtask(
+                req.config,
+                req.system_prompt,
+                req.user_prompt,
+                Some(&cwd),
+                req.window_label,
+                req.app_handle,
+                req.token,
+                req.subtask_id,
+            )
+            .await
+        }
+    }
+}
+
+static PRODUCTION_SUB_AGENT_RUNNER: ProductionSubAgentRunner = ProductionSubAgentRunner;
+static PRODUCTION_USER_QUESTION_ASKER: TauriUserQuestionAsker = TauriUserQuestionAsker;
 
 const MAX_LOOP_ITERATIONS: usize = 40;
 const MAX_RESPONSE_TOKENS: u32 = 16384;
@@ -189,6 +234,19 @@ async fn run_inner(
         parts.join("\n\n")
     };
 
+    // Build orchestration context once per top-level run and thread it
+    // through both wire formats. Sub-agent / user-question tools reach into
+    // this context to drive nested loops and UI prompts.
+    let agent_id = subtask_id.unwrap_or("main");
+    let orch = OrchestrationCtx {
+        config,
+        app_handle,
+        window_label,
+        agent_id,
+        sub_agent_runner: &PRODUCTION_SUB_AGENT_RUNNER,
+        user_question_asker: &PRODUCTION_USER_QUESTION_ASKER,
+    };
+
     match provider.wire {
         WireFormat::Anthropic => {
             anthropic::run_loop(
@@ -206,6 +264,7 @@ async fn run_inner(
                 token,
                 read_only,
                 subtask_id,
+                Some(&orch),
             )
             .await
         }
@@ -225,6 +284,7 @@ async fn run_inner(
                 token,
                 read_only,
                 subtask_id,
+                Some(&orch),
             )
             .await
         }

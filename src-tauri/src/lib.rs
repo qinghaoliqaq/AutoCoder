@@ -525,6 +525,9 @@ pub fn run() {
             cancel_tokens: Mutex::new(HashMap::new()),
             test_workspaces: Mutex::new(HashMap::new()),
         })
+        // Backs the AskUserQuestion tool — pending replies are keyed by
+        // request id and resolved through the `submit_user_answer` command.
+        .manage(tools::ask_user_question::registry::UserQuestionRegistry::new())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -564,6 +567,7 @@ pub fn run() {
             evidence_subtask_context,
             test_agent_connection,
             resolve_agent_provider,
+            tools::ask_user_question::registry::submit_user_answer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -145,11 +145,7 @@ mod tests {
 
         let tmp = tempfile::tempdir().unwrap();
         let token = CancellationToken::new();
-        let ctx = ToolContext {
-            workspace: tmp.path(),
-            read_only: false,
-            token: &token,
-        };
+        let ctx = ToolContext::new(tmp.path(), false, &token);
 
         let input = json!({
             "todos": [
@@ -175,11 +171,7 @@ mod tests {
         let tool = TodoWriteTool;
         let tmp = tempfile::tempdir().unwrap();
         let token = CancellationToken::new();
-        let ctx = ToolContext {
-            workspace: tmp.path(),
-            read_only: false,
-            token: &token,
-        };
+        let ctx = ToolContext::new(tmp.path(), false, &token);
 
         let input = json!({
             "todos": [
@@ -197,11 +189,7 @@ mod tests {
         let tool = TodoWriteTool;
         let tmp = tempfile::tempdir().unwrap();
         let token = CancellationToken::new();
-        let ctx = ToolContext {
-            workspace: tmp.path(),
-            read_only: false,
-            token: &token,
-        };
+        let ctx = ToolContext::new(tmp.path(), false, &token);
 
         let input = json!({
             "todos": [
@@ -218,11 +206,7 @@ mod tests {
     async fn todo_write_missing_todos() {
         let tool = TodoWriteTool;
         let token = CancellationToken::new();
-        let ctx = ToolContext {
-            workspace: Path::new("/tmp"),
-            read_only: false,
-            token: &token,
-        };
+        let ctx = ToolContext::new(Path::new("/tmp"), false, &token);
 
         let result = tool.execute(json!({}), &ctx).await;
         assert!(result.is_error);

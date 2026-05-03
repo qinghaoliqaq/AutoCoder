@@ -81,11 +81,7 @@ mod tests {
 
     fn make_ctx(workspace: &Path) -> ToolContext<'_> {
         let token = Box::leak(Box::new(CancellationToken::new()));
-        ToolContext {
-            workspace,
-            read_only: false,
-            token,
-        }
+        ToolContext::new(workspace, false, token)
     }
 
     #[test]
